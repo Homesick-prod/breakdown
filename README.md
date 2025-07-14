@@ -1,6 +1,4 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/Homesick-prod/breakdown/main/.github/assets/logo.png" alt="Mentalbreakdown Logo" width="200"/>
-  <h1>Mentalbreakdown</h1>
   <p>Mentalbreakdown is the perfect shooting schedule editor for lazy people.</p>
   <p>Whether you have 10 shots or 1000, it's not an issue.</p>
   <p>This website is guaranteed to save you at least three times the effort! (My personal guarantee).</p>
