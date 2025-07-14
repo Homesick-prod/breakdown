@@ -379,7 +379,7 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
                     </div>
 
                     <div class="center-title">
-                        <div class="breakdown-title">Breakdown Q${headerInfo.shootingDay || '1'} of ${headerInfo.totalDays || 0}</div>
+                        <div class="breakdown-title">Breakdown Q${headerInfo.shootingDay || '1'} of ${headerInfo.totalDays || 1}</div>
                         <div class="project-title">${headerInfo.projectTitle || '-'}</div>
                         <div class="sub-info">Shooting date : ${formatDate(headerInfo.date)}</div>
                     </div>
@@ -403,7 +403,7 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
                     </div>
                     <div class="info-item">
                         <span class="info-label">Wrap up :</span>
-                        <span class="info-value">${headerInfo.warpTime || ''}</span>
+                        <span class="info-value">${headerInfo.wrapTime || ''}</span>
                     </div>
                 </div>
 
@@ -523,7 +523,7 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
 
             <div class="footer">
                 <div style="font-size: 6pt;">Generated on ${new Date().toLocaleString('th-TH')}</div>
-                <div style="font-size: 6pt;">MentalBreakdown | Beta V.1.2.0.4 Created by Tawich P.</div>
+                <div style="font-size: 6pt;">MentalBreakdown | Beta V.1.2.0.5 Created by Tawich P.</div>
             </div>
         </body>
         </html>
@@ -549,7 +549,7 @@ function Footer() {
                             MentalBreakdown
                         </p>
                         <p className="text-xs text-slate-500 mt-1">
-                          ©{new Date().getFullYear()} | Beta V.1.2.0.4 Created by Tawich P.
+                          ©{new Date().getFullYear()} | Beta V.1.2.0.5 Created by Tawich P.
                         </p>
                     </div>
 <div className="flex items-center space-x-5">
