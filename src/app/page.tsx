@@ -549,7 +549,7 @@ function Footer() {
                             MentalBreakdown
                         </p>
                         <p className="text-xs text-slate-500 mt-1">
-                          ©{new Date().getFullYear()} | Beta V.1.2.0.5 Created by Tawich P.
+                          ©{new Date().getFullYear()} | V.1.2.0.5 (Beta) Created by Tawich P.
                         </p>
                     </div>
 <div className="flex items-center space-x-5">
