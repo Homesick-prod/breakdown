@@ -1,5 +1,17 @@
 {
   "projects": {
-    "default": "breakdown-e32f9"
-  }
+    "default": "shootingscheduleeditor",
+    "Production": "shootingscheduleeditor",
+    "mentalbreakdown": "shootingscheduleeditor"
+  },
+  "targets": {
+    "shootingscheduleeditor": {
+      "hosting": {
+        "mentalbreakdown": [
+          "mentalbreakdown"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

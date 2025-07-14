@@ -17,7 +17,7 @@ jobs:
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BREAKDOWN_E32F9 }}
-          projectId: breakdown-e32f9
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SHOOTINGSCHEDULEEDITOR }}
+          projectId: shootingscheduleeditor
         env:
           FIREBASE_CLI_EXPERIMENTS: webframeworks

@@ -1,13 +1,18 @@
 {
-  "hosting": {
-    "source": ".",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "frameworksBackend": {
-      "region": "asia-east1"
+  "hosting": [
+    {
+      "site": "shootingscheduleeditor",
+      "source": ".",
+      "frameworksBackend": {
+        "region": "us-central1"
+      }
+    },
+    {
+      "site": "mentalbreakdown",
+      "source": ".",
+      "frameworksBackend": {
+        "region": "us-central1"
+      }
     }
-  }
+  ]
 }

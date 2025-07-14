@@ -1,40 +1,98 @@
-<<<<<<< HEAD
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+<div align="center">
+  <img src="https://raw.githubusercontent.com/Homesick-prod/breakdown/main/.github/assets/logo.png" alt="Mentalbreakdown Logo" width="200"/>
+  <h1>Mentalbreakdown</h1>
+  <p>Mentalbreakdown is the perfect shooting schedule editor for lazy people.</p>
+  <p>Whether you have 10 shots or 1000, it's not an issue.</p>
+  <p>This website is guaranteed to save you at least three times the effort! (My personal guarantee).</p>
+  <p>>Spend your time on what actually matters...</p>
+  
+  <p>
+    <img alt="GitHub License" src="https://img.shields.io/github/license/Homesick-prod/breakdown?style=for-the-badge">
+    <img alt="Repo Stars" src="https://img.shields.io/github/stars/Homesick-prod/breakdown?style=for-the-badge&color=yellow">
+    <img alt="Last Commit" src="https://img.shields.io/github/last-commit/Homesick-prod/breakdown?style=for-the-badge&color=blue">
+  </p>
+</div>
 
-## Getting Started
+## ✨ Key Features
 
-First, run the development server:
+Mentalbreakdown takes the chaos of production planning and organizes it into a clean, intuitive, and powerful interface.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+-   **📝 Project-Based Workflow:** Keep all your schedules organized. Create, open, duplicate, and manage multiple projects with ease.
+-   **↔️ Drag & Drop Timeline:** Effortlessly reorder shots and breaks. Your entire schedule recalculates automatically.
+-   **⏱️ Automatic Time Calculation:** Change a duration or start time, and watch the entire day's schedule update instantly. No more manual math!
+-   **🖼️ Visual Storyboarding:** Paste or upload images directly into the schedule for block shots, storyboards, or location references.
+-   **📄 Professional PDF Exports:** Generate and print a clean, industry-standard shooting schedule with one click.
+-   **💾 Import/Export Projects:** Save your projects as JSON files for backup or to share with other users.
+-   **📱 Fully Responsive:** Manage your schedule on desktop, tablet, or mobile.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🚀 Live Demo
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Try it out now! No sign-up required.
 
-## Learn More
+**[https://mentalbreakdown.web.app/](https://mentalbreakdown.web.app/)**
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 📸 Screenshots
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+*A quick look at the project dashboard and the powerful schedule editor.*
 
-## Deploy on Vercel
+| Dashboard                                                                                   | Editor                                                                                      |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| <img src="https://raw.githubusercontent.com/Homesick-prod/breakdown/main/.github/assets/dashboard.png" alt="Dashboard View"> | <img src="https://raw.githubusercontent.com/Homesick-prod/breakdown/main/.github/assets/editor.png" alt="Editor View"> |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-=======
-# breakdown
->>>>>>> b80f014535c0fc08b0c9dd416b8c8a73c36ee454
+---
+
+## 🛠️ Tech Stack
+
+This project was built using a modern, robust, and scalable tech stack.
+
+-   **Framework:** [Next.js](https://nextjs.org/) (React)
+-   **Styling:** [Tailwind CSS](https://tailwindcss.com/)
+-   **UI/Icons:** [Lucide React](https://lucide.dev/)
+-   **Drag & Drop:** [dnd-kit](https://dndkit.com/)
+-   **Deployment:** [Firebase Hosting](https://firebase.google.com/docs/hosting)
+-   **Data Storage:** Client-Side Local Storage
+
+---
+
+## ⚙️ Getting Started
+
+To get a local copy up and running, follow these simple steps.
+
+### Prerequisites
+
+You need to have Node.js and npm installed on your machine.
+
+### Installation
+
+1.  Clone the repo
+    ```sh
+    git clone [https://github.com/Homesick-prod/breakdown.git](https://github.com/Homesick-prod/breakdown.git)
+    ```
+2.  Install NPM packages
+    ```sh
+    npm install
+    ```
+3.  Run the development server
+    ```sh
+    npm run dev
+    ```
+4.  Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+---
+
+## 📄 License
+
+Distributed under the MIT License. See `LICENSE` for more information.
+
+---
+
+## ✍️ Author
+
+**Tawich P.** - *Initial work & development*
+
+Project Link: [https://github.com/Homesick-prod/breakdown](https://github.com/Homesick-prod/breakdown)

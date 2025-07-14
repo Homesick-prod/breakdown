@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, Calendar, Clock, Film, Plus, FolderOpen, Save, Menu, X, ChevronLeft, Users, Cloud, Trash2, Edit3, Copy, FileText, Download, Camera, ChevronRight, Settings, ZoomIn, ZoomOut, Upload, FileDown, Sun, CloudRain, Eye } from 'lucide-react';
+import { GripVertical, Calendar, Clock, Film, Plus, FolderOpen, Save, Menu, X, ChevronLeft, Users, Cloud, Trash2, Edit3, Copy, FileText, Download, Camera, ChevronRight, Settings, ZoomIn, ZoomOut, Upload, FileDown, Sun, CloudRain, Eye ,Github} from 'lucide-react';
 // --- END MODIFICATION ---
 import { analytics } from '../firebase/config';
 // --- Helper Functions ---
@@ -26,6 +26,7 @@ const calculateEndTime = (startTime, duration) => {
   } catch { return ''; }
 };
 
+// --- MODIFICATION START: Corrected duration calculation ---
 const calculateDuration = (startTime, endTime) => {
   if (!startTime || !endTime) return 0;
   try {
@@ -36,15 +37,16 @@ const calculateDuration = (startTime, endTime) => {
     startDate.setHours(startHours, startMinutes, 0, 0);
     const endDate = new Date();
     endDate.setHours(endHours, endMinutes, 0, 0);
-    if (endDate < startDate) {
-      endDate.setDate(endDate.getDate() + 1);
-    }
+
+    // This logic no longer adds a day if the end time is earlier than the start time.
     const diffMillis = endDate.getTime() - startDate.getTime();
     const diffMinutes = Math.round(diffMillis / 60000);
+
+    // Ensure the duration is never negative.
     return diffMinutes >= 0 ? diffMinutes : 0;
   } catch { return 0; }
 };
-
+// --- MODIFICATION END ---
 
 
 // --- Export/Import Functions ---
@@ -95,7 +97,7 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
     return `${start || '00:00'} - ${end || '00:00'}`;
   };
 
-const htmlContent = `
+  const htmlContent = `
         <!DOCTYPE html>
         <html>
         <head>
@@ -377,17 +379,17 @@ const htmlContent = `
                     </div>
 
                     <div class="center-title">
-                        <div class="breakdown-title">Breakdown Q${headerInfo.shootingDay || '1'} of 3</div>
-                        <div class="project-title">${headerInfo.projectTitle || 'GLORY'}</div>
+                        <div class="breakdown-title">Breakdown Q${headerInfo.shootingDay || '1'} of ${headerInfo.totalDays || 0}</div>
+                        <div class="project-title">${headerInfo.projectTitle || '-'}</div>
                         <div class="sub-info">Shooting date : ${formatDate(headerInfo.date)}</div>
                     </div>
 
                     <div class="right-info">
                         <div class="page-info">Q${headerInfo.shootingDay || '1'}</div>
-                        <div class="sub-info">Rise ${headerInfo.sunrise || '5:57'} | Set ${headerInfo.sunset || '18:50'}</div>
+                        <div class="sub-info">Rise ${headerInfo.sunrise || '--:--'} | Set ${headerInfo.sunset || '--:--'}</div>
                         <div class="sub-info">${headerInfo.weather || 'Considerable cloudiness'}</div>
-                        <div class="sub-info">Probability of Precipitation ${headerInfo.precipProb || '73%'}</div>
-                        <div class="sub-info">${headerInfo.temp || '34°'} | Real Feel ${headerInfo.realFeel || '37°'}</div>
+                        <div class="sub-info">Probability of Precipitation ${headerInfo.precipProb || '--%'}</div>
+                        <div class="sub-info">${headerInfo.temp || '--°'} | Real Feel ${headerInfo.realFeel || '--°'}</div>
                     </div>
                 </div>
             </div>
@@ -515,13 +517,13 @@ const htmlContent = `
     }
 
     return `<tr class="${rowClass}">${cellContent}</tr>`;
-}).join('')}
+  }).join('')}
                 </tbody>
             </table>
 
             <div class="footer">
                 <div style="font-size: 6pt;">Generated on ${new Date().toLocaleString('th-TH')}</div>
-                <div style="font-size: 6pt;">Film Shooting Schedule Beta V.1.1.4 Created by Tawich P.</div>
+                <div style="font-size: 6pt;">MentalBreakdown | Beta V.1.2.0.4 Created by Tawich P.</div>
             </div>
         </body>
         </html>
@@ -537,6 +539,36 @@ const htmlContent = `
   };
 };
 
+function Footer() {
+    return (
+        <footer className="border-t border-slate-200">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="text-center sm:text-left">
+                        <p className="text-sm text-slate-600 font-medium">
+                            MentalBreakdown
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          ©{new Date().getFullYear()} | Beta V.1.2.0.4 Created by Tawich P.
+                        </p>
+                    </div>
+<div className="flex items-center space-x-5">
+    <a 
+      href="https://github.com/Homesick-prod/breakdown" 
+      target="_blank" 
+      rel="noopener noreferrer" 
+      className="relative z-10 text-slate-400 hover:text-slate-600 transition-colors" 
+      title="GitHub"
+    >
+        <Github className="w-5 h-5" />
+    </a>
+</div>
+                </div>
+            </div>
+        </footer>
+    );
+}
+
 // --- Modern Project Dashboard ---
 function ProjectDashboard({ onSelectProject, onCreateProject }) {
   const [projects, setProjects] = useState([]);
@@ -546,236 +578,100 @@ function ProjectDashboard({ onSelectProject, onCreateProject }) {
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    // Load projects from localStorage
     const savedProjects = JSON.parse(localStorage.getItem('shootingScheduleProjects') || '[]');
     setProjects(savedProjects);
   }, []);
 
-  const handleCreateProject = () => {
-    if (!newProjectName.trim()) return;
-
-    const newProject = {
-      id: generateId(),
-      name: newProjectName,
-      description: newProjectDescription,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      data: null
-    };
-
-    const updatedProjects = [...projects, newProject];
-    setProjects(updatedProjects);
-    localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
-
-    setNewProjectName('');
-    setNewProjectDescription('');
-    setShowNewProjectModal(false);
-
-    onCreateProject(newProject);
-  };
-
-  const handleDeleteProject = (projectId) => {
-    if (!confirm('Are you sure you want to delete this project?')) return;
-
-    const updatedProjects = projects.filter(p => p.id !== projectId);
-    setProjects(updatedProjects);
-    localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
-  };
-
-  const handleDuplicateProject = (project) => {
-    const duplicatedProject = {
-      ...project,
-      id: generateId(),
-      name: `${project.name} (Copy)`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    const updatedProjects = [...projects, duplicatedProject];
-    setProjects(updatedProjects);
-    localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
-  };
-
-  const handleExportProject = (project) => {
-    exportProject(project);
-  };
-
-  const handleImportProject = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    try {
-      const importedProject = await importProject(file);
-      const updatedProjects = [...projects, importedProject];
-      setProjects(updatedProjects);
-      localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
-      alert('Project imported successfully!');
-    } catch (error) {
-      alert('Error importing project. Please check the file format.');
-    }
-
-    e.target.value = '';
-  };
+  const handleCreateProject = () => { if (!newProjectName.trim()) return; const newProject = { id: generateId(), name: newProjectName, description: newProjectDescription, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), data: null }; const updatedProjects = [...projects, newProject]; setProjects(updatedProjects); localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects)); setNewProjectName(''); setNewProjectDescription(''); setShowNewProjectModal(false); onCreateProject(newProject); };
+  const handleDeleteProject = (projectId) => { if (!confirm('Are you sure you want to delete this project?')) return; const updatedProjects = projects.filter(p => p.id !== projectId); setProjects(updatedProjects); localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects)); };
+  const handleDuplicateProject = (project) => { const duplicatedProject = { ...project, id: generateId(), name: `${project.name} (Copy)`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; const updatedProjects = [...projects, duplicatedProject]; setProjects(updatedProjects); localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects)); };
+  const handleExportProject = (project) => { exportProject(project); };
+  const handleImportProject = async (e) => { const file = e.target.files[0]; if (!file) return; try { const importedProject = await importProject(file); const updatedProjects = [...projects, importedProject]; setProjects(updatedProjects); localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects)); alert('Project imported successfully!'); } catch (error) { alert('Error importing project. Please check the file format.'); } e.target.value = ''; };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-50 relative overflow-hidden">
-      {/* Subtle texture background */}
-      <div className="absolute inset-0 opacity-[0.015]" style={{
-        backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%239C92AC' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-      }}></div>
-
-      {/* Modern Navigation */}
-      <nav className="bg-white/90 backdrop-blur-sm shadow-sm border-b border-slate-200 relative z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <Film className="w-8 h-8 text-indigo-600 mr-3" />
-              <h1 className="text-xl font-bold text-slate-900">Film Shooting Schedule Editor</h1>
-            </div>
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Import Project
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json"
-                onChange={handleImportProject}
-                className="hidden"
-              />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-50 relative overflow-hidden flex flex-col">
+      <main className="flex-grow">
+        <div className="absolute inset-0 opacity-[0.015]" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%239C92AC' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`}}></div>
+        <nav className="bg-white/90 backdrop-blur-sm shadow-sm border-b border-slate-200 relative z-10">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between h-16">
+              <div className="flex items-center">
+                <Film className="w-8 h-8 text-indigo-600 mr-3" />
+                <h1 className="text-xl font-bold text-slate-900">MentalBreakdown | Film Shooting Schedule Editor</h1>
+              </div>
+              <div className="flex items-center space-x-4">
+                <button onClick={() => fileInputRef.current?.click()} className="flex items-center px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors">
+                  <Upload className="w-4 h-4 mr-2" />
+                  Import Project
+                </button>
+                <input ref={fileInputRef} type="file" accept=".json" onChange={handleImportProject} className="hidden" />
+              </div>
             </div>
           </div>
-        </div>
-      </nav>
-
-      {/* Dashboard Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
-        {/* Header */}
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold text-slate-900 mb-2">Your Projects</h2>
-          <p className="text-slate-600">Manage your film shooting schedules in one place</p>
-        </div>
-
-        {/* Project Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {/* New Project Card */}
-          <button
-            onClick={() => setShowNewProjectModal(true)}
-            className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border-2 border-dashed border-slate-300 p-6 hover:border-indigo-400 hover:shadow-md hover:bg-white/90 transition-all duration-200 group"
-          >
-            <div className="flex flex-col items-center justify-center h-full min-h-[200px]">
-              <Plus className="w-12 h-12 text-slate-400 group-hover:text-indigo-600 mb-3 transition-colors" />
-              <span className="text-slate-600 font-medium group-hover:text-indigo-600 transition-colors">Create New Project</span>
-            </div>
-          </button>
-
-          {/* Project Cards */}
-          {projects.map(project => (
-            <div key={project.id} className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md hover:bg-white/90 transition-all duration-200">
-              <div className="p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-slate-900 mb-1">{project.name}</h3>
-                    <p className="text-sm text-slate-600 line-clamp-2">{project.description || 'No description'}</p>
+        </nav>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
+          <div className="mb-8">
+            <h2 className="text-3xl font-bold text-slate-900 mb-2">Your Projects</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <button onClick={() => setShowNewProjectModal(true)} className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border-2 border-dashed border-slate-300 p-6 hover:border-indigo-400 hover:shadow-md hover:bg-white/90 transition-all duration-200 group">
+              <div className="flex flex-col items-center justify-center h-full min-h-[200px]">
+                <Plus className="w-12 h-12 text-slate-400 group-hover:text-indigo-600 mb-3 transition-colors" />
+                <span className="text-slate-600 font-medium group-hover:text-indigo-600 transition-colors">Create New Project</span>
+              </div>
+            </button>
+            {projects.map(project => (
+              <div key={project.id} className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md hover:bg-white/90 transition-all duration-200">
+                <div className="p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-slate-900 mb-1">{project.name}</h3>
+                      <p className="text-sm text-slate-600 line-clamp-2">{project.description || 'No description'}</p>
+                    </div>
                   </div>
-                </div>
-
-                <div className="flex items-center text-xs text-slate-500 mb-4">
-                  <Calendar className="w-3 h-3 mr-1" />
-                  <span>{new Date(project.updatedAt).toLocaleDateString('th-TH')}</span>
-                </div>
-
-                <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                  <button
-                    onClick={() => onSelectProject(project)}
-                    className="flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
-                  >
-                    <FolderOpen className="w-4 h-4 mr-1" />
-                    Open
-                  </button>
-
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => handleExportProject(project)}
-                      className="text-slate-400 hover:text-slate-600 transition-colors"
-                      title="Export"
-                    >
-                      <FileDown className="w-4 h-4" />
+                  <div className="flex items-center text-xs text-slate-500 mb-4">
+                    <Calendar className="w-3 h-3 mr-1" />
+                    <span>{new Date(project.updatedAt).toLocaleDateString('th-TH')}</span>
+                  </div>
+                  <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+                    <button onClick={() => onSelectProject(project)} className="flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors">
+                      <FolderOpen className="w-4 h-4 mr-1" />
+                      Open
                     </button>
-                    <button
-                      onClick={() => handleDuplicateProject(project)}
-                      className="text-slate-400 hover:text-slate-600 transition-colors"
-                      title="Duplicate"
-                    >
-                      <Copy className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteProject(project.id)}
-                      className="text-slate-400 hover:text-red-600 transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button onClick={() => handleExportProject(project)} className="text-slate-400 hover:text-slate-600 transition-colors" title="Export"><FileDown className="w-4 h-4" /></button>
+                      <button onClick={() => handleDuplicateProject(project)} className="text-slate-400 hover:text-slate-600 transition-colors" title="Duplicate"><Copy className="w-4 h-4" /></button>
+                      <button onClick={() => handleDeleteProject(project.id)} className="text-slate-400 hover:text-red-600 transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      </main>
+      
+      <Footer />
 
-      {/* New Project Modal */}
       {showNewProjectModal && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen px-4">
             <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setShowNewProjectModal(false)}></div>
-
             <div className="relative bg-white rounded-xl shadow-xl max-w-md w-full p-6">
               <h3 className="text-lg font-semibold text-slate-900 mb-4">Create New Project</h3>
-
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Project Name</label>
-                  <input
-                    type="text"
-                    value={newProjectName}
-                    onChange={(e) => setNewProjectName(e.target.value)}
-                    placeholder="Enter project name"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900"
-                    autoFocus
-                  />
+                  <input type="text" value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} placeholder="Enter project name" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900" autoFocus />
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Description (Optional)</label>
-                  <textarea
-                    value={newProjectDescription}
-                    onChange={(e) => setNewProjectDescription(e.target.value)}
-                    placeholder="Enter project description"
-                    rows="3"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none text-slate-900"
-                  />
+                  <textarea value={newProjectDescription} onChange={(e) => setNewProjectDescription(e.target.value)} placeholder="Enter project description" rows={3} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none text-slate-900" />
                 </div>
               </div>
-
               <div className="flex justify-end space-x-3 mt-6">
-                <button
-                  onClick={() => setShowNewProjectModal(false)}
-                  className="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCreateProject}
-                  disabled={!newProjectName.trim()}
-                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  Create Project
-                </button>
+                <button onClick={() => setShowNewProjectModal(false)} className="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 transition-colors">Cancel</button>
+                <button onClick={handleCreateProject} disabled={!newProjectName.trim()} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Create Project</button>
               </div>
             </div>
           </div>
@@ -785,131 +681,145 @@ function ProjectDashboard({ onSelectProject, onCreateProject }) {
   );
 }
 
+// --- MODIFICATION START: `SortableItem` updated for conditional start time editing ---
 function SortableItem({ id, item, index, imagePreviews, handleItemChange, handleImageUpload, handlePasteImage, removeTimelineItem, handleRemoveImage }) {
-    const {
-        attributes,
-        listeners,
-        setNodeRef,
-        transform,
-        transition,
-    } = useSortable({ id });
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+  } = useSortable({ id });
 
-    const style = {
-        transform: CSS.Transform.toString(transform),
-        transition,
-    };
-    
-    const rowClass = item.type === 'break' ? 'bg-orange-50' : index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50';
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
 
-    return (
-        <tr ref={setNodeRef} style={style} className={rowClass}>
-            <td className="px-2 py-3 whitespace-nowrap text-center align-middle">
-                <button {...attributes} {...listeners} className="cursor-grab p-1 text-gray-400 hover:text-gray-700">
-                    <GripVertical size={16} />
-                </button>
-            </td>
-            <td className="px-4 py-3 whitespace-nowrap">
-              <div className="flex items-center space-x-2 text-sm">
-                <input type="time" value={item.start} onChange={(e) => handleItemChange(item.id, 'start', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 font-medium" />
-                <span className="text-gray-600">-</span>
-                <input type="time" value={item.end} onChange={(e) => handleItemChange(item.id, 'end', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 font-medium" />
+  const rowClass = item.type === 'break' ? 'bg-orange-50' : index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50';
+  const isFirstItem = index === 0;
+
+  return (
+    <tr ref={setNodeRef} style={style} className={rowClass}>
+      <td className="px-2 py-3 whitespace-nowrap text-center align-middle">
+        <button {...attributes} {...listeners} className="cursor-grab p-1 text-gray-400 hover:text-gray-700">
+          <GripVertical size={16} />
+        </button>
+      </td>
+      <td className="px-4 py-3 whitespace-nowrap">
+        <div className="flex items-center space-x-2 text-sm">
+          <input
+            type="time"
+            value={item.start}
+            onChange={(e) => handleItemChange(item.id, 'start', e.target.value)}
+            disabled={!isFirstItem}
+            className={`px-2 py-1 border rounded font-medium ${isFirstItem ? 'border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900' : 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed'}`}
+          />
+          <span className="text-gray-600">-</span>
+          <input type="time" value={item.end} onChange={(e) => handleItemChange(item.id, 'end', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 font-medium" />
+        </div>
+      </td>
+      <td className="px-4 py-3 whitespace-nowrap">
+        <div className="flex items-center">
+          <input type="number" min="0" value={item.duration} onChange={(e) => handleItemChange(item.id, 'duration', e.target.value)} className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 font-medium" />
+          <span className="ml-1 text-sm text-gray-600">mins</span>
+        </div>
+      </td>
+      {item.type === 'break' ? (
+        <td colSpan="15" className="px-4 py-3">
+          <input type="text" value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="w-full px-3 py-1 bg-orange-100 border border-orange-200 rounded focus:ring-2 focus:ring-orange-500 font-semibold text-gray-900" placeholder="Break description" />
+        </td>
+      ) : (
+        <>
+          <td className="px-4 py-3 whitespace-nowrap"><input type="text" value={item.sceneNumber} onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)} className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 font-medium" placeholder="1A" /></td>
+          <td className="px-4 py-3 whitespace-nowrap"><input type="text" value={item.shotNumber} onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)} className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 font-medium" placeholder="001" /></td>
+          <td className="px-4 py-3 whitespace-nowrap"><select value={item.intExt} onChange={(e) => handleItemChange(item.id, 'intExt', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="INT">INT</option><option value="EXT">EXT</option><option value="INT/EXT">INT/EXT</option></select></td>
+          <td className="px-4 py-3 whitespace-nowrap"><select value={item.dayNight} onChange={(e) => handleItemChange(item.id, 'dayNight', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="DAY">DAY</option><option value="NIGHT">NIGHT</option><option value="DAWN">DAWN</option><option value="DUSK">DUSK</option></select></td>
+          <td className="px-4 py-3"><input type="text" value={item.location} onChange={(e) => handleItemChange(item.id, 'location', e.target.value)} className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="Location" /></td>
+          <td className="px-4 py-3 whitespace-nowrap"><select value={item.shotSize} onChange={(e) => handleItemChange(item.id, 'shotSize', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="">Select...</option><option value="ECU">ECU - Extreme Close Up</option><option value="CU">CU - Close Up</option><option value="MCU">MCU - Medium Close Up</option><option value="MS">MS - Medium Shot</option><option value="MLS">MLS - Medium Long Shot</option><option value="LS">LS - Long Shot</option><option value="WS">WS - Wide Shot</option><option value="EWS">EWS - Extreme Wide Shot</option><option value="OTS">OTS - Over the Shoulder</option><option value="POV">POV - Point of View</option><option value="2S">2S - Two Shot</option><option value="3S">3S - Three Shot</option><option value="INS">INS - Insert</option><option value="CUTAWAY">Cutaway</option></select></td>
+          <td className="px-4 py-3"><select value={item.angle} onChange={(e) => handleItemChange(item.id, 'angle', e.target.value)} className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="">Select...</option><option value="Eye Level">Eye Level</option><option value="High Angle">High Angle</option><option value="Low Angle">Low Angle</option><option value="Dutch/Canted">Dutch/Canted</option><option value="Bird's Eye">Bird's Eye View</option><option value="Worm's Eye">Worm's Eye View</option><option value="Over Head">Over Head</option><option value="Hip Level">Hip Level</option><option value="Knee Level">Knee Level</option><option value="Ground Level">Ground Level</option><option value="Shoulder Level">Shoulder Level</option><option value="Top 45">Top 45°</option><option value="Profile">Profile (90°)</option><option value="3/4 Front">3/4 Front</option><option value="3/4 Back">3/4 Back</option></select></td>
+          <td className="px-4 py-3"><select value={item.movement} onChange={(e) => handleItemChange(item.id, 'movement', e.target.value)} className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="">Select...</option><option value="Still">Still</option><option value="Pan Left">Pan Left</option><option value="Pan Right">Pan Right</option><option value="Tilt Up">Tilt Up</option><option value="Tilt Down">Tilt Down</option><option value="Dolly In">Dolly In</option><option value="Dolly Out">Dolly Out</option><option value="Dolly Left">Dolly Left</option><option value="Dolly Right">Dolly Right</option><option value="Truck Left">Truck Left</option><option value="Truck Right">Truck Right</option><option value="Zoom In">Zoom In</option><option value="Zoom Out">Zoom Out</option><option value="Handheld">Handheld</option><option value="Handheld (Ronin)">Handheld (Ronin)</option><option value="Steadicam">Steadicam</option><option value="Crane Up">Crane Up</option><option value="Crane Down">Crane Down</option><option value="Jib">Jib</option><option value="Track">Track</option><option value="Arc Left">Arc Left</option><option value="Arc Right">Arc Right</option><option value="360°">360° Rotation</option><option value="Whip Pan">Whip Pan</option><option value="Push In">Push In</option><option value="Pull Out">Pull Out</option><option value="Follow">Follow</option><option value="Lead">Lead</option></select></td>
+          <td className="px-4 py-3"><div className="flex items-center"><input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', e.target.value)} className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="50" /><span className="ml-1 text-sm text-gray-600">mm</span></div></td>
+          <td className="px-4 py-3"><textarea value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="w-48 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 resize-none" placeholder="Scene description" rows="2" /></td>
+          <td className="px-4 py-3"><input type="text" value={item.cast} onChange={(e) => handleItemChange(item.id, 'cast', e.target.value)} className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="Cast" /></td>
+          <td className="px-4 py-3" onPaste={(e) => handlePasteImage(e, item.id)}>
+            <div className="flex flex-col items-center space-y-1 outline-none focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-opacity-50 rounded border-2 border-dashed border-gray-300 p-2 hover:border-indigo-400 transition-colors">
+              {imagePreviews[item.id] ? (<img src={imagePreviews[item.id]} alt={`Reference for ${item.shotNumber}`} className="w-20 h-16 object-cover rounded border border-gray-300 cursor-pointer hover:opacity-90" onClick={() => window.open(imagePreviews[item.id], '_blank')} />) : (<div className="w-20 h-16 bg-gray-100 rounded border border-gray-300 flex items-center justify-center"><Camera className="w-6 h-6 text-gray-400" /></div>)}
+              <input type="file" accept="image/*" id={`image-${item.id}`} onChange={(e) => handleImageUpload(item.id, e.target.files[0])} className="hidden" />
+              <div className="flex items-center space-x-2">
+                <label htmlFor={`image-${item.id}`} className="cursor-pointer text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+                  {imagePreviews[item.id] ? 'Change' : 'Upload'}
+                </label>
+                {imagePreviews[item.id] && (
+                  <>
+                    <span className="text-gray-300">|</span>
+                    <button onClick={() => handleRemoveImage(item.id)} className="cursor-pointer text-xs text-red-500 hover:text-red-700 font-medium">
+                      Remove
+                    </button>
+                  </>
+                )}
               </div>
-            </td>
-            <td className="px-4 py-3 whitespace-nowrap">
-                <div className="flex items-center">
-                    <input type="number" min="0" value={item.duration} onChange={(e) => handleItemChange(item.id, 'duration', e.target.value)} className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 font-medium" />
-                    <span className="ml-1 text-sm text-gray-600">mins</span>
-                </div>
-            </td>
-            {item.type === 'break' ? (
-                <td colSpan="15" className="px-4 py-3">
-                    <input type="text" value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="w-full px-3 py-1 bg-orange-100 border border-orange-200 rounded focus:ring-2 focus:ring-orange-500 font-semibold text-gray-900" placeholder="Break description" />
-                </td>
-            ) : (
-                <>
-                    <td className="px-4 py-3 whitespace-nowrap"><input type="text" value={item.sceneNumber} onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)} className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 font-medium" placeholder="1A" /></td>
-                    <td className="px-4 py-3 whitespace-nowrap"><input type="text" value={item.shotNumber} onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)} className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 font-medium" placeholder="001" /></td>
-                    <td className="px-4 py-3 whitespace-nowrap"><select value={item.intExt} onChange={(e) => handleItemChange(item.id, 'intExt', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="INT">INT</option><option value="EXT">EXT</option><option value="INT/EXT">INT/EXT</option></select></td>
-                    <td className="px-4 py-3 whitespace-nowrap"><select value={item.dayNight} onChange={(e) => handleItemChange(item.id, 'dayNight', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="DAY">DAY</option><option value="NIGHT">NIGHT</option><option value="DAWN">DAWN</option><option value="DUSK">DUSK</option></select></td>
-                    <td className="px-4 py-3"><input type="text" value={item.location} onChange={(e) => handleItemChange(item.id, 'location', e.target.value)} className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="Location" /></td>
-                    <td className="px-4 py-3 whitespace-nowrap"><select value={item.shotSize} onChange={(e) => handleItemChange(item.id, 'shotSize', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="">Select...</option><option value="ECU">ECU - Extreme Close Up</option><option value="CU">CU - Close Up</option><option value="MCU">MCU - Medium Close Up</option><option value="MS">MS - Medium Shot</option><option value="MLS">MLS - Medium Long Shot</option><option value="LS">LS - Long Shot</option><option value="WS">WS - Wide Shot</option><option value="EWS">EWS - Extreme Wide Shot</option><option value="OTS">OTS - Over the Shoulder</option><option value="POV">POV - Point of View</option><option value="2S">2S - Two Shot</option><option value="3S">3S - Three Shot</option><option value="INS">INS - Insert</option><option value="CUTAWAY">Cutaway</option></select></td>
-                    <td className="px-4 py-3"><select value={item.angle} onChange={(e) => handleItemChange(item.id, 'angle', e.target.value)} className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="">Select...</option><option value="Eye Level">Eye Level</option><option value="High Angle">High Angle</option><option value="Low Angle">Low Angle</option><option value="Dutch/Canted">Dutch/Canted</option><option value="Bird's Eye">Bird's Eye View</option><option value="Worm's Eye">Worm's Eye View</option><option value="Over Head">Over Head</option><option value="Hip Level">Hip Level</option><option value="Knee Level">Knee Level</option><option value="Ground Level">Ground Level</option><option value="Shoulder Level">Shoulder Level</option><option value="Top 45">Top 45°</option><option value="Profile">Profile (90°)</option><option value="3/4 Front">3/4 Front</option><option value="3/4 Back">3/4 Back</option></select></td>
-                    <td className="px-4 py-3"><select value={item.movement} onChange={(e) => handleItemChange(item.id, 'movement', e.target.value)} className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="">Select...</option><option value="Still">Still</option><option value="Pan Left">Pan Left</option><option value="Pan Right">Pan Right</option><option value="Tilt Up">Tilt Up</option><option value="Tilt Down">Tilt Down</option><option value="Dolly In">Dolly In</option><option value="Dolly Out">Dolly Out</option><option value="Dolly Left">Dolly Left</option><option value="Dolly Right">Dolly Right</option><option value="Truck Left">Truck Left</option><option value="Truck Right">Truck Right</option><option value="Zoom In">Zoom In</option><option value="Zoom Out">Zoom Out</option><option value="Handheld">Handheld</option><option value="Handheld (Ronin)">Handheld (Ronin)</option><option value="Steadicam">Steadicam</option><option value="Crane Up">Crane Up</option><option value="Crane Down">Crane Down</option><option value="Jib">Jib</option><option value="Track">Track</option><option value="Arc Left">Arc Left</option><option value="Arc Right">Arc Right</option><option value="360°">360° Rotation</option><option value="Whip Pan">Whip Pan</option><option value="Push In">Push In</option><option value="Pull Out">Pull Out</option><option value="Follow">Follow</option><option value="Lead">Lead</option></select></td>
-                    <td className="px-4 py-3"><div className="flex items-center"><input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', e.target.value)} className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="50" /><span className="ml-1 text-sm text-gray-600">mm</span></div></td>
-                    <td className="px-4 py-3"><textarea value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="w-48 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 resize-none" placeholder="Scene description" rows="2" /></td>
-                    <td className="px-4 py-3"><input type="text" value={item.cast} onChange={(e) => handleItemChange(item.id, 'cast', e.target.value)} className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="Cast" /></td>
-                    <td className="px-4 py-3" onPaste={(e) => handlePasteImage(e, item.id)}>
-                        <div className="flex flex-col items-center space-y-1 outline-none focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-opacity-50 rounded border-2 border-dashed border-gray-300 p-2 hover:border-indigo-400 transition-colors">
-                            {imagePreviews[item.id] ? (<img src={imagePreviews[item.id]} alt={`Reference for ${item.shotNumber}`} className="w-20 h-16 object-cover rounded border border-gray-300 cursor-pointer hover:opacity-90" onClick={() => window.open(imagePreviews[item.id], '_blank')} />) : (<div className="w-20 h-16 bg-gray-100 rounded border border-gray-300 flex items-center justify-center"><Camera className="w-6 h-6 text-gray-400" /></div>)}
-                            <input type="file" accept="image/*" id={`image-${item.id}`} onChange={(e) => handleImageUpload(item.id, e.target.files[0])} className="hidden" />
-                            <div className="flex items-center space-x-2">
-                                <label htmlFor={`image-${item.id}`} className="cursor-pointer text-xs text-indigo-600 hover:text-indigo-700 font-medium">
-                                    {imagePreviews[item.id] ? 'Change' : 'Upload'}
-                                </label>
-                                {imagePreviews[item.id] && (
-                                    <>
-                                        <span className="text-gray-300">|</span>
-                                        <button onClick={() => handleRemoveImage(item.id)} className="cursor-pointer text-xs text-red-500 hover:text-red-700 font-medium">
-                                            Remove
-                                        </button>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    </td>
-                    <td className="px-4 py-3"><input type="text" value={item.props} onChange={(e) => handleItemChange(item.id, 'props', e.target.value)} className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="Props" /></td>
-                    <td className="px-4 py-3"><input type="text" value={item.costume} onChange={(e) => handleItemChange(item.id, 'costume', e.target.value)} className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="Costume" /></td>
-                    <td className="px-4 py-3"><textarea value={item.notes} onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)} className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 resize-none" placeholder="Notes" rows="2" /></td>
-                </>
-            )}
-            <td className="px-4 py-3 whitespace-nowrap text-center">
-                <button onClick={() => removeTimelineItem(item.id)} className="text-red-600 hover:text-red-800 transition-colors">
-                    <Trash2 className="w-4 h-4" />
-                </button>
-            </td>
-        </tr>
-    );
+            </div>
+          </td>
+          <td className="px-4 py-3"><input type="text" value={item.props} onChange={(e) => handleItemChange(item.id, 'props', e.target.value)} className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="Props" /></td>
+          <td className="px-4 py-3"><input type="text" value={item.costume} onChange={(e) => handleItemChange(item.id, 'costume', e.target.value)} className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="Costume" /></td>
+          <td className="px-4 py-3"><textarea value={item.notes} onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)} className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 resize-none" placeholder="Notes" rows="2" /></td>
+        </>
+      )}
+      <td className="px-4 py-3 whitespace-nowrap text-center">
+        <button onClick={() => removeTimelineItem(item.id)} className="text-red-600 hover:text-red-800 transition-colors">
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </td>
+    </tr>
+  );
 }
+// --- MODIFICATION END ---
 
 
 function ShootingScheduleEditor({ project, onBack, onSave }) {
-    // Lazy state initialization to load data on first render and prevent race conditions
-    const [headerInfo, setHeaderInfo] = useState(() => {
-        const defaultHeader = {
-            projectTitle: project?.name || '',
-            episodeNumber: '',
-            shootingDay: '1',
-            totalDays: '3',
-            date: new Date().toISOString().split('T')[0],
-            callTime: '',
-            sunrise: '06:30',
-            sunset: '18:30',
-            weather: '',
-            location1: '',
-            location2: '',
-            director: '',
-            producer: '',
-            dop: '',
-            firstAD: '',
-            secondAD: '',
-            pd: '',
-            artTime: '',
-            lunchTime: '',
-            dinnerTime: '',
-            precipProb: '',
-            temp: '',
-            realFeel: '',
-            firstmealTime: '',
-            secondmealTime: '',
-            wrapTime: ''
-        };
-        // Merge saved data with defaults
-        return project?.data?.headerInfo ? { ...defaultHeader, ...project.data.headerInfo } : defaultHeader;
-    });
+  // Lazy state initialization to load data on first render and prevent race conditions
+  const [headerInfo, setHeaderInfo] = useState(() => {
+    const defaultHeader = {
+      projectTitle: project?.name || '',
+      episodeNumber: '',
+      shootingDay: '',
+      totalDays: '',
+      date: new Date().toISOString().split('T')[0],
+      callTime: '',
+      sunrise: '06:30',
+      sunset: '18:30',
+      weather: '',
+      location1: '',
+      location2: '',
+      director: '',
+      producer: '',
+      dop: '',
+      firstAD: '',
+      secondAD: '',
+      pd: '',
+      artTime: '',
+      lunchTime: '',
+      dinnerTime: '',
+      precipProb: '',
+      temp: '',
+      realFeel: '',
+      firstmealTime: '',
+      secondmealTime: '',
+      wrapTime: ''
+    };
+    // Merge saved data with defaults
+    return project?.data?.headerInfo ? { ...defaultHeader, ...project.data.headerInfo } : defaultHeader;
+  });
 
-    const [timelineItems, setTimelineItems] = useState(() => project?.data?.timelineItems || []);
-    const [imagePreviews, setImagePreviews] = useState(() => project?.data?.imagePreviews || {});
-    
+  const [timelineItems, setTimelineItems] = useState(() => project?.data?.timelineItems || []);
+  const [imagePreviews, setImagePreviews] = useState(() => project?.data?.imagePreviews || {});
+
+
+  const [saveStatus, setSaveStatus] = useState('idle'); // Can be 'idle', 'dirty', 'saving', 'saved'
+  const debounceTimeoutRef = useRef(null);
+  const isInitialMount = useRef(true);
+
   const [showProductionDetails, setShowProductionDetails] = useState(false);
   const [tableZoom, setTableZoom] = useState(100);
 
@@ -921,66 +831,92 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
 
   // Autosave functionality
   useEffect(() => {
-    const saveTimer = setTimeout(() => {
-        if (project) {
-            onSave({
-                headerInfo,
-                timelineItems,
-                imagePreviews
-            });
-        }
-    }, 1000);
+    // Skip this effect on the initial render to prevent it from saving immediately.
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
 
-    return () => clearTimeout(saveTimer);
-  }, [headerInfo, timelineItems, imagePreviews, project, onSave]);
-    
-  // --- MODIFICATION START: Floating scrollbar logic fixed ---
+    // 1. Mark status as 'dirty' (unsaved) as soon as data changes.
+    setSaveStatus('dirty');
+
+    // Clear any existing timer to debounce correctly.
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+
+    // 2. Set a timer to save the data after a delay.
+    debounceTimeoutRef.current = setTimeout(async () => {
+      setSaveStatus('saving');
+
+      // Give a brief moment for the "Saving..." UI to be visible.
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // 3. Perform the save operation.
+      onSave({
+        headerInfo,
+        timelineItems,
+        imagePreviews
+      });
+      setSaveStatus('saved');
+
+      // 4. After showing "Saved!", revert to the idle state.
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      setSaveStatus('idle');
+
+    }, 1200); // Debounce time of 1.2 seconds.
+
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, [headerInfo, timelineItems, imagePreviews, onSave]);
+
   // Floating Scrollbar Logic
   useEffect(() => {
     const tableContainer = tableContainerRef.current;
     const floatingScrollbar = floatingScrollbarRef.current;
-    // Get the table element from inside the container
     const tableEl = tableContainer ? tableContainer.querySelector('table') : null;
 
     if (!tableContainer || !floatingScrollbar || !tableEl) return;
 
     const updateScrollbar = () => {
-        // **KEY FIX**: Use the table's actual width for the calculation
-        const tableWidth = tableEl.offsetWidth;
-        if (floatingScrollbarContentRef.current) {
-            floatingScrollbarContentRef.current.style.width = `${tableWidth+100}px`;
-        }
+      const tableWidth = tableEl.offsetWidth;
+      if (floatingScrollbarContentRef.current) {
+        floatingScrollbarContentRef.current.style.width = `${tableWidth + 100}px`;
+      }
 
-        const isScrollable = tableContainer.scrollWidth > tableContainer.clientWidth;
-        const containerRect = tableContainer.getBoundingClientRect();
-        const isTableBottomOffscreen = containerRect.bottom > window.innerHeight;
-        
-        setShowFloatingScrollbar(isScrollable && isTableBottomOffscreen);
+      const isScrollable = tableContainer.scrollWidth > tableContainer.clientWidth;
+      const containerRect = tableContainer.getBoundingClientRect();
+      const isTableBottomOffscreen = containerRect.bottom > window.innerHeight;
+
+      setShowFloatingScrollbar(isScrollable && isTableBottomOffscreen);
     };
 
     const handleTableScroll = () => {
-        if (isSyncingScroll.current) return;
-        
-        isSyncingScroll.current = true;
-        floatingScrollbar.scrollLeft = tableContainer.scrollLeft;
-        requestAnimationFrame(() => {
-            isSyncingScroll.current = false;
-        });
+      if (isSyncingScroll.current) return;
+
+      isSyncingScroll.current = true;
+      floatingScrollbar.scrollLeft = tableContainer.scrollLeft;
+      requestAnimationFrame(() => {
+        isSyncingScroll.current = false;
+      });
     };
 
     const handleFloatingScroll = () => {
-        if (isSyncingScroll.current) return;
+      if (isSyncingScroll.current) return;
 
-        isSyncingScroll.current = true;
-        tableContainer.scrollLeft = floatingScrollbar.scrollLeft;
-        requestAnimationFrame(() => {
-            isSyncingScroll.current = false;
-        });
+      isSyncingScroll.current = true;
+      tableContainer.scrollLeft = floatingScrollbar.scrollLeft;
+      requestAnimationFrame(() => {
+        isSyncingScroll.current = false;
+      });
     };
-    
+
     const observer = new ResizeObserver(updateScrollbar);
     observer.observe(tableEl);
-    
+
     tableContainer.addEventListener('scroll', handleTableScroll);
     floatingScrollbar.addEventListener('scroll', handleFloatingScroll);
     window.addEventListener('resize', updateScrollbar);
@@ -995,9 +931,9 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
       window.removeEventListener('resize', updateScrollbar);
       window.removeEventListener('scroll', updateScrollbar, true);
     };
-  }, [timelineItems, tableZoom]); // Add tableZoom to dependency array
-  // --- MODIFICATION END ---
+  }, [timelineItems, tableZoom]);
 
+  // --- MODIFICATION START: Corrected time calculation logic ---
   const recalculateAndUpdateTimes = useCallback((items) => {
     let lastEndTime = headerInfo.callTime || '06:00';
 
@@ -1011,6 +947,51 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
 
     setTimelineItems(updatedItems);
   }, [headerInfo.callTime]);
+
+  const handleItemChange = useCallback((itemId, field, value) => {
+    const itemIndex = timelineItems.findIndex(item => item.id === itemId);
+    if (itemIndex === -1) return;
+
+    // If the first item's start time is changed, this becomes the new master "callTime".
+    if (field === 'start' && itemIndex === 0) {
+      setHeaderInfo(prev => ({ ...prev, callTime: value }));
+      // The useEffect watching callTime will handle the full recalculation.
+      return;
+    }
+
+    let newItems = [...timelineItems];
+    const itemToChange = { ...newItems[itemIndex] };
+    let requiresRecalculation = false;
+
+    // Logic for changing the item itself
+    if (field === 'end') {
+      const newEndTime = value < itemToChange.start ? itemToChange.start : value;
+      itemToChange.end = newEndTime;
+      itemToChange.duration = calculateDuration(itemToChange.start, newEndTime);
+      requiresRecalculation = true;
+    } else if (field === 'duration') {
+      const newDuration = parseInt(value, 10) || 0;
+      itemToChange.duration = newDuration < 0 ? 0 : newDuration;
+      itemToChange.end = calculateEndTime(itemToChange.start, itemToChange.duration);
+      requiresRecalculation = true;
+    } else if (field !== 'start') { // Prevent changing start for other items
+      itemToChange[field] = value;
+    }
+    newItems[itemIndex] = itemToChange;
+
+    // Recalculation logic for subsequent items
+    if (requiresRecalculation) {
+      let lastEndTime = newItems[itemIndex].end;
+      for (let i = itemIndex + 1; i < newItems.length; i++) {
+        newItems[i].start = lastEndTime;
+        newItems[i].end = calculateEndTime(lastEndTime, newItems[i].duration);
+        lastEndTime = newItems[i].end;
+      }
+    }
+
+    setTimelineItems(newItems);
+  }, [timelineItems]);
+  // --- MODIFICATION END ---
 
   const addShot = useCallback(() => {
     const lastItem = timelineItems[timelineItems.length - 1];
@@ -1070,51 +1051,6 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
     recalculateAndUpdateTimes(newItems);
   }, [timelineItems, recalculateAndUpdateTimes, imagePreviews]);
 
-  const handleItemChange = useCallback((itemId, field, value) => {
-    let requiresRecalculation = false;
-
-    const newItems = timelineItems.map(item => {
-      if (item.id === itemId) {
-        const newItemData = { ...item };
-
-        if (field === 'duration') {
-          const newDuration = parseInt(value, 10) || 0;
-          newItemData.duration = newDuration < 0 ? 0 : newDuration;
-          newItemData.end = calculateEndTime(item.start, newItemData.duration);
-          requiresRecalculation = true;
-        } else if (field === 'start') {
-          newItemData.start = value;
-          newItemData.duration = calculateDuration(value, item.end);
-          requiresRecalculation = true;
-        } else if (field === 'end') {
-          newItemData.end = value;
-          newItemData.duration = calculateDuration(item.start, value);
-          requiresRecalculation = true;
-        } else {
-          newItemData[field] = value;
-        }
-
-        return newItemData;
-      }
-      return item;
-    });
-
-    if (requiresRecalculation) {
-      const itemIndex = newItems.findIndex(item => item.id === itemId);
-      if (itemIndex !== -1 && field !== 'start') {
-        let lastEndTime = newItems[itemIndex].end;
-        for (let i = itemIndex + 1; i < newItems.length; i++) {
-          newItems[i].start = lastEndTime;
-          newItems[i].end = calculateEndTime(lastEndTime, newItems[i].duration);
-          lastEndTime = newItems[i].end;
-        }
-      }
-      setTimelineItems(newItems);
-    } else {
-      setTimelineItems(newItems);
-    }
-  }, [timelineItems]);
-
   const handleImageUpload = useCallback((itemId, file) => {
     if (!file || !file.type.startsWith('image/')) return;
 
@@ -1127,12 +1063,12 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
     };
     reader.readAsDataURL(file);
   }, []);
-    
+
   const handleRemoveImage = useCallback((itemId) => {
     setImagePreviews(prev => {
-        const newPreviews = { ...prev };
-        delete newPreviews[itemId];
-        return newPreviews;
+      const newPreviews = { ...prev };
+      delete newPreviews[itemId];
+      return newPreviews;
     });
   }, []);
 
@@ -1161,7 +1097,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
             }
           })
           .catch(err => console.error("Error processing pasted image:", err));
-        
+
         return;
       }
     }
@@ -1207,42 +1143,74 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
     exportProject(projectData);
   };
 
-    const sensors = useSensors(
+  const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
 
-  // --- MODIFICATION START: Drag and Drop handler fixed ---
   function handleDragEnd(event) {
-    const {active, over} = event;
-    
+    const { active, over } = event;
+
     if (active && over && active.id !== over.id) {
       const oldIndex = timelineItems.findIndex(item => item.id === active.id);
       const newIndex = timelineItems.findIndex(item => item.id === over.id);
-      
-      // Create the new array order first
+
       const newOrderedItems = arrayMove(timelineItems, oldIndex, newIndex);
-      
-      // Then, call the function that handles recalculation and the final state update.
-      // This avoids nested state updates which caused the original bug.
+
       recalculateAndUpdateTimes(newOrderedItems);
     }
   }
-  // --- MODIFICATION END ---
 
-
+  // --- MODIFICATION START: This effect now correctly handles the master callTime ---
   useEffect(() => {
-      recalculateAndUpdateTimes(timelineItems);
+    // This function runs whenever the master callTime changes, ensuring the entire schedule is in sync.
+    recalculateAndUpdateTimes(timelineItems);
   }, [headerInfo.callTime, recalculateAndUpdateTimes]);
+  // --- MODIFICATION END ---
+  const SaveStatusIndicator = ({ status }) => {
+    const baseClasses = "flex items-center space-x-2 text-sm font-medium transition-all duration-300";
+
+    switch (status) {
+      case 'saving':
+        return (
+          <div className={`${baseClasses} text-gray-500`}>
+            <Clock className="w-4 h-4 animate-spin" />
+            <span>Saving...</span>
+          </div>
+        );
+      case 'dirty':
+        return (
+          <div className={`${baseClasses} text-indigo-600`}>
+            <Edit3 className="w-4 h-4" />
+            <span>Unsaved changes</span>
+          </div>
+        );
+      case 'saved':
+        return (
+          <div className={`${baseClasses} text-green-600`}>
+            <Save className="w-4 h-4" />
+            <span>Saved!</span>
+          </div>
+        );
+      case 'idle':
+      default:
+        return (
+          <div className={`${baseClasses} text-gray-600`}>
+            <Cloud className="w-4 h-4" />
+            <span>Saved</span>
+          </div>
+        );
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 relative overflow-x-hidden">
-      <div className="absolute inset-0 opacity-[0.015]" style={{
-        backgroundImage: `url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23000000' fill-opacity='0.1'%3E%3Cpolygon points='50 0 60 40 100 50 60 60 50 100 40 60 0 50 40 40'/%3E%3C/g%3E%3C/svg%3E")`,
+      <div className="absolute inset-0 opacity-[0.18]" style={{
+        backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='55' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23000000' fill-opacity='0.1'%3E%3Cpolygon points='50 0 60 40 100 50 60 60 50 100 40 60 0 50 40 40'/%3E%3C/g%3E%3C/svg%3E")`,
       }}></div>
-      <header className="bg-white/90 backdrop-blur-sm shadow-sm border-b border-gray-200 sticky top-0 z-40">
+      <header className="bg-white/90 backdrop-blur-sm shadow-sm border-b border-gray-200 fixed top-0 left-0 right-0 z-40">
         <div className="px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
@@ -1263,7 +1231,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                 className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
               >
                 <FileDown className="w-4 h-4 mr-2" />
-                Export
+                Save As .json
               </button>
               <button
                 onClick={() => exportToPDF(headerInfo, timelineItems, stats, imagePreviews)}
@@ -1272,9 +1240,8 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                 <Download className="w-4 h-4 mr-2" />
                 Export PDF
               </button>
-              <div className="hidden sm:flex items-center space-x-2 text-sm text-gray-600">
-                <Clock className="w-4 h-4" />
-                <span>Auto-saved</span>
+              <div className="hidden sm:flex items-center">
+                <SaveStatusIndicator status={saveStatus} />
               </div>
             </div>
           </div>
@@ -1282,7 +1249,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
       </header>
       <div className="relative z-10">
         <main className="w-full">
-          <div className="p-6">
+          <div className="p-6 mt-18">
             <div className="mb-6">
               <button
                 onClick={() => setShowProductionDetails(!showProductionDetails)}
@@ -1550,7 +1517,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                     <p className="text-sm font-medium text-gray-600">Total Duration</p>
                     <p className="text-2xl font-semibold text-gray-900">{stats.totalHours}h {stats.totalMinutes}m</p>
                   </div>
-                  <Clock className="w-8 h-8 text-indigo-600 opacity-20" />
+                  <Clock className="w-8 h-8 text-indigo-600 opacity-45" />
                 </div>
               </div>
               <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 p-4">
@@ -1559,7 +1526,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                     <p className="text-sm font-medium text-gray-600">Total Shots</p>
                     <p className="text-2xl font-semibold text-gray-900">{stats.shotCount}</p>
                   </div>
-                  <Film className="w-8 h-8 text-indigo-600 opacity-20" />
+                  <Film className="w-8 h-8 text-indigo-600 opacity-45" />
                 </div>
               </div>
               <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 p-4">
@@ -1568,7 +1535,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                     <p className="text-sm font-medium text-gray-600">Break Time</p>
                     <p className="text-2xl font-semibold text-gray-900">{stats.breakHours}h {stats.breakMinutes}m</p>
                   </div>
-                  <Clock className="w-8 h-8 text-orange-600 opacity-20" />
+                  <Clock className="w-8 h-8 text-orange-600 opacity-45" />
                 </div>
               </div>
               <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 p-4">
@@ -1579,7 +1546,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                       {timelineItems.length > 0 ? timelineItems[timelineItems.length - 1].end : '--:--'}
                     </p>
                   </div>
-                  <Clock className="w-8 h-8 text-green-600 opacity-20" />
+                  <Clock className="w-8 h-8 text-green-600 opacity-45" />
                 </div>
               </div>
             </div>
@@ -1593,14 +1560,13 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
               </button>
               <button
                 onClick={addBreak}
-                className="inline-flex items-center px-4 py-2 bg-orange-500 text-white font-medium rounded-lg hover:bg-orange-600 transition-colors"
+                className="inline-flex items-center px-4 py-2 bg-orange-400 text-white font-medium rounded-lg hover:bg-orange-500 transition-colors"
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Add Break
               </button>
             </div>
             <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 overflow-hidden relative">
-              {/* --- MODIFICATION START: Table container style fixed --- */}
               <div
                 ref={tableContainerRef}
                 className="overflow-auto"
@@ -1609,7 +1575,6 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                   transformOrigin: 'top left',
                 }}
               >
-              {/* --- MODIFICATION END --- */}
                 <DndContext
                   sensors={sensors}
                   collisionDetection={closestCenter}
@@ -1645,18 +1610,18 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                         strategy={verticalListSortingStrategy}
                       >
                         {timelineItems.map((item, index) => (
-                           <SortableItem
-                              key={item.id}
-                              id={item.id}
-                              item={item}
-                              index={index}
-                              imagePreviews={imagePreviews}
-                              handleItemChange={handleItemChange}
-                              handleImageUpload={handleImageUpload}
-                              handlePasteImage={handlePasteImage}
-                              removeTimelineItem={removeTimelineItem}
-                              handleRemoveImage={handleRemoveImage}
-                           />
+                          <SortableItem
+                            key={item.id}
+                            id={item.id}
+                            item={item}
+                            index={index}
+                            imagePreviews={imagePreviews}
+                            handleItemChange={handleItemChange}
+                            handleImageUpload={handleImageUpload}
+                            handlePasteImage={handlePasteImage}
+                            removeTimelineItem={removeTimelineItem}
+                            handleRemoveImage={handleRemoveImage}
+                          />
                         ))}
                       </SortableContext>
                     </tbody>
