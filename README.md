@@ -4,7 +4,7 @@
   <p>Mentalbreakdown is the perfect shooting schedule editor for lazy people.</p>
   <p>Whether you have 10 shots or 1000, it's not an issue.</p>
   <p>This website is guaranteed to save you at least three times the effort! (My personal guarantee).</p>
-  <p>>Spend your time on what actually matters...</p>
+  <p>Spend your time on what actually matters...</p>
   
   <p>
     <img alt="GitHub License" src="https://img.shields.io/github/license/Homesick-prod/breakdown?style=for-the-badge">
