@@ -785,34 +785,35 @@ function ProjectDashboard({ onSelectProject, onCreateProject }) {
   );
 }
 
-function SortableItem({ id, item, index, imagePreviews, handleItemChange, handleImageUpload, handlePasteImage, removeTimelineItem, handleRemoveImage }) {
+function SortableItem({ item, index, imagePreviews, handleItemChange, handleImageUpload, handlePasteImage, removeTimelineItem }) {
     const {
         attributes,
         listeners,
         setNodeRef,
         transform,
         transition,
-    } = useSortable({ id });
+    } = useSortable({ id: item.id });
 
     const style = {
         transform: CSS.Transform.toString(transform),
         transition,
     };
-    
-    const rowClass = item.type === 'break' ? 'bg-orange-50' : index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50';
 
     return (
-        <tr ref={setNodeRef} style={style} className={rowClass}>
+        <tr ref={setNodeRef} style={style} className={item.type === 'break' ? 'bg-orange-50' : index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+            {/* This is the drag handle. We attach the listeners to it. */}
             <td className="px-2 py-3 whitespace-nowrap text-center align-middle">
                 <button {...attributes} {...listeners} className="cursor-grab p-1 text-gray-400 hover:text-gray-700">
                     <GripVertical size={16} />
                 </button>
             </td>
+
+            {/* The rest of your table row content remains the same */}
             <td className="px-4 py-3 whitespace-nowrap">
               <div className="flex items-center space-x-2 text-sm">
-                <input type="time" value={item.start} onChange={(e) => handleItemChange(item.id, 'start', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 font-medium" />
+                <input type="time" value={item.start} onChange={(e) => handleItemChange(item.id, 'start', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 font-medium" readOnly />
                 <span className="text-gray-600">-</span>
-                <input type="time" value={item.end} onChange={(e) => handleItemChange(item.id, 'end', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 font-medium" />
+                <input type="time" value={item.end} onChange={(e) => handleItemChange(item.id, 'end', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 font-medium" readOnly />
               </div>
             </td>
             <td className="px-4 py-3 whitespace-nowrap">
@@ -839,22 +840,10 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
                     <td className="px-4 py-3"><textarea value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="w-48 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 resize-none" placeholder="Scene description" rows="2" /></td>
                     <td className="px-4 py-3"><input type="text" value={item.cast} onChange={(e) => handleItemChange(item.id, 'cast', e.target.value)} className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="Cast" /></td>
                     <td className="px-4 py-3" onPaste={(e) => handlePasteImage(e, item.id)}>
-                        <div className="flex flex-col items-center space-y-1 outline-none focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-opacity-50 rounded border-2 border-dashed border-gray-300 p-2 hover:border-indigo-400 transition-colors">
+                        <div className="flex flex-col items-center space-y-1 outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50 rounded border-2 border-dashed border-gray-300 p-2 hover:border-indigo-400 transition-colors">
                             {imagePreviews[item.id] ? (<img src={imagePreviews[item.id]} alt={`Reference for ${item.shotNumber}`} className="w-20 h-16 object-cover rounded border border-gray-300 cursor-pointer hover:opacity-90" onClick={() => window.open(imagePreviews[item.id], '_blank')} />) : (<div className="w-20 h-16 bg-gray-100 rounded border border-gray-300 flex items-center justify-center"><Camera className="w-6 h-6 text-gray-400" /></div>)}
                             <input type="file" accept="image/*" id={`image-${item.id}`} onChange={(e) => handleImageUpload(item.id, e.target.files[0])} className="hidden" />
-                            <div className="flex items-center space-x-2">
-                                <label htmlFor={`image-${item.id}`} className="cursor-pointer text-xs text-indigo-600 hover:text-indigo-700 font-medium">
-                                    {imagePreviews[item.id] ? 'Change' : 'Upload'}
-                                </label>
-                                {imagePreviews[item.id] && (
-                                    <>
-                                        <span className="text-gray-300">|</span>
-                                        <button onClick={() => handleRemoveImage(item.id)} className="cursor-pointer text-xs text-red-500 hover:text-red-700 font-medium">
-                                            Remove
-                                        </button>
-                                    </>
-                                )}
-                            </div>
+                            <label htmlFor={`image-${item.id}`} className="cursor-pointer text-xs text-indigo-600 hover:text-indigo-700 font-medium">{imagePreviews[item.id] ? 'Change' : 'Upload / Paste'}</label>
                         </div>
                     </td>
                     <td className="px-4 py-3"><input type="text" value={item.props} onChange={(e) => handleItemChange(item.id, 'props', e.target.value)} className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="Props" /></td>
@@ -871,134 +860,65 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
     );
 }
 
-
+// --- Modern Shooting Schedule Editor ---
 function ShootingScheduleEditor({ project, onBack, onSave }) {
-    // Lazy state initialization to load data on first render and prevent race conditions
-    const [headerInfo, setHeaderInfo] = useState(() => {
-        const defaultHeader = {
-            projectTitle: project?.name || '',
-            episodeNumber: '',
-            shootingDay: '1',
-            totalDays: '3',
-            date: new Date().toISOString().split('T')[0],
-            callTime: '',
-            sunrise: '06:30',
-            sunset: '18:30',
-            weather: '',
-            location1: '',
-            location2: '',
-            director: '',
-            producer: '',
-            dop: '',
-            firstAD: '',
-            secondAD: '',
-            pd: '',
-            artTime: '',
-            lunchTime: '',
-            dinnerTime: '',
-            precipProb: '',
-            temp: '',
-            realFeel: '',
-            firstmealTime: '',
-            secondmealTime: '',
-            wrapTime: ''
-        };
-        // Merge saved data with defaults
-        return project?.data?.headerInfo ? { ...defaultHeader, ...project.data.headerInfo } : defaultHeader;
-    });
+  const [headerInfo, setHeaderInfo] = useState({
+    projectTitle: project?.name || '',
+    episodeNumber: '',
+    shootingDay: '1',
+    totalDays: '3',
+    date: new Date().toISOString().split('T')[0],
+    callTime: '',
+    sunrise: '06:30',
+    sunset: '18:30',
+    weather: '',
+    location1: '',
+    location2: '',
+    director: '',
+    producer: '',
+    dop: '',
+    firstAD: '',
+    secondAD: '',
+    pa: '',
+    artTime: '',
+    lunchTime: '',
+    dinnerTime: '',
+    precipProb: '',
+    temp: '',
+    realFeel: ''
+  });
 
-    const [timelineItems, setTimelineItems] = useState(() => project?.data?.timelineItems || []);
-    const [imagePreviews, setImagePreviews] = useState(() => project?.data?.imagePreviews || {});
-    
+  const [timelineItems, setTimelineItems] = useState([]);
+  const [imagePreviews, setImagePreviews] = useState({});
   const [showProductionDetails, setShowProductionDetails] = useState(false);
   const [tableZoom, setTableZoom] = useState(100);
 
-  const tableContainerRef = useRef(null);
-  const floatingScrollbarRef = useRef(null);
-  const floatingScrollbarContentRef = useRef(null);
-  const [showFloatingScrollbar, setShowFloatingScrollbar] = useState(false);
-  const isSyncingScroll = useRef(false);
+  // Load project data
+  useEffect(() => {
+    if (project?.data) {
+      setHeaderInfo(project.data.headerInfo || headerInfo);
+      setTimelineItems(project.data.timelineItems || []);
+      setImagePreviews(project.data.imagePreviews || {});
+    }
+  }, [project]);
 
-  // Autosave functionality
+  // Auto-save functionality
   useEffect(() => {
     const saveTimer = setTimeout(() => {
-        if (project) {
-            onSave({
-                headerInfo,
-                timelineItems,
-                imagePreviews
-            });
-        }
+      if (project) {
+        onSave({
+          headerInfo,
+          timelineItems,
+          imagePreviews
+        });
+      }
     }, 1000);
 
     return () => clearTimeout(saveTimer);
   }, [headerInfo, timelineItems, imagePreviews, project, onSave]);
-    
-  // --- MODIFICATION START: Floating scrollbar logic fixed ---
-  // Floating Scrollbar Logic
-  useEffect(() => {
-    const tableContainer = tableContainerRef.current;
-    const floatingScrollbar = floatingScrollbarRef.current;
-    // Get the table element from inside the container
-    const tableEl = tableContainer ? tableContainer.querySelector('table') : null;
 
-    if (!tableContainer || !floatingScrollbar || !tableEl) return;
-
-    const updateScrollbar = () => {
-        // **KEY FIX**: Use the table's actual width for the calculation
-        const tableWidth = tableEl.offsetWidth;
-        if (floatingScrollbarContentRef.current) {
-            floatingScrollbarContentRef.current.style.width = `${tableWidth+100}px`;
-        }
-
-        const isScrollable = tableContainer.scrollWidth > tableContainer.clientWidth;
-        const containerRect = tableContainer.getBoundingClientRect();
-        const isTableBottomOffscreen = containerRect.bottom > window.innerHeight;
-        
-        setShowFloatingScrollbar(isScrollable && isTableBottomOffscreen);
-    };
-
-    const handleTableScroll = () => {
-        if (isSyncingScroll.current) return;
-        
-        isSyncingScroll.current = true;
-        floatingScrollbar.scrollLeft = tableContainer.scrollLeft;
-        requestAnimationFrame(() => {
-            isSyncingScroll.current = false;
-        });
-    };
-
-    const handleFloatingScroll = () => {
-        if (isSyncingScroll.current) return;
-
-        isSyncingScroll.current = true;
-        tableContainer.scrollLeft = floatingScrollbar.scrollLeft;
-        requestAnimationFrame(() => {
-            isSyncingScroll.current = false;
-        });
-    };
-    
-    const observer = new ResizeObserver(updateScrollbar);
-    observer.observe(tableEl);
-    
-    tableContainer.addEventListener('scroll', handleTableScroll);
-    floatingScrollbar.addEventListener('scroll', handleFloatingScroll);
-    window.addEventListener('resize', updateScrollbar);
-    window.addEventListener('scroll', updateScrollbar, true);
-
-    updateScrollbar();
-
-    return () => {
-      observer.disconnect();
-      tableContainer.removeEventListener('scroll', handleTableScroll);
-      floatingScrollbar.removeEventListener('scroll', handleFloatingScroll);
-      window.removeEventListener('resize', updateScrollbar);
-      window.removeEventListener('scroll', updateScrollbar, true);
-    };
-  }, [timelineItems, tableZoom]); // Add tableZoom to dependency array
-  // --- MODIFICATION END ---
-
-  const recalculateAndUpdateTimes = useCallback((items) => {
+  // Helper to recalculate times
+ const recalculateAndUpdateTimes = useCallback((items) => {
     let lastEndTime = headerInfo.callTime || '06:00';
 
     const updatedItems = items.map((item) => {
@@ -1012,6 +932,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
     setTimelineItems(updatedItems);
   }, [headerInfo.callTime]);
 
+  // Add Shot
   const addShot = useCallback(() => {
     const lastItem = timelineItems[timelineItems.length - 1];
     const newStartTime = lastItem ? lastItem.end : (headerInfo.callTime || '06:00');
@@ -1040,9 +961,10 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
     };
 
     newShot.end = calculateEndTime(newShot.start, newShot.duration);
-    setTimelineItems(prevItems => [...prevItems, newShot]);
+    setTimelineItems([...timelineItems, newShot]);
   }, [timelineItems, headerInfo.callTime]);
 
+  // Add Break
   const addBreak = useCallback(() => {
     const lastItem = timelineItems[timelineItems.length - 1];
     const newStartTime = lastItem ? lastItem.end : (headerInfo.callTime || '06:00');
@@ -1057,9 +979,10 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
     };
 
     newBreak.end = calculateEndTime(newBreak.start, newBreak.duration);
-    setTimelineItems(prevItems => [...prevItems, newBreak]);
+    setTimelineItems([...timelineItems, newBreak]);
   }, [timelineItems, headerInfo.callTime]);
 
+  // Remove item
   const removeTimelineItem = useCallback((itemId) => {
     if (imagePreviews[itemId]) {
       const newPreviews = { ...imagePreviews };
@@ -1070,6 +993,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
     recalculateAndUpdateTimes(newItems);
   }, [timelineItems, recalculateAndUpdateTimes, imagePreviews]);
 
+  // Handle item change
   const handleItemChange = useCallback((itemId, field, value) => {
     let requiresRecalculation = false;
 
@@ -1115,6 +1039,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
     }
   }, [timelineItems]);
 
+  // Handle image upload from file picker
   const handleImageUpload = useCallback((itemId, file) => {
     if (!file || !file.type.startsWith('image/')) return;
 
@@ -1125,21 +1050,15 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
         [itemId]: reader.result
       }));
     };
-    reader.readAsDataURL(file);
-  }, []);
-    
-  const handleRemoveImage = useCallback((itemId) => {
-    setImagePreviews(prev => {
-        const newPreviews = { ...prev };
-        delete newPreviews[itemId];
-        return newPreviews;
-    });
+    reader.readAsDataURL(file); // This works on File and Blob objects
   }, []);
 
+  // Handle pasting image from clipboard
   const handlePasteImage = useCallback((e, itemId) => {
     const clipboardData = e.clipboardData;
     if (!clipboardData) return;
 
+    // --- Primary check for Google Sheets HTML content ---
     const html = clipboardData.getData('text/html');
     if (html) {
       const parser = new DOMParser();
@@ -1148,6 +1067,9 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
 
       if (img && img.src) {
         e.preventDefault();
+
+        // The src from Google is a URL that needs to be fetched.
+        // NOTE: This client-side fetch may fail if the image URL isn't publicly accessible.
         fetch(img.src)
           .then(res => {
             if (!res.ok) throw new Error('Failed to fetch pasted image from URL.');
@@ -1155,17 +1077,18 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
           })
           .then(blob => {
             if (blob.type.startsWith('image/')) {
-              handleImageUpload(itemId, blob);
+              handleImageUpload(itemId, blob); // Use existing upload handler with the fetched blob
             } else {
               console.error('Pasted source was not a valid image type.');
             }
           })
           .catch(err => console.error("Error processing pasted image:", err));
         
-        return;
+        return; // Exit after attempting to handle HTML content
       }
     }
 
+    // --- Fallback check for direct image data ---
     const items = clipboardData.items;
     if (items) {
       for (const item of items) {
@@ -1174,13 +1097,15 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
           if (file) {
             e.preventDefault();
             handleImageUpload(itemId, file);
-            return;
+            return; // Exit after handling the first direct image
           }
         }
       }
     }
   }, [handleImageUpload]);
 
+
+  // Calculate statistics
   const stats = useMemo(() => {
     const totalDuration = timelineItems.reduce((sum, item) => sum + (item.duration || 0), 0);
     const shotCount = timelineItems.filter(item => item.type === 'shot').length;
@@ -1195,6 +1120,12 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
     };
   }, [timelineItems]);
 
+  // Zoom controls with more range
+  const handleZoomIn = () => setTableZoom(prev => Math.min(prev + 10, 200));
+  const handleZoomOut = () => setTableZoom(prev => Math.max(prev - 10, 25));
+  const handleZoomReset = () => setTableZoom(100);
+
+  // Export current project
   const handleExportProject = () => {
     const projectData = {
       ...project,
@@ -1214,34 +1145,30 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
     })
   );
 
-  // --- MODIFICATION START: Drag and Drop handler fixed ---
   function handleDragEnd(event) {
     const {active, over} = event;
     
-    if (active && over && active.id !== over.id) {
+    if (active.id !== over.id) {
       const oldIndex = timelineItems.findIndex(item => item.id === active.id);
       const newIndex = timelineItems.findIndex(item => item.id === over.id);
       
-      // Create the new array order first
       const newOrderedItems = arrayMove(timelineItems, oldIndex, newIndex);
       
-      // Then, call the function that handles recalculation and the final state update.
-      // This avoids nested state updates which caused the original bug.
+      // THIS IS THE KEY:
+      // After reordering the items in the array, we call the recalculate function.
       recalculateAndUpdateTimes(newOrderedItems);
     }
   }
-  // --- MODIFICATION END ---
 
-
-  useEffect(() => {
-      recalculateAndUpdateTimes(timelineItems);
-  }, [headerInfo.callTime, recalculateAndUpdateTimes]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 relative overflow-x-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 relative overflow-hidden">
+      {/* Subtle texture */}
       <div className="absolute inset-0 opacity-[0.015]" style={{
         backgroundImage: `url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23000000' fill-opacity='0.1'%3E%3Cpolygon points='50 0 60 40 100 50 60 60 50 100 40 60 0 50 40 40'/%3E%3C/g%3E%3C/svg%3E")`,
       }}></div>
+
+      {/* Modern Header */}
       <header className="bg-white/90 backdrop-blur-sm shadow-sm border-b border-gray-200 sticky top-0 z-40">
         <div className="px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -1257,6 +1184,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                 <p className="text-sm text-gray-600">Shooting Schedule</p>
               </div>
             </div>
+
             <div className="flex items-center space-x-3">
               <button
                 onClick={handleExportProject}
@@ -1280,9 +1208,12 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
           </div>
         </div>
       </header>
+
       <div className="relative z-10">
+        {/* Main Content */}
         <main className="w-full">
           <div className="p-6">
+            {/* Collapsible Production Details */}
             <div className="mb-6">
               <button
                 onClick={() => setShowProductionDetails(!showProductionDetails)}
@@ -1292,9 +1223,11 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                 <span className="font-medium text-gray-900">Production Details</span>
                 <ChevronRight className={`w-4 h-4 text-gray-700 transition-transform ${showProductionDetails ? 'rotate-90' : ''}`} />
               </button>
+
               {showProductionDetails && (
                 <div className="mt-4 bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 p-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {/* Project Info */}
                     <div className="space-y-4">
                       <h3 className="text-sm font-semibold text-gray-900">Project Information</h3>
                       <div>
@@ -1348,6 +1281,8 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                         />
                       </div>
                     </div>
+
+                    {/* Time & Location */}
                     <div className="space-y-4">
                       <h3 className="text-sm font-semibold text-gray-900">Time & Location</h3>
                       <div className="grid grid-cols-2 gap-4">
@@ -1365,7 +1300,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                           <input
                             type="time"
                             value={headerInfo.wrapTime}
-                            onChange={(e) => setHeaderInfo({ ...headerInfo, wrapTime: e.target.value })}
+                            onChange={(e) => setHeaderInfo({ ...headerInfo, warpTime: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
                           />
                         </div>
@@ -1411,6 +1346,8 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                         />
                       </div>
                     </div>
+
+                    {/* Weather & Meals */}
                     <div className="space-y-4">
                       <h3 className="text-sm font-semibold text-gray-900">Weather & Meals</h3>
                       <div>
@@ -1476,6 +1413,8 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                         </div>
                       </div>
                     </div>
+
+                    {/* Key Crew */}
                     <div className="space-y-4">
                       <h3 className="text-sm font-semibold text-gray-900">Key Crew</h3>
                       <div>
@@ -1503,7 +1442,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                         <input
                           type="text"
                           value={headerInfo.pd}
-                          onChange={(e) => setHeaderInfo({ ...headerInfo, pd: e.target.value })}
+                          onChange={(e) => setHeaderInfo({ ...headerInfo, pa: e.target.value })}
                           placeholder="Name & Phone"
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
                         />
@@ -1538,11 +1477,14 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
                         />
                       </div>
+
                     </div>
                   </div>
                 </div>
               )}
             </div>
+
+            {/* Stats Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 p-4">
                 <div className="flex items-center justify-between">
@@ -1553,6 +1495,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                   <Clock className="w-8 h-8 text-indigo-600 opacity-20" />
                 </div>
               </div>
+
               <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1562,6 +1505,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                   <Film className="w-8 h-8 text-indigo-600 opacity-20" />
                 </div>
               </div>
+
               <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1571,6 +1515,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                   <Clock className="w-8 h-8 text-orange-600 opacity-20" />
                 </div>
               </div>
+
               <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1583,6 +1528,8 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                 </div>
               </div>
             </div>
+
+            {/* Action Buttons */}
             <div className="flex flex-wrap gap-3 mb-6">
               <button
                 onClick={addShot}
@@ -1599,69 +1546,322 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                 Add Break
               </button>
             </div>
+
+            {/* Schedule Table */}
             <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 overflow-hidden relative">
-              {/* --- MODIFICATION START: Table container style fixed --- */}
               <div
-                ref={tableContainerRef}
                 className="overflow-auto"
                 style={{
                   transform: `scale(${tableZoom / 100})`,
                   transformOrigin: 'top left',
+                  width: `${10000 / tableZoom}%`,
+                  maxWidth: `${10000 / tableZoom}%`
                 }}
               >
-              {/* --- MODIFICATION END --- */}
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  <table className="divide-y divide-gray-200" style={{ width: 'max-content', minWidth: '100%' }}>
-                    <thead className="bg-gray-50 sticky top-0 z-20">
-                      <tr>
-                        <th className="px-2 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider"></th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Time</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Dur.</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Scene</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Shot</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">INT/EXT</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Period</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Location</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Size</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Angle</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Movement</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Lens</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Description</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Cast</th>
-                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Blockshot</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Main Props</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Costume</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Remarks</th>
-                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Actions</th>
+                <table className="divide-y divide-gray-200" style={{ width: 'max-content', minWidth: '100%' }}>
+                  <thead className="bg-gray-50 sticky top-0 z-20">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Time</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Dur.</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Scene</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Shot</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">INT/EXT</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Period</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Location</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Size</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Angle</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Movement</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Lens</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Description</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Cast</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Blockshot</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Main Props</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Costume</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Remarks</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {timelineItems.map((item, index) => (
+                      <tr key={item.id} className={item.type === 'break' ? 'bg-orange-50' : index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center space-x-2 text-sm">
+                            <input
+                              type="time"
+                              value={item.start}
+                              onChange={(e) => handleItemChange(item.id, 'start', e.target.value)}
+                              className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 font-medium"
+                            />
+                            <span className="text-gray-600">-</span>
+                            <input
+                              type="time"
+                              value={item.end}
+                              onChange={(e) => handleItemChange(item.id, 'end', e.target.value)}
+                              className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 font-medium"
+                            />
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <input
+                              type="number"
+                              min="0"
+                              value={item.duration}
+                              onChange={(e) => handleItemChange(item.id, 'duration', e.target.value)}
+                              className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 font-medium"
+                            />
+                            <span className="ml-1 text-sm text-gray-600">mins</span>
+                          </div>
+                        </td>
+
+                        {item.type === 'break' ? (
+                          <td colSpan="15" className="px-4 py-3">
+                            <input
+                              type="text"
+                              value={item.description}
+                              onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
+                              className="w-full px-3 py-1 bg-orange-100 border border-orange-200 rounded focus:ring-2 focus:ring-orange-500 font-semibold text-gray-900"
+                              placeholder="Break description"
+                            />
+                          </td>
+                        ) : (
+                          <>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <input
+                                type="text"
+                                value={item.sceneNumber}
+                                onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)}
+                                className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 font-medium"
+                                placeholder="1A"
+                              />
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <input
+                                type="text"
+                                value={item.shotNumber}
+                                onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)}
+                                className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 font-medium"
+                                placeholder="001"
+                              />
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <select
+                                value={item.intExt}
+                                onChange={(e) => handleItemChange(item.id, 'intExt', e.target.value)}
+                                className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"
+                              >
+                                <option value="INT">INT</option>
+                                <option value="EXT">EXT</option>
+                                <option value="INT/EXT">INT/EXT</option>
+                              </select>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <select
+                                value={item.dayNight}
+                                onChange={(e) => handleItemChange(item.id, 'dayNight', e.target.value)}
+                                className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"
+                              >
+                                <option value="DAY">DAY</option>
+                                <option value="NIGHT">NIGHT</option>
+                                <option value="DAWN">DAWN</option>
+                                <option value="DUSK">DUSK</option>
+                              </select>
+                            </td>
+                            <td className="px-4 py-3">
+                              <input
+                                type="text"
+                                value={item.location}
+                                onChange={(e) => handleItemChange(item.id, 'location', e.target.value)}
+                                className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"
+                                placeholder="Location"
+                              />
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <select
+                                value={item.shotSize}
+                                onChange={(e) => handleItemChange(item.id, 'shotSize', e.target.value)}
+                                className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"
+                              >
+                                <option value="">Select...</option>
+                                <option value="ECU">ECU - Extreme Close Up</option>
+                                <option value="CU">CU - Close Up</option>
+                                <option value="MCU">MCU - Medium Close Up</option>
+                                <option value="MS">MS - Medium Shot</option>
+                                <option value="MLS">MLS - Medium Long Shot</option>
+                                <option value="LS">LS - Long Shot</option>
+                                <option value="WS">WS - Wide Shot</option>
+                                <option value="EWS">EWS - Extreme Wide Shot</option>
+                                <option value="OTS">OTS - Over the Shoulder</option>
+                                <option value="POV">POV - Point of View</option>
+                                <option value="2S">2S - Two Shot</option>
+                                <option value="3S">3S - Three Shot</option>
+                                <option value="INS">INS - Insert</option>
+                                <option value="CUTAWAY">Cutaway</option>
+                              </select>
+                            </td>
+                            <td className="px-4 py-3">
+                              <select
+                                value={item.angle}
+                                onChange={(e) => handleItemChange(item.id, 'angle', e.target.value)}
+                                className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"
+                              >
+                                <option value="">Select...</option>
+                                <option value="Eye Level">Eye Level</option>
+                                <option value="High Angle">High Angle</option>
+                                <option value="Low Angle">Low Angle</option>
+                                <option value="Dutch/Canted">Dutch/Canted</option>
+                                <option value="Bird's Eye">Bird's Eye View</option>
+                                <option value="Worm's Eye">Worm's Eye View</option>
+                                <option value="Over Head">Over Head</option>
+                                <option value="Hip Level">Hip Level</option>
+                                <option value="Knee Level">Knee Level</option>
+                                <option value="Ground Level">Ground Level</option>
+                                <option value="Shoulder Level">Shoulder Level</option>
+                                <option value="Top 45">Top 45°</option>
+                                <option value="Profile">Profile (90°)</option>
+                                <option value="3/4 Front">3/4 Front</option>
+                                <option value="3/4 Back">3/4 Back</option>
+                              </select>
+                            </td>
+                            <td className="px-4 py-3">
+                              <select
+                                value={item.movement}
+                                onChange={(e) => handleItemChange(item.id, 'movement', e.target.value)}
+                                className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"
+                              >
+                                <option value="">Select...</option>
+                                <option value="Still">Still</option>
+                                <option value="Pan Left">Pan Left</option>
+                                <option value="Pan Right">Pan Right</option>
+                                <option value="Tilt Up">Tilt Up</option>
+                                <option value="Tilt Down">Tilt Down</option>
+                                <option value="Dolly In">Dolly In</option>
+                                <option value="Dolly Out">Dolly Out</option>
+                                <option value="Dolly Left">Dolly Left</option>
+                                <option value="Dolly Right">Dolly Right</option>
+                                <option value="Truck Left">Truck Left</option>
+                                <option value="Truck Right">Truck Right</option>
+                                <option value="Zoom In">Zoom In</option>
+                                <option value="Zoom Out">Zoom Out</option>
+                                <option value="Handheld">Handheld</option>
+                                <option value="Handheld (Ronin)">Handheld (Ronin)</option>
+                                <option value="Steadicam">Steadicam</option>
+                                <option value="Crane Up">Crane Up</option>
+                                <option value="Crane Down">Crane Down</option>
+                                <option value="Jib">Jib</option>
+                                <option value="Track">Track</option>
+                                <option value="Arc Left">Arc Left</option>
+                                <option value="Arc Right">Arc Right</option>
+                                <option value="360°">360° Rotation</option>
+                                <option value="Whip Pan">Whip Pan</option>
+                                <option value="Push In">Push In</option>
+                                <option value="Pull Out">Pull Out</option>
+                                <option value="Follow">Follow</option>
+                                <option value="Lead">Lead</option>
+                              </select>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center">
+                                <input
+                                  type="number"
+                                  value={item.lens ? item.lens.replace('mm', '').trim() : ''}
+                                  onChange={(e) => handleItemChange(item.id, 'lens', e.target.value)}
+                                  className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"
+                                  placeholder="50"
+                                />
+                                <span className="ml-1 text-sm text-gray-600">mm</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <textarea
+                                value={item.description}
+                                onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
+                                className="w-48 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 resize-none"
+                                placeholder="Scene description"
+                                rows="2"
+                              />
+                            </td>
+                            <td className="px-4 py-3">
+                              <input
+                                type="text"
+                                value={item.cast}
+                                onChange={(e) => handleItemChange(item.id, 'cast', e.target.value)}
+                                className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"
+                                placeholder="Cast"
+                              />
+                            </td>
+                            <td className="px-4 py-3" onPaste={(e) => handlePasteImage(e, item.id)}>
+                              <div className="flex flex-col items-center space-y-1 outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50 rounded border-2 border-dashed border-gray-300 p-2 hover:border-indigo-400 transition-colors">
+                                {imagePreviews[item.id] ? (
+                                  <img
+                                    src={imagePreviews[item.id]}
+                                    alt={`Reference for ${item.shotNumber}`}
+                                    className="w-20 h-16 object-cover rounded border border-gray-300 cursor-pointer hover:opacity-90"
+                                    onClick={() => window.open(imagePreviews[item.id], '_blank')}
+                                  />
+                                ) : (
+                                  <div className="w-20 h-16 bg-gray-100 rounded border border-gray-300 flex items-center justify-center">
+                                    <Camera className="w-6 h-6 text-gray-400" />
+                                  </div>
+                                )}
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  id={`image-${item.id}`}
+                                  onChange={(e) => handleImageUpload(item.id, e.target.files[0])}
+                                  className="hidden"
+                                />
+                                <label
+                                  htmlFor={`image-${item.id}`}
+                                  className="cursor-pointer text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                                >
+                                  {imagePreviews[item.id] ? 'Change' : 'Upload / Paste'}
+                                </label>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <input
+                                type="text"
+                                value={item.props}
+                                onChange={(e) => handleItemChange(item.id, 'props', e.target.value)}
+                                className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"
+                                placeholder="Props"
+                              />
+                            </td>
+                            <td className="px-4 py-3">
+                              <input
+                                type="text"
+                                value={item.costume}
+                                onChange={(e) => handleItemChange(item.id, 'costume', e.target.value)}
+                                className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"
+                                placeholder="Costume"
+                              />
+                            </td>
+                            <td className="px-4 py-3">
+                              <textarea
+                                value={item.notes}
+                                onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)}
+                                className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 resize-none"
+                                placeholder="Notes"
+                                rows="2"
+                              />
+                            </td>
+                          </>
+                        )}
+
+                        <td className="px-4 py-3 whitespace-nowrap text-center">
+                          <button
+                            onClick={() => removeTimelineItem(item.id)}
+                            className="text-red-600 hover:text-red-800 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      <SortableContext
-                        items={timelineItems.map(item => item.id)}
-                        strategy={verticalListSortingStrategy}
-                      >
-                        {timelineItems.map((item, index) => (
-                           <SortableItem
-                              key={item.id}
-                              id={item.id}
-                              item={item}
-                              index={index}
-                              imagePreviews={imagePreviews}
-                              handleItemChange={handleItemChange}
-                              handleImageUpload={handleImageUpload}
-                              handlePasteImage={handlePasteImage}
-                              removeTimelineItem={removeTimelineItem}
-                              handleRemoveImage={handleRemoveImage}
-                           />
-                        ))}
-                      </SortableContext>
-                    </tbody>
-                  </table>
-                </DndContext>
+                    ))}
+                  </tbody>
+                </table>
+
                 {timelineItems.length === 0 && (
                   <div className="text-center py-12">
                     <Film className="mx-auto h-12 w-12 text-gray-400" />
@@ -1674,36 +1874,26 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
           </div>
         </main>
       </div>
-      <div
-        ref={floatingScrollbarRef}
-        className="fixed bottom-0 left-0 w-full overflow-x-auto z-50 transition-opacity duration-200"
-        style={{
-          opacity: showFloatingScrollbar ? 1 : 0,
-          pointerEvents: showFloatingScrollbar ? 'auto' : 'none',
-        }}
-      >
-        <div ref={floatingScrollbarContentRef} style={{ height: '15px' }}></div>
-      </div>
     </div>
   );
 }
 
-
+// --- Main App Component ---
 function App() {
   const [currentView, setCurrentView] = useState('dashboard');
   const [selectedProject, setSelectedProject] = useState(null);
 
-  const handleSelectProject = useCallback((project) => {
+  const handleSelectProject = (project) => {
     setSelectedProject(project);
     setCurrentView('editor');
-  }, []);
+  };
 
-  const handleCreateProject = useCallback((project) => {
+  const handleCreateProject = (project) => {
     setSelectedProject(project);
     setCurrentView('editor');
-  }, []);
+  };
 
-  const handleSaveProject = useCallback((data) => {
+  const handleSaveProject = (data) => {
     if (!selectedProject) return;
 
     const projects = JSON.parse(localStorage.getItem('shootingScheduleProjects') || '[]');
@@ -1712,7 +1902,6 @@ function App() {
         return {
           ...p,
           data,
-          name: data.headerInfo.projectTitle,
           updatedAt: new Date().toISOString()
         };
       }
@@ -1720,19 +1909,21 @@ function App() {
     });
 
     localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
-  }, [selectedProject]);
+  };
 
-  const handleBackToDashboard = useCallback(() => {
+  const handleBackToDashboard = () => {
     setCurrentView('dashboard');
     setSelectedProject(null);
-  }, []);
+  };
 
+  // Add modern font
   useEffect(() => {
     const link = document.createElement('link');
     link.href = 'https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap';
     link.rel = 'stylesheet';
     document.head.appendChild(link);
 
+    // Apply font to body
     document.body.style.fontFamily = "'Sarabun', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
   }, []);
 
