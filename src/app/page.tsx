@@ -1,17 +1,29 @@
 'use client';
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import CryptoJS from 'crypto-js';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, Calendar, Clock, Film, Plus, FolderOpen, Save, Menu, X, ChevronLeft, Users, Cloud, Trash2, Edit3, Copy, FileText, Download, Camera, ChevronRight, Settings, ZoomIn, ZoomOut, Upload, FileDown, Sun, CloudRain, Eye ,Github} from 'lucide-react';
-// --- END MODIFICATION ---
-import { analytics } from '../firebase/config';
-// --- Helper Functions ---
+import {
+  GripVertical, Calendar, Clock, Film, Plus, Save,
+  ChevronDown, Trash2, Copy, Download, Camera, ChevronRight,
+  Settings, Upload, FileDown, CloudRain, Eye, Github,
+  MoreVertical, Edit2, X, ArrowLeft, Users, Hash,
+  MapPin, Sunrise, Sunset, Thermometer, CloudDrizzle,
+  Coffee, Moon, FileText, Loader2, Check, CloudOff,
+  Image as ImageIcon, Folder
+} from 'lucide-react';
+
+// Utility function for generating unique IDs
 const generateId = () => {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 };
 
+// Encryption key for .mbd files
+const SECRET_KEY = "hYp3r-S3cUr3-K3y-f0r-M3ntalBr3akd0wn-!@#$";
+
+// Time calculation utilities
 const calculateEndTime = (startTime, duration) => {
   if (!startTime || duration === null || duration < 0 || isNaN(duration)) return '';
   try {
@@ -26,7 +38,6 @@ const calculateEndTime = (startTime, duration) => {
   } catch { return ''; }
 };
 
-// --- MODIFICATION START: Corrected duration calculation ---
 const calculateDuration = (startTime, endTime) => {
   if (!startTime || !endTime) return 0;
   try {
@@ -37,30 +48,30 @@ const calculateDuration = (startTime, endTime) => {
     startDate.setHours(startHours, startMinutes, 0, 0);
     const endDate = new Date();
     endDate.setHours(endHours, endMinutes, 0, 0);
-
-    // This logic no longer adds a day if the end time is earlier than the start time.
     const diffMillis = endDate.getTime() - startDate.getTime();
     const diffMinutes = Math.round(diffMillis / 60000);
-
-    // Ensure the duration is never negative.
     return diffMinutes >= 0 ? diffMinutes : 0;
   } catch { return 0; }
 };
-// --- MODIFICATION END ---
 
-
-// --- Export/Import Functions ---
+// Export/Import Functions
 const exportProject = (project) => {
-  const dataStr = JSON.stringify(project, null, 2);
-  const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
-
-  const exportFileDefaultName = `${project.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${new Date().toISOString().split('T')[0]}.json`;
-
-  const linkElement = document.createElement('a');
-  linkElement.setAttribute('href', dataUri);
-  linkElement.setAttribute('download', exportFileDefaultName);
-  linkElement.click();
-  linkElement.remove();
+  try {
+    const jsonString = JSON.stringify(project, null, 2);
+    const encryptedData = CryptoJS.AES.encrypt(jsonString, SECRET_KEY).toString();
+    const dataBlob = new Blob([encryptedData], { type: 'text/plain;charset=utf-8' });
+    const dataUri = URL.createObjectURL(dataBlob);
+    const exportFileDefaultName = `${project.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${new Date().toISOString().split('T')[0]}.mbd`;
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+    linkElement.remove();
+    URL.revokeObjectURL(dataUri);
+  } catch (error) {
+    console.error("Export failed:", error);
+    alert("Sorry, the project could not be exported.");
+  }
 };
 
 const importProject = (file) => {
@@ -68,31 +79,36 @@ const importProject = (file) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const project = JSON.parse(e.target.result);
-        project.id = generateId(); // New ID for imported project
+        const encryptedData = e.target.result as string;
+        const bytes = CryptoJS.AES.decrypt(encryptedData, SECRET_KEY);
+        const decryptedJson = bytes.toString(CryptoJS.enc.Utf8);
+        if (!decryptedJson) {
+          throw new Error("Invalid file or wrong key.");
+        }
+        const project = JSON.parse(decryptedJson);
+        project.id = generateId();
         project.updatedAt = new Date().toISOString();
         resolve(project);
       } catch (error) {
-        reject(error);
+        console.error("Import failed:", error);
+        reject(new Error("Import failed. The file may be corrupt or not a valid project file."));
       }
     };
+    reader.onerror = () => reject(new Error("Error reading file."));
     reader.readAsText(file);
   });
 };
 
-// --- PDF Export Function ---
+// PDF Export Function
 const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
-  // Create print window
   const printWindow = window.open('', '_blank');
 
-  // Format date
   const formatDate = (dateStr) => {
     const date = new Date(dateStr);
     const thaiMonths = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
     return `${date.getDate()} ${thaiMonths[date.getMonth()]} ${date.getFullYear() + 543}`;
   };
 
-  // Format time display
   const formatTimeRange = (start, end) => {
     return `${start || '00:00'} - ${end || '00:00'}`;
   };
@@ -125,7 +141,6 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
                     background: white;
                 }
 
-                /* Header Section */
                 .header {
                     width: 100%;
                     margin-bottom: 10px;
@@ -180,7 +195,6 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
                     line-height: 1.4;
                 }
 
-                /* Info Grid */
                 .info-grid {
                     display: grid;
                     grid-template-columns: 1fr 2fr 1fr;
@@ -219,13 +233,12 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
                     color: #000;
                 }
 
-                /* Schedule Table */
                 .schedule-table {
                     width: 100%;
                     border-collapse: collapse;
                     font-size: 8pt;
                     margin-bottom: 10px;
-                    table-layout: fixed; /* Essential for fixed column widths */
+                    table-layout: fixed;
                 }
 
                 .schedule-table th {
@@ -250,7 +263,6 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
                     background-color: #f9f9f9;
                 }
 
-                /* Special rows */
                 .section-header {
                     background-color: #e0e0e0 !important;
                     font-weight: 600;
@@ -288,7 +300,6 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
                     background-color: #dddddd !important;
                 }
 
-                /* Cell styles */
                 .time-cell {
                     font-weight: 600;
                     white-space: nowrap;
@@ -320,13 +331,11 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
                     border: 1px solid #ddd;
                 }
 
-                /* Hand held notation */
                 .handheld {
                     background-color: #66cccc !important;
                     color: white;
                 }
 
-                /* Footer */
                 .footer {
                     margin-top: 15px;
                     display: flex;
@@ -335,7 +344,6 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
                     color: #666;
                 }
 
-                /* Print optimizations */
                 @media print {
                     body {
                         print-color-adjust: exact;
@@ -443,7 +451,7 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
                         <th rowspan="2" style="width: 50px;">Scene</th>
                         <th rowspan="2" style="width: 40px;">Shot</th>
                         <th rowspan="2" style="width: 80px;">Shot Type<br/>/ Size</th>
-                        <th rowspan="2" style="width: 60px;">Angle</th>
+                        <th rowspan="2" style="width: 80px;">Angle</th>
                         <th rowspan="2" style="width: 70px;">Movement</th>
                         <th rowspan="2" style="width: 50px;">Lens</th>
                         <th rowspan="2" style="width: 180px;">Description</th>
@@ -463,7 +471,6 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
     let cellContent = '';
 
     if (item.type === 'break') {
-      // Determine break type based on description
       if (item.description.toLowerCase().includes('lunch')) {
         rowClass = 'lunch-row';
       } else if (item.description.toLowerCase().includes('dinner')) {
@@ -485,12 +492,10 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
                                 <td colspan="14" class="description-cell" style="text-align: center; font-weight: 600;">${item.description}</td>
                             `;
     } else {
-      // Regular shot row
       const imageHtml = imagePreviews[item.id]
         ? `<img src="${imagePreviews[item.id]}" class="ref-image" alt="Ref">`
         : '';
 
-      // Check if handheld
       if (item.movement && item.movement.toLowerCase().includes('hand')) {
         rowClass = 'handheld';
       }
@@ -523,262 +528,54 @@ const exportToPDF = (headerInfo, timelineItems, stats, imagePreviews) => {
 
             <div class="footer">
                 <div style="font-size: 6pt;">Generated on ${new Date().toLocaleString('th-TH')}</div>
-                <div style="font-size: 6pt;">MentalBreakdown | Beta V.1.2.0.5 Created by Tawich P.</div>
+                <div style="font-size: 6pt;">MentalBreakdown | Beta V.1.2.2.1 Created by Tawich P.</div>
             </div>
         </body>
         </html>
     `;
 
-  // Write content and print
   printWindow.document.write(htmlContent);
   printWindow.document.close();
 
-  // Wait for content to load then print
   printWindow.onload = function () {
     printWindow.print();
   };
 };
 
+
 function Footer() {
-    return (
-        <footer className="border-t border-slate-200">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div className="text-center sm:text-left">
-                        <p className="text-sm text-slate-600 font-medium">
-                            MentalBreakdown
-                        </p>
-                        <p className="text-xs text-slate-500 mt-1">
-                          ©{new Date().getFullYear()} | V.1.2.0.5 (Beta) Created by Tawich P.
-                        </p>
-                    </div>
-<div className="flex items-center space-x-5">
-    <a 
-      href="https://github.com/Homesick-prod/breakdown" 
-      target="_blank" 
-      rel="noopener noreferrer" 
-      className="relative z-10 text-slate-400 hover:text-slate-600 transition-colors" 
-      title="GitHub"
-    >
-        <Github className="w-5 h-5" />
-    </a>
-</div>
-                </div>
-            </div>
-        </footer>
-    );
-}
-
-// --- Modern Project Dashboard ---
-function ProjectDashboard({ onSelectProject, onCreateProject }) {
-  const [projects, setProjects] = useState([]);
-  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
-  const [newProjectName, setNewProjectName] = useState('');
-  const [newProjectDescription, setNewProjectDescription] = useState('');
-  const fileInputRef = useRef(null);
-
-  useEffect(() => {
-    const savedProjects = JSON.parse(localStorage.getItem('shootingScheduleProjects') || '[]');
-    setProjects(savedProjects);
-  }, []);
-
-  const handleCreateProject = () => { if (!newProjectName.trim()) return; const newProject = { id: generateId(), name: newProjectName, description: newProjectDescription, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), data: null }; const updatedProjects = [...projects, newProject]; setProjects(updatedProjects); localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects)); setNewProjectName(''); setNewProjectDescription(''); setShowNewProjectModal(false); onCreateProject(newProject); };
-  const handleDeleteProject = (projectId) => { if (!confirm('Are you sure you want to delete this project?')) return; const updatedProjects = projects.filter(p => p.id !== projectId); setProjects(updatedProjects); localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects)); };
-  const handleDuplicateProject = (project) => { const duplicatedProject = { ...project, id: generateId(), name: `${project.name} (Copy)`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; const updatedProjects = [...projects, duplicatedProject]; setProjects(updatedProjects); localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects)); };
-  const handleExportProject = (project) => { exportProject(project); };
-  const handleImportProject = async (e) => { const file = e.target.files[0]; if (!file) return; try { const importedProject = await importProject(file); const updatedProjects = [...projects, importedProject]; setProjects(updatedProjects); localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects)); alert('Project imported successfully!'); } catch (error) { alert('Error importing project. Please check the file format.'); } e.target.value = ''; };
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-indigo-50 relative overflow-hidden flex flex-col">
-      <main className="flex-grow">
-        <div className="absolute inset-0 opacity-[0.015]" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%239C92AC' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`}}></div>
-        <nav className="bg-white/90 backdrop-blur-sm shadow-sm border-b border-slate-200 relative z-10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between h-16">
-              <div className="flex items-center">
-                <Film className="w-8 h-8 text-indigo-600 mr-3" />
-                <h1 className="text-xl font-bold text-slate-900">MentalBreakdown | Film Shooting Schedule Editor</h1>
-              </div>
-              <div className="flex items-center space-x-4">
-                <button onClick={() => fileInputRef.current?.click()} className="flex items-center px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors">
-                  <Upload className="w-4 h-4 mr-2" />
-                  Import Project
-                </button>
-                <input ref={fileInputRef} type="file" accept=".json" onChange={handleImportProject} className="hidden" />
-              </div>
-            </div>
+    <footer className="border-t border-slate-200 bg-white z-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex flex-col h-2 sm:flex-row items-center justify-between gap-4">
+          <div className="text-center sm:text-left">
+            <p className="text-sm text-slate-600 font-medium">
+              MentalBreakdown
+            </p>
+            <p className="text-xs text-slate-500 mt-1">
+              ©{new Date().getFullYear()} | V.1.2.2.1 (Beta) Created by Tawich P.
+            </p>
           </div>
-        </nav>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
-          <div className="mb-8">
-            <h2 className="text-3xl font-bold text-slate-900 mb-2">Your Projects</h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            <button onClick={() => setShowNewProjectModal(true)} className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border-2 border-dashed border-slate-300 p-6 hover:border-indigo-400 hover:shadow-md hover:bg-white/90 transition-all duration-200 group">
-              <div className="flex flex-col items-center justify-center h-full min-h-[200px]">
-                <Plus className="w-12 h-12 text-slate-400 group-hover:text-indigo-600 mb-3 transition-colors" />
-                <span className="text-slate-600 font-medium group-hover:text-indigo-600 transition-colors">Create New Project</span>
-              </div>
-            </button>
-            {projects.map(project => (
-              <div key={project.id} className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md hover:bg-white/90 transition-all duration-200">
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-slate-900 mb-1">{project.name}</h3>
-                      <p className="text-sm text-slate-600 line-clamp-2">{project.description || 'No description'}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center text-xs text-slate-500 mb-4">
-                    <Calendar className="w-3 h-3 mr-1" />
-                    <span>{new Date(project.updatedAt).toLocaleDateString('th-TH')}</span>
-                  </div>
-                  <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                    <button onClick={() => onSelectProject(project)} className="flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors">
-                      <FolderOpen className="w-4 h-4 mr-1" />
-                      Open
-                    </button>
-                    <div className="flex items-center space-x-2">
-                      <button onClick={() => handleExportProject(project)} className="text-slate-400 hover:text-slate-600 transition-colors" title="Export"><FileDown className="w-4 h-4" /></button>
-                      <button onClick={() => handleDuplicateProject(project)} className="text-slate-400 hover:text-slate-600 transition-colors" title="Duplicate"><Copy className="w-4 h-4" /></button>
-                      <button onClick={() => handleDeleteProject(project.id)} className="text-slate-400 hover:text-red-600 transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div className="flex items-center space-x-5">
+            <a
+              href="https://github.com/Homesick-prod/breakdown"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="relative z-10 text-slate-400 hover:text-slate-600 transition-colors"
+              title="GitHub"
+            >
+              <Github className="w-5 h-5" />
+            </a>
           </div>
         </div>
-      </main>
-      
-      <Footer />
-
-      {showNewProjectModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4">
-            <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setShowNewProjectModal(false)}></div>
-            <div className="relative bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">Create New Project</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Project Name</label>
-                  <input type="text" value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} placeholder="Enter project name" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900" autoFocus />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Description (Optional)</label>
-                  <textarea value={newProjectDescription} onChange={(e) => setNewProjectDescription(e.target.value)} placeholder="Enter project description" rows={3} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none text-slate-900" />
-                </div>
-              </div>
-              <div className="flex justify-end space-x-3 mt-6">
-                <button onClick={() => setShowNewProjectModal(false)} className="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 transition-colors">Cancel</button>
-                <button onClick={handleCreateProject} disabled={!newProjectName.trim()} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Create Project</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      </div>
+    </footer>
   );
 }
 
-// --- MODIFICATION START: `SortableItem` updated for conditional start time editing ---
-function SortableItem({ id, item, index, imagePreviews, handleItemChange, handleImageUpload, handlePasteImage, removeTimelineItem, handleRemoveImage }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-  } = useSortable({ id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-
-  const rowClass = item.type === 'break' ? 'bg-orange-50' : index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50';
-  const isFirstItem = index === 0;
-
-  return (
-    <tr ref={setNodeRef} style={style} className={rowClass}>
-      <td className="px-2 py-3 whitespace-nowrap text-center align-middle">
-        <button {...attributes} {...listeners} className="cursor-grab p-1 text-gray-400 hover:text-gray-700">
-          <GripVertical size={16} />
-        </button>
-      </td>
-      <td className="px-4 py-3 whitespace-nowrap">
-        <div className="flex items-center space-x-2 text-sm">
-          <input
-            type="time"
-            value={item.start}
-            onChange={(e) => handleItemChange(item.id, 'start', e.target.value)}
-            disabled={!isFirstItem}
-            className={`px-2 py-1 border rounded font-medium ${isFirstItem ? 'border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900' : 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed'}`}
-          />
-          <span className="text-gray-600">-</span>
-          <input type="time" value={item.end} onChange={(e) => handleItemChange(item.id, 'end', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 font-medium" />
-        </div>
-      </td>
-      <td className="px-4 py-3 whitespace-nowrap">
-        <div className="flex items-center">
-          <input type="number" min="0" value={item.duration} onChange={(e) => handleItemChange(item.id, 'duration', e.target.value)} className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 font-medium" />
-          <span className="ml-1 text-sm text-gray-600">mins</span>
-        </div>
-      </td>
-      {item.type === 'break' ? (
-        <td colSpan="15" className="px-4 py-3">
-          <input type="text" value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="w-full px-3 py-1 bg-orange-100 border border-orange-200 rounded focus:ring-2 focus:ring-orange-500 font-semibold text-gray-900" placeholder="Break description" />
-        </td>
-      ) : (
-        <>
-          <td className="px-4 py-3 whitespace-nowrap"><input type="text" value={item.sceneNumber} onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)} className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 font-medium" placeholder="1A" /></td>
-          <td className="px-4 py-3 whitespace-nowrap"><input type="text" value={item.shotNumber} onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)} className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 font-medium" placeholder="001" /></td>
-          <td className="px-4 py-3 whitespace-nowrap"><select value={item.intExt} onChange={(e) => handleItemChange(item.id, 'intExt', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="INT">INT</option><option value="EXT">EXT</option><option value="INT/EXT">INT/EXT</option></select></td>
-          <td className="px-4 py-3 whitespace-nowrap"><select value={item.dayNight} onChange={(e) => handleItemChange(item.id, 'dayNight', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="DAY">DAY</option><option value="NIGHT">NIGHT</option><option value="DAWN">DAWN</option><option value="DUSK">DUSK</option></select></td>
-          <td className="px-4 py-3"><input type="text" value={item.location} onChange={(e) => handleItemChange(item.id, 'location', e.target.value)} className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="Location" /></td>
-          <td className="px-4 py-3 whitespace-nowrap"><select value={item.shotSize} onChange={(e) => handleItemChange(item.id, 'shotSize', e.target.value)} className="px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="">Select...</option><option value="ECU">ECU - Extreme Close Up</option><option value="CU">CU - Close Up</option><option value="MCU">MCU - Medium Close Up</option><option value="MS">MS - Medium Shot</option><option value="MLS">MLS - Medium Long Shot</option><option value="LS">LS - Long Shot</option><option value="WS">WS - Wide Shot</option><option value="EWS">EWS - Extreme Wide Shot</option><option value="OTS">OTS - Over the Shoulder</option><option value="POV">POV - Point of View</option><option value="2S">2S - Two Shot</option><option value="3S">3S - Three Shot</option><option value="INS">INS - Insert</option><option value="CUTAWAY">Cutaway</option></select></td>
-          <td className="px-4 py-3"><select value={item.angle} onChange={(e) => handleItemChange(item.id, 'angle', e.target.value)} className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="">Select...</option><option value="Eye Level">Eye Level</option><option value="High Angle">High Angle</option><option value="Low Angle">Low Angle</option><option value="Dutch/Canted">Dutch/Canted</option><option value="Bird's Eye">Bird's Eye View</option><option value="Worm's Eye">Worm's Eye View</option><option value="Over Head">Over Head</option><option value="Hip Level">Hip Level</option><option value="Knee Level">Knee Level</option><option value="Ground Level">Ground Level</option><option value="Shoulder Level">Shoulder Level</option><option value="Top 45">Top 45°</option><option value="Profile">Profile (90°)</option><option value="3/4 Front">3/4 Front</option><option value="3/4 Back">3/4 Back</option></select></td>
-          <td className="px-4 py-3"><select value={item.movement} onChange={(e) => handleItemChange(item.id, 'movement', e.target.value)} className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900"><option value="">Select...</option><option value="Still">Still</option><option value="Pan Left">Pan Left</option><option value="Pan Right">Pan Right</option><option value="Tilt Up">Tilt Up</option><option value="Tilt Down">Tilt Down</option><option value="Dolly In">Dolly In</option><option value="Dolly Out">Dolly Out</option><option value="Dolly Left">Dolly Left</option><option value="Dolly Right">Dolly Right</option><option value="Truck Left">Truck Left</option><option value="Truck Right">Truck Right</option><option value="Zoom In">Zoom In</option><option value="Zoom Out">Zoom Out</option><option value="Handheld">Handheld</option><option value="Handheld (Ronin)">Handheld (Ronin)</option><option value="Steadicam">Steadicam</option><option value="Crane Up">Crane Up</option><option value="Crane Down">Crane Down</option><option value="Jib">Jib</option><option value="Track">Track</option><option value="Arc Left">Arc Left</option><option value="Arc Right">Arc Right</option><option value="360°">360° Rotation</option><option value="Whip Pan">Whip Pan</option><option value="Push In">Push In</option><option value="Pull Out">Pull Out</option><option value="Follow">Follow</option><option value="Lead">Lead</option></select></td>
-          <td className="px-4 py-3"><div className="flex items-center"><input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', e.target.value)} className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="50" /><span className="ml-1 text-sm text-gray-600">mm</span></div></td>
-          <td className="px-4 py-3"><textarea value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="w-48 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 resize-none" placeholder="Scene description" rows="2" /></td>
-          <td className="px-4 py-3"><input type="text" value={item.cast} onChange={(e) => handleItemChange(item.id, 'cast', e.target.value)} className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="Cast" /></td>
-          <td className="px-4 py-3" onPaste={(e) => handlePasteImage(e, item.id)}>
-            <div className="flex flex-col items-center space-y-1 outline-none focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-opacity-50 rounded border-2 border-dashed border-gray-300 p-2 hover:border-indigo-400 transition-colors">
-              {imagePreviews[item.id] ? (<img src={imagePreviews[item.id]} alt={`Reference for ${item.shotNumber}`} className="w-20 h-16 object-cover rounded border border-gray-300 cursor-pointer hover:opacity-90" onClick={() => window.open(imagePreviews[item.id], '_blank')} />) : (<div className="w-20 h-16 bg-gray-100 rounded border border-gray-300 flex items-center justify-center"><Camera className="w-6 h-6 text-gray-400" /></div>)}
-              <input type="file" accept="image/*" id={`image-${item.id}`} onChange={(e) => handleImageUpload(item.id, e.target.files[0])} className="hidden" />
-              <div className="flex items-center space-x-2">
-                <label htmlFor={`image-${item.id}`} className="cursor-pointer text-xs text-indigo-600 hover:text-indigo-700 font-medium">
-                  {imagePreviews[item.id] ? 'Change' : 'Upload'}
-                </label>
-                {imagePreviews[item.id] && (
-                  <>
-                    <span className="text-gray-300">|</span>
-                    <button onClick={() => handleRemoveImage(item.id)} className="cursor-pointer text-xs text-red-500 hover:text-red-700 font-medium">
-                      Remove
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </td>
-          <td className="px-4 py-3"><input type="text" value={item.props} onChange={(e) => handleItemChange(item.id, 'props', e.target.value)} className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="Props" /></td>
-          <td className="px-4 py-3"><input type="text" value={item.costume} onChange={(e) => handleItemChange(item.id, 'costume', e.target.value)} className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900" placeholder="Costume" /></td>
-          <td className="px-4 py-3"><textarea value={item.notes} onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)} className="w-32 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm text-gray-900 resize-none" placeholder="Notes" rows="2" /></td>
-        </>
-      )}
-      <td className="px-4 py-3 whitespace-nowrap text-center">
-        <button onClick={() => removeTimelineItem(item.id)} className="text-red-600 hover:text-red-800 transition-colors">
-          <Trash2 className="w-4 h-4" />
-        </button>
-      </td>
-    </tr>
-  );
-}
-// --- MODIFICATION END ---
-
-
+// Modern Schedule Editor Component
 function ShootingScheduleEditor({ project, onBack, onSave }) {
-  // Lazy state initialization to load data on first render and prevent race conditions
+  // State initialization with lazy loading
   const [headerInfo, setHeaderInfo] = useState(() => {
     const defaultHeader = {
       projectTitle: project?.name || '',
@@ -808,21 +605,16 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
       secondmealTime: '',
       wrapTime: ''
     };
-    // Merge saved data with defaults
     return project?.data?.headerInfo ? { ...defaultHeader, ...project.data.headerInfo } : defaultHeader;
   });
 
   const [timelineItems, setTimelineItems] = useState(() => project?.data?.timelineItems || []);
   const [imagePreviews, setImagePreviews] = useState(() => project?.data?.imagePreviews || {});
+  const [saveStatus, setSaveStatus] = useState('idle');
+  const [showProductionDetails, setShowProductionDetails] = useState(false);
 
-
-  const [saveStatus, setSaveStatus] = useState('idle'); // Can be 'idle', 'dirty', 'saving', 'saved'
   const debounceTimeoutRef = useRef(null);
   const isInitialMount = useRef(true);
-
-  const [showProductionDetails, setShowProductionDetails] = useState(false);
-  const [tableZoom, setTableZoom] = useState(100);
-
   const tableContainerRef = useRef(null);
   const floatingScrollbarRef = useRef(null);
   const floatingScrollbarContentRef = useRef(null);
@@ -831,40 +623,29 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
 
   // Autosave functionality
   useEffect(() => {
-    // Skip this effect on the initial render to prevent it from saving immediately.
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
 
-    // 1. Mark status as 'dirty' (unsaved) as soon as data changes.
     setSaveStatus('dirty');
 
-    // Clear any existing timer to debounce correctly.
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
     }
 
-    // 2. Set a timer to save the data after a delay.
     debounceTimeoutRef.current = setTimeout(async () => {
       setSaveStatus('saving');
-
-      // Give a brief moment for the "Saving..." UI to be visible.
       await new Promise(resolve => setTimeout(resolve, 500));
-
-      // 3. Perform the save operation.
       onSave({
         headerInfo,
         timelineItems,
         imagePreviews
       });
       setSaveStatus('saved');
-
-      // 4. After showing "Saved!", revert to the idle state.
       await new Promise(resolve => setTimeout(resolve, 1500));
       setSaveStatus('idle');
-
-    }, 1200); // Debounce time of 1.2 seconds.
+    }, 1200);
 
     return () => {
       if (debounceTimeoutRef.current) {
@@ -873,7 +654,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
     };
   }, [headerInfo, timelineItems, imagePreviews, onSave]);
 
-  // Floating Scrollbar Logic
+  // Floating scrollbar logic
   useEffect(() => {
     const tableContainer = tableContainerRef.current;
     const floatingScrollbar = floatingScrollbarRef.current;
@@ -896,7 +677,6 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
 
     const handleTableScroll = () => {
       if (isSyncingScroll.current) return;
-
       isSyncingScroll.current = true;
       floatingScrollbar.scrollLeft = tableContainer.scrollLeft;
       requestAnimationFrame(() => {
@@ -906,7 +686,6 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
 
     const handleFloatingScroll = () => {
       if (isSyncingScroll.current) return;
-
       isSyncingScroll.current = true;
       tableContainer.scrollLeft = floatingScrollbar.scrollLeft;
       requestAnimationFrame(() => {
@@ -931,9 +710,9 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
       window.removeEventListener('resize', updateScrollbar);
       window.removeEventListener('scroll', updateScrollbar, true);
     };
-  }, [timelineItems, tableZoom]);
+  }, [timelineItems]);
 
-  // --- MODIFICATION START: Corrected time calculation logic ---
+  // Time calculation functions
   const recalculateAndUpdateTimes = useCallback((items) => {
     let lastEndTime = headerInfo.callTime || '06:00';
 
@@ -952,10 +731,8 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
     const itemIndex = timelineItems.findIndex(item => item.id === itemId);
     if (itemIndex === -1) return;
 
-    // If the first item's start time is changed, this becomes the new master "callTime".
     if (field === 'start' && itemIndex === 0) {
       setHeaderInfo(prev => ({ ...prev, callTime: value }));
-      // The useEffect watching callTime will handle the full recalculation.
       return;
     }
 
@@ -963,7 +740,6 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
     const itemToChange = { ...newItems[itemIndex] };
     let requiresRecalculation = false;
 
-    // Logic for changing the item itself
     if (field === 'end') {
       const newEndTime = value < itemToChange.start ? itemToChange.start : value;
       itemToChange.end = newEndTime;
@@ -974,12 +750,11 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
       itemToChange.duration = newDuration < 0 ? 0 : newDuration;
       itemToChange.end = calculateEndTime(itemToChange.start, itemToChange.duration);
       requiresRecalculation = true;
-    } else if (field !== 'start') { // Prevent changing start for other items
+    } else if (field !== 'start') {
       itemToChange[field] = value;
     }
     newItems[itemIndex] = itemToChange;
 
-    // Recalculation logic for subsequent items
     if (requiresRecalculation) {
       let lastEndTime = newItems[itemIndex].end;
       for (let i = itemIndex + 1; i < newItems.length; i++) {
@@ -991,7 +766,6 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
 
     setTimelineItems(newItems);
   }, [timelineItems]);
-  // --- MODIFICATION END ---
 
   const addShot = useCallback(() => {
     const lastItem = timelineItems[timelineItems.length - 1];
@@ -1097,7 +871,6 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
             }
           })
           .catch(err => console.error("Error processing pasted image:", err));
-
         return;
       }
     }
@@ -1158,148 +931,121 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
       const newIndex = timelineItems.findIndex(item => item.id === over.id);
 
       const newOrderedItems = arrayMove(timelineItems, oldIndex, newIndex);
-
       recalculateAndUpdateTimes(newOrderedItems);
     }
   }
 
-  // --- MODIFICATION START: This effect now correctly handles the master callTime ---
   useEffect(() => {
-    // This function runs whenever the master callTime changes, ensuring the entire schedule is in sync.
     recalculateAndUpdateTimes(timelineItems);
   }, [headerInfo.callTime, recalculateAndUpdateTimes]);
-  // --- MODIFICATION END ---
-  const SaveStatusIndicator = ({ status }) => {
-    const baseClasses = "flex items-center space-x-2 text-sm font-medium transition-all duration-300";
 
-    switch (status) {
-      case 'saving':
-        return (
-          <div className={`${baseClasses} text-gray-500`}>
-            <Clock className="w-4 h-4 animate-spin" />
-            <span>Saving...</span>
-          </div>
-        );
-      case 'dirty':
-        return (
-          <div className={`${baseClasses} text-indigo-600`}>
-            <Edit3 className="w-4 h-4" />
-            <span>Unsaved changes</span>
-          </div>
-        );
-      case 'saved':
-        return (
-          <div className={`${baseClasses} text-green-600`}>
-            <Save className="w-4 h-4" />
-            <span>Saved!</span>
-          </div>
-        );
-      case 'idle':
-      default:
-        return (
-          <div className={`${baseClasses} text-gray-600`}>
-            <Cloud className="w-4 h-4" />
-            <span>Saved</span>
-          </div>
-        );
-    }
-  };
+return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 relative overflow-x-hidden flex flex-col">
+      <div
+        className="absolute inset-0 opacity-20"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg width='110' height='73.33' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3Cstyle%3E.pattern %7B width: 100%25; height: 100%25; --s: 110px; --c1: %23dedede; --c2: %23ededed; --c3: %23d6d6d6; --_g: var(--c1) 10%25,var(--c2) 10.5%25 19%25,%230000 19.5%25 80.5%25,var(--c2) 81%25 89.5%25,var(--c3) 90%25; --_c: from -90deg at 37.5%25 50%25,%230000 75%25; --_l1: linear-gradient(145deg,var(--_g)); --_l2: linear-gradient( 35deg,var(--_g)); background: var(--_l1), var(--_l1) calc(var(--s)/2) var(--s), var(--_l2), var(--_l2) calc(var(--s)/2) var(--s), conic-gradient(var(--_c),var(--c1) 0) calc(var(--s)/8) 0, conic-gradient(var(--_c),var(--c3) 0) calc(var(--s)/2) 0, linear-gradient(90deg,var(--c3) 38%25,var(--c1) 0 50%25,var(--c3) 0 62%25,var(--c1) 0); background-size: var(--s) calc(2*var(--s)/3); %7D%3C/style%3E%3C/defs%3E%3CforeignObject width='100%25' height='100%25'%3E%3Cdiv class='pattern' xmlns='http://www.w3.org/1999/xhtml'%3E%3C/div%3E%3C/foreignObject%3E%3C/svg%3E")`,
+        }}
+      ></div>
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 relative overflow-x-hidden">
-      <div className="absolute inset-0 opacity-[0.18]" style={{
-        backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='55' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23000000' fill-opacity='0.1'%3E%3Cpolygon points='50 0 60 40 100 50 60 60 50 100 40 60 0 50 40 40'/%3E%3C/g%3E%3C/svg%3E")`,
-      }}></div>
-      <header className="bg-white/90 backdrop-blur-sm shadow-sm border-b border-gray-200 fixed top-0 left-0 right-0 z-40">
-        <div className="px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center">
-              <button
-                onClick={onBack}
-                className="mr-4 p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <ChevronLeft className="w-5 h-5 text-gray-700" />
-              </button>
-              <div>
-                <h1 className="text-xl font-semibold text-gray-900">{headerInfo.projectTitle || 'Untitled Project'}</h1>
-                <p className="text-sm text-gray-600">Shooting Schedule</p>
+      {/* Main content wrapper, now a div with position:relative so z-index works */}
+      <div className="relative z-10 flex flex-col flex-grow">
+        <header className="bg-white shadow-sm border-b border-gray-100 sticky top-0 z-40">
+          <div className="px-6">
+            <div className="flex items-center justify-between h-16">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={onBack}
+                  className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <ArrowLeft className="w-5 h-5 text-gray-700" />
+                </button>
+                <div>
+                  <h1 className="text-xl font-semibold text-gray-900">{headerInfo.projectTitle || 'Untitled Project'}</h1>
+                  <p className="text-xs text-gray-500">Shooting Schedule Editor</p>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={handleExportProject}
-                className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
-              >
-                <FileDown className="w-4 h-4 mr-2" />
-                Save As .json
-              </button>
-              <button
-                onClick={() => exportToPDF(headerInfo, timelineItems, stats, imagePreviews)}
-                className="inline-flex items-center px-3 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Export PDF
-              </button>
-              <div className="hidden sm:flex items-center">
+              <div className="flex items-center gap-3">
                 <SaveStatusIndicator status={saveStatus} />
+                <div className="h-6 w-px bg-gray-200"></div>
+                <button
+                  onClick={handleExportProject}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
+                >
+                  <FileDown className="w-4 h-4" />
+                  <span className="hidden sm:inline">Save .mbd</span>
+                </button>
+                <button
+                  onClick={() => exportToPDF(headerInfo, timelineItems, stats, imagePreviews)}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  <span className="hidden sm:inline">Export PDF</span>
+                </button>
               </div>
             </div>
           </div>
-        </div>
-      </header>
-      <div className="relative z-10">
-        <main className="w-full">
-          <div className="p-6 mt-18">
-            <div className="mb-6">
-              <button
-                onClick={() => setShowProductionDetails(!showProductionDetails)}
-                className="flex items-center space-x-2 px-4 py-2 bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 hover:bg-white/90 transition-all"
-              >
-                <Settings className="w-4 h-4 text-gray-700" />
-                <span className="font-medium text-gray-900">Production Details</span>
-                <ChevronRight className={`w-4 h-4 text-gray-700 transition-transform ${showProductionDetails ? 'rotate-90' : ''}`} />
-              </button>
-              {showProductionDetails && (
-                <div className="mt-4 bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 p-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div className="space-y-4">
-                      <h3 className="text-sm font-semibold text-gray-900">Project Information</h3>
+        </header>
+
+        {/* This is the primary content area */}
+        <main className="flex-1 p-6">
+          {/* Production Details Section */}
+          <div className="mb-6">
+            <button
+              onClick={() => setShowProductionDetails(!showProductionDetails)}
+              className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-all"
+            >
+              <Settings className="w-4 h-4 text-gray-700" />
+              <span className="font-medium text-gray-900">Production Details</span>
+              <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${showProductionDetails ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showProductionDetails && (
+              <div className="mt-4 bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-in slide-in-from-top-2 duration-300">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {/* Project Information */}
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                      <Film className="w-4 h-4 text-gray-600" />
+                      Project Information
+                    </h3>
+                    <div className="space-y-3">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Project Title</label>
                         <input
                           type="text"
                           value={headerInfo.projectTitle}
                           onChange={(e) => setHeaderInfo({ ...headerInfo, projectTitle: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                          className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                         />
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Episode #</label>
                           <input
                             type="text"
                             value={headerInfo.episodeNumber}
-                            placeholder="Episode No."
+                            placeholder="Ep. No."
                             onChange={(e) => setHeaderInfo({ ...headerInfo, episodeNumber: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                            className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Q ... of ...</label>
-                          <div className="flex items-center space-x-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Day/Total</label>
+                          <div className="flex items-center gap-2">
                             <input
                               type="text"
                               value={headerInfo.shootingDay}
                               onChange={(e) => setHeaderInfo({ ...headerInfo, shootingDay: e.target.value })}
-                              className="w-12 px-2 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 text-center"
+                              className="text-gray-500 w-14 px-2 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-center transition-all"
                               placeholder="1"
                             />
-                            <span className="text-gray-600">of</span>
+                            <span className="text-gray-500">/</span>
                             <input
                               type="text"
                               value={headerInfo.totalDays}
                               onChange={(e) => setHeaderInfo({ ...headerInfo, totalDays: e.target.value })}
-                              className="w-12 px-2 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 text-center"
+                              className="text-gray-500 w-14 px-2 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-center transition-all"
                               placeholder="3"
                             />
                           </div>
@@ -1311,49 +1057,62 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                           type="date"
                           value={headerInfo.date}
                           onChange={(e) => setHeaderInfo({ ...headerInfo, date: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                          className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                         />
                       </div>
                     </div>
-                    <div className="space-y-4">
-                      <h3 className="text-sm font-semibold text-gray-900">Time & Location</h3>
-                      <div className="grid grid-cols-2 gap-4">
+                  </div>
+
+                  {/* Time & Location */}
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-gray-600" />
+                      Time & Location
+                    </h3>
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Call Time</label>
                           <input
                             type="time"
                             value={headerInfo.callTime}
                             onChange={(e) => setHeaderInfo({ ...headerInfo, callTime: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                            className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Wrap up Time</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Wrap Time</label>
                           <input
                             type="time"
                             value={headerInfo.wrapTime}
                             onChange={(e) => setHeaderInfo({ ...headerInfo, wrapTime: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                            className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                           />
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Sunrise</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <Sunrise className="w-3 h-3 inline mr-1" />
+                            Sunrise
+                          </label>
                           <input
                             type="time"
                             value={headerInfo.sunrise}
                             onChange={(e) => setHeaderInfo({ ...headerInfo, sunrise: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                            className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Sunset</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <Sunset className="w-3 h-3 inline mr-1" />
+                            Sunset
+                          </label>
                           <input
                             type="time"
                             value={headerInfo.sunset}
                             onChange={(e) => setHeaderInfo({ ...headerInfo, sunset: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                            className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                           />
                         </div>
                       </div>
@@ -1364,7 +1123,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                           value={headerInfo.location1}
                           onChange={(e) => setHeaderInfo({ ...headerInfo, location1: e.target.value })}
                           placeholder="Main location"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                          className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                         />
                       </div>
                       <div>
@@ -1374,12 +1133,19 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                           value={headerInfo.location2}
                           onChange={(e) => setHeaderInfo({ ...headerInfo, location2: e.target.value })}
                           placeholder="Secondary location (optional)"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                          className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                         />
                       </div>
                     </div>
-                    <div className="space-y-4">
-                      <h3 className="text-sm font-semibold text-gray-900">Weather & Meals</h3>
+                  </div>
+
+                  {/* Weather & Meals */}
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                      <CloudRain className="w-4 h-4 text-gray-600" />
+                      Weather & Meals
+                    </h3>
+                    <div className="space-y-3">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Weather Forecast</label>
                         <input
@@ -1387,18 +1153,21 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                           value={headerInfo.weather}
                           onChange={(e) => setHeaderInfo({ ...headerInfo, weather: e.target.value })}
                           placeholder="Considerable cloudiness"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                          className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                         />
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Temp</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <Thermometer className="w-3 h-3 inline mr-1" />
+                            Temp
+                          </label>
                           <input
                             type="text"
                             value={headerInfo.temp}
                             onChange={(e) => setHeaderInfo({ ...headerInfo, temp: e.target.value })}
                             placeholder="34°"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                            className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                           />
                         </div>
                         <div>
@@ -1408,43 +1177,59 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                             value={headerInfo.realFeel}
                             onChange={(e) => setHeaderInfo({ ...headerInfo, realFeel: e.target.value })}
                             placeholder="37°"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                            className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                           />
                         </div>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Precipitation %</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          <CloudDrizzle className="w-3 h-3 inline mr-1" />
+                          Precipitation %
+                        </label>
                         <input
                           type="text"
                           value={headerInfo.precipProb}
                           onChange={(e) => setHeaderInfo({ ...headerInfo, precipProb: e.target.value })}
                           placeholder="73%"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                          className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                         />
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">First Meal Time</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <Coffee className="w-3 h-3 inline mr-1" />
+                            First Meal
+                          </label>
                           <input
                             type="time"
                             value={headerInfo.firstmealTime}
                             onChange={(e) => setHeaderInfo({ ...headerInfo, firstmealTime: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-gray-900"
+                            className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Second Meal Time</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            <Moon className="w-3 h-3 inline mr-1" />
+                            Second Meal
+                          </label>
                           <input
                             type="time"
                             value={headerInfo.secondmealTime}
                             onChange={(e) => setHeaderInfo({ ...headerInfo, secondmealTime: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-gray-900"
+                            className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                           />
                         </div>
                       </div>
                     </div>
-                    <div className="space-y-4">
-                      <h3 className="text-sm font-semibold text-gray-900">Key Crew</h3>
+                  </div>
+
+                  {/* Key Crew */}
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                      <Users className="w-4 h-4 text-gray-600" />
+                      Key Crew
+                    </h3>
+                    <div className="space-y-3">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Producer</label>
                         <input
@@ -1452,7 +1237,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                           value={headerInfo.producer}
                           onChange={(e) => setHeaderInfo({ ...headerInfo, producer: e.target.value })}
                           placeholder="Name & Phone"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                          className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                         />
                       </div>
                       <div>
@@ -1462,7 +1247,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                           value={headerInfo.director}
                           onChange={(e) => setHeaderInfo({ ...headerInfo, director: e.target.value })}
                           placeholder="Name & Phone"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                          className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                         />
                       </div>
                       <div>
@@ -1472,7 +1257,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                           value={headerInfo.pd}
                           onChange={(e) => setHeaderInfo({ ...headerInfo, pd: e.target.value })}
                           placeholder="Name & Phone"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                          className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                         />
                       </div>
                       <div>
@@ -1482,7 +1267,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                           value={headerInfo.dop}
                           onChange={(e) => setHeaderInfo({ ...headerInfo, dop: e.target.value })}
                           placeholder="Name & Phone"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                          className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                         />
                       </div>
                       <div>
@@ -1492,7 +1277,7 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                           value={headerInfo.firstAD}
                           onChange={(e) => setHeaderInfo({ ...headerInfo, firstAD: e.target.value })}
                           placeholder="Name & Phone"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                          className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                         />
                       </div>
                       <div>
@@ -1502,158 +1287,168 @@ function ShootingScheduleEditor({ project, onBack, onSave }) {
                           value={headerInfo.secondAD}
                           onChange={(e) => setHeaderInfo({ ...headerInfo, secondAD: e.target.value })}
                           placeholder="Name & Phone"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                          className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                         />
                       </div>
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Total Duration</p>
-                    <p className="text-2xl font-semibold text-gray-900">{stats.totalHours}h {stats.totalMinutes}m</p>
-                  </div>
-                  <Clock className="w-8 h-8 text-indigo-600 opacity-45" />
-                </div>
               </div>
-              <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Total Shots</p>
-                    <p className="text-2xl font-semibold text-gray-900">{stats.shotCount}</p>
-                  </div>
-                  <Film className="w-8 h-8 text-indigo-600 opacity-45" />
+            )}
+          </div>
+
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Total Duration</p>
+                  <p className="text-2xl font-semibold text-gray-900">{stats.totalHours}h {stats.totalMinutes}m</p>
                 </div>
-              </div>
-              <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Break Time</p>
-                    <p className="text-2xl font-semibold text-gray-900">{stats.breakHours}h {stats.breakMinutes}m</p>
-                  </div>
-                  <Clock className="w-8 h-8 text-orange-600 opacity-45" />
-                </div>
-              </div>
-              <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Est. Wrap</p>
-                    <p className="text-2xl font-semibold text-gray-900">
-                      {timelineItems.length > 0 ? timelineItems[timelineItems.length - 1].end : '--:--'}
-                    </p>
-                  </div>
-                  <Clock className="w-8 h-8 text-green-600 opacity-45" />
+                <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+                  <Clock className="w-6 h-6 text-indigo-600" />
                 </div>
               </div>
             </div>
-            <div className="flex flex-wrap gap-3 mb-6">
-              <button
-                onClick={addShot}
-                className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Add Shot
-              </button>
-              <button
-                onClick={addBreak}
-                className="inline-flex items-center px-4 py-2 bg-orange-400 text-white font-medium rounded-lg hover:bg-orange-500 transition-colors"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Add Break
-              </button>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Total Shots</p>
+                  <p className="text-2xl font-semibold text-gray-900">{stats.shotCount}</p>
+                </div>
+                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                  <Film className="w-6 h-6 text-purple-600" />
+                </div>
+              </div>
             </div>
-            <div className="bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 overflow-hidden relative">
-              <div
-                ref={tableContainerRef}
-                className="overflow-auto"
-                style={{
-                  transform: `scale(${tableZoom / 100})`,
-                  transformOrigin: 'top left',
-                }}
-              >
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  <table className="divide-y divide-gray-200" style={{ width: 'max-content', minWidth: '100%' }}>
-                    <thead className="bg-gray-50 sticky top-0 z-20">
-                      <tr>
-                        <th className="px-2 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider"></th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Time</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Dur.</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Scene</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Shot</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">INT/EXT</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Period</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Location</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Size</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Angle</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Movement</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Lens</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Description</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Cast</th>
-                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Blockshot</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Main Props</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Costume</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Remarks</th>
-                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      <SortableContext
-                        items={timelineItems.map(item => item.id)}
-                        strategy={verticalListSortingStrategy}
-                      >
-                        {timelineItems.map((item, index) => (
-                          <SortableItem
-                            key={item.id}
-                            id={item.id}
-                            item={item}
-                            index={index}
-                            imagePreviews={imagePreviews}
-                            handleItemChange={handleItemChange}
-                            handleImageUpload={handleImageUpload}
-                            handlePasteImage={handlePasteImage}
-                            removeTimelineItem={removeTimelineItem}
-                            handleRemoveImage={handleRemoveImage}
-                          />
-                        ))}
-                      </SortableContext>
-                    </tbody>
-                  </table>
-                </DndContext>
-                {timelineItems.length === 0 && (
-                  <div className="text-center py-12">
-                    <Film className="mx-auto h-12 w-12 text-gray-400" />
-                    <p className="mt-2 text-sm text-gray-600">No shots added yet</p>
-                    <p className="text-sm text-gray-500">Click "Add Shot" to get started</p>
-                  </div>
-                )}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Break Time</p>
+                  <p className="text-2xl font-semibold text-gray-900">{stats.breakHours}h {stats.breakMinutes}m</p>
+                </div>
+                <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                  <Coffee className="w-6 h-6 text-amber-600" />
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Est. Wrap</p>
+                  <p className="text-2xl font-semibold text-gray-900">
+                    {timelineItems.length > 0 ? timelineItems[timelineItems.length - 1].end : '--:--'}
+                  </p>
+                </div>
+                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                  <Check className="w-6 h-6 text-green-600" />
+                </div>
               </div>
             </div>
           </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-3 mb-6">
+            <button
+              onClick={addShot}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Add Shot
+            </button>
+            <button
+              onClick={addBreak}
+              className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white font-medium rounded-lg hover:bg-amber-600 transition-colors"
+            >
+              <Coffee className="w-4 h-4" />
+              Add Break
+            </button>
+          </div>
+
+          {/* Timeline Table */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div ref={tableContainerRef} className="overflow-x-auto">
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <table className="w-full" style={{ minWidth: '1600px' }}>
+                  <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-20">
+                    <tr>
+                      <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider"></th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Time</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Dur.</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Scene</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Shot</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">INT/EXT</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Period</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Location</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Size</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Angle</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Movement</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Lens</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Description</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Cast</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider">Reference</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Props</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Costume</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Notes</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    <SortableContext
+                      items={timelineItems.map(item => item.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      {timelineItems.map((item, index) => (
+                        <SortableItem
+                          key={item.id}
+                          id={item.id}
+                          item={item}
+                          index={index}
+                          imagePreviews={imagePreviews}
+                          handleItemChange={handleItemChange}
+                          handleImageUpload={handleImageUpload}
+                          handlePasteImage={handlePasteImage}
+                          removeTimelineItem={removeTimelineItem}
+                          handleRemoveImage={handleRemoveImage}
+                        />
+                      ))}
+                    </SortableContext>
+                  </tbody>
+                </table>
+              </DndContext>
+              {timelineItems.length === 0 && (
+                <div className="text-center py-16">
+                  <Film className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+                  <p className="text-gray-500">No shots added yet</p>
+                  <p className="text-sm text-gray-400 mt-2">Click "Add Shot" to start building your schedule</p>
+                </div>
+              )}
+            </div>
+          </div>
         </main>
-      </div>
-      <div
-        ref={floatingScrollbarRef}
-        className="fixed bottom-0 left-0 w-full overflow-x-auto z-50 transition-opacity duration-200"
-        style={{
-          opacity: showFloatingScrollbar ? 1 : 0,
-          pointerEvents: showFloatingScrollbar ? 'auto' : 'none',
-        }}
-      >
-        <div ref={floatingScrollbarContentRef} style={{ height: '15px' }}></div>
+
+        {/* Floating scrollbar */}
+        <div
+          ref={floatingScrollbarRef}
+          className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 overflow-x-auto transition-opacity duration-200"
+          style={{
+            opacity: showFloatingScrollbar ? 1 : 0,
+            pointerEvents: showFloatingScrollbar ? 'auto' : 'none',
+            height: '20px'
+          }}
+        >
+          <div ref={floatingScrollbarContentRef} style={{ height: '1px' }}></div>
+        </div>
       </div>
     </div>
   );
 }
 
-
+// Main App Component
 function App() {
   const [currentView, setCurrentView] = useState('dashboard');
   const [selectedProject, setSelectedProject] = useState(null);
@@ -1693,13 +1488,16 @@ function App() {
   }, []);
 
   useEffect(() => {
+    // Load Plus Jakarta Sans (for English) and IBM Plex Sans Thai (for Thai) fonts
     const link = document.createElement('link');
-    link.href = 'https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap';
+    link.href = 'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap';
     link.rel = 'stylesheet';
     document.head.appendChild(link);
 
-    document.body.style.fontFamily = "'Sarabun', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+    // Set the font family with a fallback for Thai
+    document.body.style.fontFamily = "'Plus Jakarta Sans', 'IBM Plex Sans Thai', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif";
   }, []);
+
 
   return (
     <>
@@ -1722,3 +1520,782 @@ function App() {
 }
 
 export default App;
+
+// Empty State Component
+function EmptyState({ onCreateProject }) {
+  return (
+    <div className="text-center py-24">
+      <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gray-100 mb-6">
+        <Folder className="w-10 h-10 text-gray-400" />
+      </div>
+      <h3 className="text-xl font-semibold text-gray-900 mb-2">No projects yet</h3>
+      <p className="text-gray-500 mb-8 max-w-sm mx-auto">
+        Create your first shooting schedule project and start organizing your film production.
+      </p>
+      <button
+        onClick={onCreateProject}
+        className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+      >
+        <Plus className="w-5 h-5" />
+        Create Your First Project
+      </button>
+    </div>
+  );
+}
+
+// Project Card Menu Component
+function ProjectCardMenu({ project, onEdit, onDuplicate, onExport, onDelete }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen(!isOpen);
+        }}
+        className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+      >
+        <MoreVertical className="w-4 h-4 text-gray-500" />
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 top-10 w-48 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-10">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+              setIsOpen(false);
+            }}
+            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+          >
+            <Edit2 className="w-4 h-4" />
+            Edit Details
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDuplicate();
+              setIsOpen(false);
+            }}
+            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+          >
+            <Copy className="w-4 h-4" />
+            Duplicate
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onExport();
+              setIsOpen(false);
+            }}
+            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+          >
+            <FileDown className="w-4 h-4" />
+            Export
+          </button>
+          <div className="border-t border-gray-100 my-1"></div>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+              setIsOpen(false);
+            }}
+            className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Modern Project Dashboard
+function ProjectDashboard({ onSelectProject, onCreateProject }) {
+  const [projects, setProjects] = useState([]);
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectDescription, setNewProjectDescription] = useState('');
+  const fileInputRef = useRef(null);
+  const [editingProject, setEditingProject] = useState(null);
+  const [editedName, setEditedName] = useState('');
+  const [editedDescription, setEditedDescription] = useState('');
+
+  useEffect(() => {
+    const savedProjects = JSON.parse(localStorage.getItem('shootingScheduleProjects') || '[]');
+    savedProjects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    setProjects(savedProjects);
+  }, []);
+
+  const handleOpenEditModal = (project) => {
+    setEditingProject(project);
+    setEditedName(project.name);
+    setEditedDescription(project.description || '');
+  };
+
+  const handleCloseEditModal = () => {
+    setEditingProject(null);
+  };
+
+  const handleUpdateProject = () => {
+    if (!editingProject || !editedName.trim()) return;
+    const updatedProjects = projects.map(p => {
+      if (p.id === editingProject.id) {
+        return { ...p, name: editedName, description: editedDescription, updatedAt: new Date().toISOString() };
+      }
+      return p;
+    });
+    updatedProjects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    setProjects(updatedProjects);
+    localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
+    handleCloseEditModal();
+  };
+
+  const handleCreateProject = () => {
+    if (!newProjectName.trim()) return;
+    const newProject = {
+      id: generateId(),
+      name: newProjectName,
+      description: newProjectDescription,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      data: null
+    };
+    const updatedProjects = [newProject, ...projects];
+    updatedProjects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    setProjects(updatedProjects);
+    localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
+    setNewProjectName('');
+    setNewProjectDescription('');
+    setShowNewProjectModal(false);
+    onCreateProject(newProject);
+  };
+
+  const handleDeleteProject = (projectId) => {
+    if (!confirm('Are you sure you want to delete this project? This action cannot be undone.')) return;
+    const updatedProjects = projects.filter(p => p.id !== projectId);
+    setProjects(updatedProjects);
+    localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
+  };
+
+  const handleDuplicateProject = (project) => {
+    const duplicatedProject = {
+      ...project,
+      id: generateId(),
+      name: `${project.name} (Copy)`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    const updatedProjects = [duplicatedProject, ...projects];
+    updatedProjects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    setProjects(updatedProjects);
+    localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
+  };
+
+  const handleExportProject = (project) => {
+    exportProject(project);
+  };
+
+  const handleImportProject = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const importedProject = await importProject(file);
+      const updatedProjects = [...projects, importedProject];
+      updatedProjects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      setProjects(updatedProjects);
+      localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
+      alert('Project imported successfully!');
+    } catch (error) {
+      alert(error.message);
+    }
+    if (e.target) e.target.value = null;
+  };
+
+  return (
+    <div className=" min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50 relative overflow-hidden flex flex-col">
+      <div className="absolute inset-0 opacity-[0.01]" style={{
+        '--s': '100px',
+        '--c1': '#ffffff',
+        '--c2': '#797979FF',
+        '--_g': '#0000, #0004 5%, var(--c2) 6% 14%, var(--c1) 16% 24%, var(--c2) 26% 34%, var(--c1) 36% 44%, var(--c2) 46% 54%, var(--c1) 56% 64%, var(--c2) 66% 74%, var(--c1) 76% 84%, var(--c2) 86% 94%, #0004 95%, #0000',
+        background: 'radial-gradient(100% 50% at 100% 0, var(--_g)), radial-gradient(100% 50% at 0 50%, var(--_g)), radial-gradient(100% 50% at 100% 100%, var(--_g))',
+        backgroundSize: 'var(--s) calc(2 * var(--s))'
+      }}></div>
+      <main className="flex-grow z-2">
+        <nav className="bg-white shadow-sm border-b border-gray-100">
+          <div className="max-w-7xl mx-auto px-6">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center gap-3">
+                <Film className="w-8 h-8 text-indigo-600" />
+                <div>
+                  <h1 className="text-xl font-semibold text-gray-900">MentalBreakdown</h1>
+                  <p className="text-xs text-gray-500">Film Shooting Schedule Editor</p>
+                </div>
+              </div>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+              >
+                <Upload className="w-4 h-4" />
+                Import Project
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".mbd,.json"
+                onChange={handleImportProject}
+                className="hidden"
+              />
+            </div>
+          </div>
+        </nav>
+        <div className="z-12 max-w-7xl mx-auto px-6 py-8">
+          <div className="mb-8">
+            <h2 className="text-2xl font-semibold text-gray-900 mb-2">Your Projects</h2>
+            <p className="text-gray-600">Manage your shooting schedules and production timelines</p>
+          </div>
+
+          {projects.length === 0 ? (
+            <EmptyState onCreateProject={() => setShowNewProjectModal(true)} />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              <button
+                onClick={() => setShowNewProjectModal(true)}
+                className="h-64 rounded-xl border-2 border-dashed border-gray-300 hover:border-indigo-400 hover:bg-gray-50 transition-all duration-200 group"
+              >
+                <div className="flex flex-col items-center justify-center h-full">
+                  <div className="w-12 h-12 rounded-full bg-gray-100 group-hover:bg-indigo-100 flex items-center justify-center mb-3 transition-colors">
+                    <Plus className="w-6 h-6 text-gray-400 group-hover:text-indigo-600 transition-colors" />
+                  </div>
+                  <span className="text-gray-600 font-medium group-hover:text-indigo-600 transition-colors">
+                    Create New Project
+                  </span>
+                </div>
+              </button>
+
+              {projects.map(project => (
+                <div
+                  key={project.id}
+                  onClick={() => onSelectProject(project)}
+                  className="h-64 bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md hover:border-gray-200 transition-all duration-200 cursor-pointer group overflow-hidden flex flex-col"
+                >
+                  <div className="flex-1 p-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 group-hover:text-indigo-600 transition-colors">
+                        {project.name}
+                      </h3>
+                      <ProjectCardMenu
+                        project={project}
+                        onEdit={() => handleOpenEditModal(project)}
+                        onDuplicate={() => handleDuplicateProject(project)}
+                        onExport={() => handleExportProject(project)}
+                        onDelete={() => handleDeleteProject(project.id)}
+                      />
+                    </div>
+                    <p className="text-sm text-gray-600 line-clamp-3 mb-4">
+                      {project.description || 'No description'}
+                    </p>
+                  </div>
+                  <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        {new Date(project.updatedAt).toLocaleDateString()}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {new Date(project.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </main>
+      <Footer />
+
+      {/* Create Project Modal */}
+      {showNewProjectModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4">
+            <div
+              className="fixed inset-0 bg-black/15 backdrop-blur-sm transition-opacity"
+              onClick={() => setShowNewProjectModal(false)}
+            ></div>
+            <div className="relative bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
+              <h3 className="text-xl font-semibold text-gray-900 mb-6">Create New Project</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-800 mb-2">
+                    Project Name
+                  </label>
+                  <input
+                    type="text"
+                    value={newProjectName}
+                    onChange={(e) => setNewProjectName(e.target.value)}
+                    placeholder="Enter project name"
+                    className=" w-full px-4 py-2 border text-gray-700  border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-800 mb-2">
+                    Description (Optional)
+                  </label>
+                  <textarea
+                    value={newProjectDescription}
+                    onChange={(e) => setNewProjectDescription(e.target.value)}
+                    placeholder="Brief description of your project"
+                    rows={3}
+                    className="w-full px-4 py-2 border text-gray-700 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none transition-all"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  onClick={() => setShowNewProjectModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateProject}
+                  disabled={!newProjectName.trim()}
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  Create Project
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Project Modal */}
+      {editingProject && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4">
+            <div
+              className="fixed inset-0 bg-black/15 backdrop-blur-sm transition-opacity"
+              onClick={handleCloseEditModal}
+            ></div>
+            <div className="relative bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
+              <h3 className="text-xl font-semibold text-gray-900 mb-6">Edit Project</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Project Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editedName}
+                    onChange={(e) => setEditedName(e.target.value)}
+                    className="w-full px-4 py-2 border text-gray-700 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Description (Optional)
+                  </label>
+                  <textarea
+                    value={editedDescription}
+                    onChange={(e) => setEditedDescription(e.target.value)}
+                    rows={3}
+                    className="w-full px-4 py-2 border text-gray-700 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none transition-all"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  onClick={handleCloseEditModal}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateProject}
+                  disabled={!editedName.trim()}
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Save Status Indicator Component
+function SaveStatusIndicator({ status }) {
+  const getStatusDisplay = () => {
+    switch (status) {
+      case 'saving':
+        return {
+          icon: <Loader2 className="w-4 h-4 animate-spin" />,
+          text: 'Saving...',
+          className: 'text-gray-600'
+        };
+      case 'dirty':
+        return {
+          icon: <CloudOff className="w-4 h-4" />,
+          text: 'Unsaved changes',
+          className: 'text-amber-600'
+        };
+      case 'saved':
+        return {
+          icon: <Check className="w-4 h-4" />,
+          text: 'Saved',
+          className: 'text-green-600'
+        };
+      case 'idle':
+      default:
+        return {
+          icon: <Save className="w-4 h-4" />,
+          text: 'All changes saved',
+          className: 'text-gray-500'
+        };
+    }
+  };
+
+  const { icon, text, className } = getStatusDisplay();
+
+  return (
+    <div className={`flex items-center gap-2 text-sm font-medium ${className} transition-all duration-300`}>
+      {icon}
+      <span className="hidden sm:inline">{text}</span>
+    </div>
+  );
+}
+
+// Sortable Item Component
+function SortableItem({ id, item, index, imagePreviews, handleItemChange, handleImageUpload, handlePasteImage, removeTimelineItem, handleRemoveImage }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  const isBreak = item.type === 'break';
+  const isFirstItem = index === 0;
+
+  return (
+    <tr ref={setNodeRef} style={style} className={`group ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} ${isBreak ? 'bg-amber-50' : ''}`}>
+      <td className="px-2 py-3 whitespace-nowrap text-center">
+        <button {...attributes} {...listeners} className="cursor-grab p-1 text-gray-400 hover:text-gray-600 transition-colors">
+          <GripVertical size={16} />
+        </button>
+      </td>
+      <td className="px-4 py-3 whitespace-nowrap">
+        <div className="flex items-center gap-2">
+          <input
+            type="time"
+            value={item.start}
+            onChange={(e) => handleItemChange(item.id, 'start', e.target.value)}
+            disabled={!isFirstItem}
+            className={`text-gray-600 px-3 py-1.5 text-sm border rounded-lg font-medium transition-all ${isFirstItem
+              ? 'border-gray-300 hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20'
+              : 'border-gray-200 bg-gray-100 text-gray-100 cursor-not-allowed'
+              }`}
+          />
+          <span className="text-gray-400">→</span>
+          <input
+            type="time"
+            value={item.end}
+            onChange={(e) => handleItemChange(item.id, 'end', e.target.value)}
+            className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 font-medium transition-all"
+          />
+        </div>
+      </td>
+      <td className="px-4 py-3 whitespace-nowrap">
+        <div className="flex items-center gap-1">
+          <input
+            type="number"
+            min="0"
+            value={item.duration}
+            onChange={(e) => handleItemChange(item.id, 'duration', e.target.value)}
+            className="text-gray-600 w-16 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 font-medium transition-all"
+          />
+          <span className="text-sm text-gray-500">min</span>
+        </div>
+      </td>
+      {isBreak ? (
+        <td colSpan="15" className="px-4 py-3">
+          <input
+            type="text"
+            value={item.description}
+            onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
+            className="text-amber-800 w-full px-4 py-2 bg-amber-100 border border-amber-200 rounded-lg hover:border-amber-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 font-medium transition-all"
+            placeholder="Break description"
+          />
+        </td>
+      ) : (
+        <>
+          <td className="px-4 py-3 whitespace-nowrap">
+            <input
+              type="text"
+              value={item.sceneNumber}
+              onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)}
+              className="text-gray-600 w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 font-medium transition-all"
+              placeholder="1A"
+            />
+          </td>
+          <td className="px-4 py-3 whitespace-nowrap">
+            <input
+              type="text"
+              value={item.shotNumber}
+              onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)}
+              className="text-gray-600 w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 font-medium transition-all"
+              placeholder="001"
+            />
+          </td>
+          <td className="px-4 py-3 whitespace-nowrap">
+            <select
+              value={item.intExt}
+              onChange={(e) => handleItemChange(item.id, 'intExt', e.target.value)}
+              className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+            >
+              <option value="INT">INT</option>
+              <option value="EXT">EXT</option>
+              <option value="INT/EXT">INT/EXT</option>
+            </select>
+          </td>
+          <td className="px-4 py-3 whitespace-nowrap">
+            <select
+              value={item.dayNight}
+              onChange={(e) => handleItemChange(item.id, 'dayNight', e.target.value)}
+              className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+            >
+              <option value="DAY">DAY</option>
+              <option value="NIGHT">NIGHT</option>
+              <option value="DAWN">DAWN</option>
+              <option value="DUSK">DUSK</option>
+            </select>
+          </td>
+          <td className="px-4 py-3">
+            <input
+              type="text"
+              value={item.location}
+              onChange={(e) => handleItemChange(item.id, 'location', e.target.value)}
+              className="text-gray-600 w-36 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+              placeholder="Location"
+            />
+          </td>
+          <td className="px-4 py-3 whitespace-nowrap">
+            <select
+              value={item.shotSize}
+              onChange={(e) => handleItemChange(item.id, 'shotSize', e.target.value)}
+              className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+            >
+              <option value="">Select...</option>
+              <option value="ECU">ECU - Extreme Close Up</option>
+              <option value="CU">CU - Close Up</option>
+              <option value="MCU">MCU - Medium Close Up</option>
+              <option value="MS">MS - Medium Shot</option>
+              <option value="MLS">MLS - Medium Long Shot</option>
+              <option value="LS">LS - Long Shot</option>
+              <option value="WS">WS - Wide Shot</option>
+              <option value="EWS">EWS - Extreme Wide Shot</option>
+              <option value="OTS">OTS - Over the Shoulder</option>
+              <option value="POV">POV - Point of View</option>
+              <option value="2S">2S - Two Shot</option>
+              <option value="3S">3S - Three Shot</option>
+              <option value="INS">INS - Insert</option>
+              <option value="CUTAWAY">Cutaway</option>
+            </select>
+          </td>
+          <td className="px-4 py-3">
+            <select
+              value={item.angle}
+              onChange={(e) => handleItemChange(item.id, 'angle', e.target.value)}
+              className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+            >
+              <option value="">Select...</option>
+              <option value="Eye Level">Eye Level</option>
+              <option value="High Angle">High Angle</option>
+              <option value="Low Angle">Low Angle</option>
+              <option value="Dutch/Canted">Dutch/Canted</option>
+              <option value="Bird's Eye">Bird's Eye View</option>
+              <option value="Worm's Eye">Worm's Eye View</option>
+              <option value="Over Head">Over Head</option>
+              <option value="Hip Level">Hip Level</option>
+              <option value="Knee Level">Knee Level</option>
+              <option value="Ground Level">Ground Level</option>
+              <option value="Shoulder Level">Shoulder Level</option>
+              <option value="Top 45">Top 45°</option>
+              <option value="Profile">Profile (90°)</option>
+              <option value="3/4 Front">3/4 Front</option>
+              <option value="3/4 Back">3/4 Back</option>
+            </select>
+          </td>
+          <td className="px-4 py-3">
+            <select
+              value={item.movement}
+              onChange={(e) => handleItemChange(item.id, 'movement', e.target.value)}
+              className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+            >
+              <option value="">Select...</option>
+              <option value="Still">Still</option>
+              <option value="Pan Left">Pan Left</option>
+              <option value="Pan Right">Pan Right</option>
+              <option value="Tilt Up">Tilt Up</option>
+              <option value="Tilt Down">Tilt Down</option>
+              <option value="Dolly In">Dolly In</option>
+              <option value="Dolly Out">Dolly Out</option>
+              <option value="Dolly Left">Dolly Left</option>
+              <option value="Dolly Right">Dolly Right</option>
+              <option value="Truck Left">Truck Left</option>
+              <option value="Truck Right">Truck Right</option>
+              <option value="Zoom In">Zoom In</option>
+              <option value="Zoom Out">Zoom Out</option>
+              <option value="Handheld">Handheld</option>
+              <option value="Handheld (Ronin)">Handheld (Ronin)</option>
+              <option value="Steadicam">Steadicam</option>
+              <option value="Crane Up">Crane Up</option>
+              <option value="Crane Down">Crane Down</option>
+              <option value="Jib">Jib</option>
+              <option value="Track">Track</option>
+              <option value="Arc Left">Arc Left</option>
+              <option value="Arc Right">Arc Right</option>
+              <option value="360°">360° Rotation</option>
+              <option value="Whip Pan">Whip Pan</option>
+              <option value="Push In">Push In</option>
+              <option value="Pull Out">Pull Out</option>
+              <option value="Follow">Follow</option>
+              <option value="Lead">Lead</option>
+            </select>
+          </td>
+          <td className="px-4 py-3">
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                value={item.lens ? item.lens.replace('mm', '').trim() : ''}
+                onChange={(e) => handleItemChange(item.id, 'lens', e.target.value)}
+                className="text-gray-600 w-16 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                placeholder="50"
+              />
+              <span className="text-sm text-gray-500">mm</span>
+            </div>
+          </td>
+          <td className="px-4 py-3">
+            <textarea
+              value={item.description}
+              onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
+              className="text-gray-600 w-52 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 resize-none transition-all"
+              placeholder="Scene description"
+              rows="2"
+            />
+          </td>
+          <td className="px-4 py-3">
+            <input
+              type="text"
+              value={item.cast}
+              onChange={(e) => handleItemChange(item.id, 'cast', e.target.value)}
+              className="text-gray-600 w-28 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+              placeholder="Cast"
+            />
+          </td>
+          <td className="px-4 py-3" onPaste={(e) => handlePasteImage(e, item.id)}>
+            <div className="flex flex-col items-center gap-2">
+              {imagePreviews[item.id] ? (
+                <div className="relative group">
+                  <img
+                    src={imagePreviews[item.id]}
+                    alt={`Reference for ${item.shotNumber}`}
+                    className="w-20 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
+                    onClick={() => window.open(imagePreviews[item.id], '_blank')}
+                  />
+                  <button
+                    onClick={() => handleRemoveImage(item.id)}
+                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <div className="w-20 h-16 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center">
+                  <ImageIcon className="w-6 h-6 text-gray-400" />
+                </div>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                id={`image-${item.id}`}
+                onChange={(e) => handleImageUpload(item.id, e.target.files[0])}
+                className="hidden"
+              />
+              <label
+                htmlFor={`image-${item.id}`}
+                className="text-xs font-medium text-indigo-600 hover:text-indigo-700 cursor-pointer transition-colors"
+              >
+                {imagePreviews[item.id] ? 'Change' : 'Upload'}
+              </label>
+            </div>
+          </td>
+          <td className="px-4 py-3">
+            <input
+              type="text"
+              value={item.props}
+              onChange={(e) => handleItemChange(item.id, 'props', e.target.value)}
+              className="text-gray-600 w-36 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+              placeholder="Props"
+            />
+          </td>
+          <td className="px-4 py-3">
+            <input
+              type="text"
+              value={item.costume}
+              onChange={(e) => handleItemChange(item.id, 'costume', e.target.value)}
+              className="text-gray-600 w-36 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+              placeholder="Costume"
+            />
+          </td>
+          <td className="px-4 py-3">
+            <textarea
+              value={item.notes}
+              onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)}
+              className="text-gray-600 w-36 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 resize-none transition-all"
+              placeholder="Notes"
+              rows="2"
+            />
+          </td>
+        </>
+      )}
+      <td className="px-4 py-3 whitespace-nowrap text-center">
+        <button
+          onClick={() => removeTimelineItem(item.id)}
+          className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </td>
+    </tr>
+  );
+}
