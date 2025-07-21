@@ -433,7 +433,7 @@ export const exportToPDF = (headerInfo: any, timelineItems: any[], stats: any, i
 
             <div class="footer">
                 <div style="font-size: 6pt;">Generated on ${new Date().toLocaleString('th-TH')}</div>
-                <div style="font-size: 6pt;">MentalBreakdown | Beta V.1.2.2.1 Created by Tawich P.</div>
+                <div style="font-size: 6pt;">MentalBreakdown | Beta V.2.0.0.1 Created by Tawich P.</div>
             </div>
         </body>
         </html>

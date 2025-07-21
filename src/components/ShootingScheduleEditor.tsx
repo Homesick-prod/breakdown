@@ -7,7 +7,7 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   GripVertical, Clock, Film, Plus, Save, ChevronDown, Trash2, Download, Settings,
   FileDown, CloudRain, Github, ArrowLeft, Users, MapPin, Sunrise, Sunset, Thermometer,
-  CloudDrizzle, Coffee, Moon, Loader2, Check, CloudOff, Image as ImageIcon, X
+  CloudDrizzle, Coffee, Moon, Loader2, Check, CloudOff, Image as ImageIcon, X, Minus
 } from 'lucide-react';
 import { generateId } from '../utils/id';
 import { calculateEndTime, calculateDuration } from '../utils/time';
@@ -63,7 +63,7 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
         <>
           <td className="px-4 py-3"><input type="text" value={item.sceneNumber} onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)} className="text-gray-600 w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 font-medium transition-all" placeholder="1A" /></td>
           <td className="px-4 py-3"><input type="text" value={item.shotNumber} onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)} className="text-gray-600 w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 font-medium transition-all" placeholder="001" /></td>
-          <td className="px-4 py-3"><select value={item.intExt} onChange={(e) => handleItemChange(item.id, 'intExt', e.target.value)} className="tex    t-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"><option value="INT">INT</option><option value="EXT">EXT</option><option value="INT/EXT">INT/EXT</option></select></td>
+          <td className="px-4 py-3"><select value={item.intExt} onChange={(e) => handleItemChange(item.id, 'intExt', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"><option value="INT">INT</option><option value="EXT">EXT</option><option value="INT/EXT">INT/EXT</option></select></td>
           <td className="px-4 py-3"><select value={item.dayNight} onChange={(e) => handleItemChange(item.id, 'dayNight', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"><option value="DAY">DAY</option><option value="NIGHT">NIGHT</option><option value="DAWN">DAWN</option><option value="DUSK">DUSK</option></select></td>
           <td className="px-4 py-3"><input type="text" value={item.location} onChange={(e) => handleItemChange(item.id, 'location', e.target.value)} className="text-gray-600 w-36 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="Location" /></td>
           <td className="px-4 py-3"><select value={item.shotSize} onChange={(e) => handleItemChange(item.id, 'shotSize', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all">
@@ -109,6 +109,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   const [imagePreviews, setImagePreviews] = useState(() => project?.data?.imagePreviews || {});
   const [saveStatus, setSaveStatus] = useState('idle');
   const [showProductionDetails, setShowProductionDetails] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1);
   const debounceTimeoutRef = useRef(null);
   const isInitialMount = useRef(true);
   const tableContainerRef = useRef(null);
@@ -162,7 +163,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       window.removeEventListener('resize', updateScrollbar);
       window.removeEventListener('scroll', updateScrollbar, true);
     };
-  }, [timelineItems]);
+  }, [timelineItems, zoomLevel]);
 
   const recalculateAndUpdateTimes = useCallback((items) => {
     let lastEndTime = headerInfo.callTime || '06:00';
@@ -275,7 +276,21 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     }
   }
 
+  const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.05, 1.5));
+  const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.05, 0.75));
+
   useEffect(() => { recalculateAndUpdateTimes(timelineItems); }, [headerInfo.callTime, recalculateAndUpdateTimes]);
+
+  // This is the new modifier to correct drag-and-drop coordinates based on zoom level
+  const dragModifiers = [
+    ({ transform }) => {
+      return {
+        ...transform,
+        x: transform.x / zoomLevel,
+        y: transform.y / zoomLevel,
+      };
+    },
+  ];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 relative overflow-x-hidden flex flex-col">
@@ -379,8 +394,17 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div ref={tableContainerRef} className="overflow-x-auto">
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <div
+              ref={tableContainerRef}
+              className="overflow-x-auto"
+              style={{ zoom: zoomLevel }}
+            >
+              <DndContext 
+                sensors={sensors} 
+                collisionDetection={closestCenter} 
+                onDragEnd={handleDragEnd}
+                modifiers={dragModifiers}
+              >
                 <table className="w-full" style={{ minWidth: '2400px' }}>
                   <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-20"><tr>
                     <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider"></th>
@@ -419,7 +443,25 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
           <div ref={floatingScrollbarContentRef} style={{ height: '1px' }}></div>
         </div>
 
-        <Footer />
+        <div className="fixed bottom-10 right-6 z-50 flex flex-col items-center gap-2">
+          <button
+            onClick={handleZoomIn}
+            className="w-10 h-10 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
+            title="Zoom In"
+          >
+            <Plus className="w-5 h-5 text-gray-700" />
+          </button>
+          <span className="text-xs font-bold text-gray-600 bg-white/80 backdrop-blur-sm py-1 px-2 rounded-full border border-gray-200">
+            {Math.round(zoomLevel * 100)}%
+          </span>
+          <button
+            onClick={handleZoomOut}
+            className="w-10 h-10 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
+            title="Zoom Out"
+          >
+            <Minus className="w-5 h-5 text-gray-700" />
+          </button>
+        </div>
       </div>
     </div>
   );
