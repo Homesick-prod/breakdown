@@ -6,8 +6,8 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, v
 import { CSS } from '@dnd-kit/utilities';
 import {
   GripVertical, Clock, Film, Plus, Save, ChevronDown, Trash2, Download, Settings,
-  FileDown, CloudRain, Github, ArrowLeft, Users, MapPin, Sunrise, Sunset, Thermometer,
-  CloudDrizzle, Coffee, Moon, Loader2, Check, CloudOff, Image as ImageIcon, X, Minus
+  FileDown, CloudRain, ListPlus, Search, Layers, Github, ArrowLeft, Users, MapPin, Sunrise, Sunset, Thermometer,
+  CloudDrizzle, Coffee, Moon, Loader2, Check, CloudOff, Image as ImageIcon, X, Minus, ChevronsRight
 } from 'lucide-react';
 import { generateId } from '../utils/id';
 import { calculateEndTime, calculateDuration } from '../utils/time';
@@ -35,14 +35,19 @@ function SaveStatusIndicator({ status }) {
 }
 
 // Sortable timeline item (table row) component
-function SortableItem({ id, item, index, imagePreviews, handleItemChange, handleImageUpload, handlePasteImage, removeTimelineItem, handleRemoveImage }) {
+function SortableItem({ id, item, index, imagePreviews, handleItemChange, handleImageUpload, removeTimelineItem, handleRemoveImage, activeImageUploadId, setActiveImageUploadId }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
   const style = { transform: CSS.Transform.toString(transform), transition };
   const isBreak = item.type === 'break';
   const isFirstItem = index === 0;
+  const isActiveForUpload = activeImageUploadId === item.id;
+
+  const handleImageAreaClick = () => {
+    setActiveImageUploadId(isActiveForUpload ? null : item.id);
+  };
 
   return (
-    <tr ref={setNodeRef} style={style} className={`group ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} ${isBreak ? 'bg-amber-50' : ''}`}>
+    <tr ref={setNodeRef} style={style} className={`group transition-colors duration-200 ${isBreak ? 'bg-amber-50 hover:bg-amber-100/70' : `${(index % 2 === 0 ? 'bg-white' : 'bg-gray-50')} hover:bg-indigo-50/60`}`}>
       <td className="px-2 py-3 whitespace-nowrap text-center"><button {...attributes} {...listeners} className="cursor-grab p-1 text-gray-400 hover:text-gray-600 transition-colors"><GripVertical size={16} /></button></td>
       <td className="px-4 py-3 whitespace-nowrap">
         <div className="flex items-center gap-2">
@@ -66,27 +71,128 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
           <td className="px-4 py-3"><select value={item.intExt} onChange={(e) => handleItemChange(item.id, 'intExt', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"><option value="INT">INT</option><option value="EXT">EXT</option><option value="INT/EXT">INT/EXT</option></select></td>
           <td className="px-4 py-3"><select value={item.dayNight} onChange={(e) => handleItemChange(item.id, 'dayNight', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"><option value="DAY">DAY</option><option value="NIGHT">NIGHT</option><option value="DAWN">DAWN</option><option value="DUSK">DUSK</option></select></td>
           <td className="px-4 py-3"><input type="text" value={item.location} onChange={(e) => handleItemChange(item.id, 'location', e.target.value)} className="text-gray-600 w-36 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="Location" /></td>
-          <td className="px-4 py-3"><select value={item.shotSize} onChange={(e) => handleItemChange(item.id, 'shotSize', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all">
-              <option value="">Select...</option><option value="ECU">ECU - Extreme Close Up</option><option value="CU">CU - Close Up</option><option value="MCU">MCU - Medium Close Up</option><option value="MS">MS - Medium Shot</option><option value="MLS">MLS - Medium Long Shot</option><option value="LS">LS - Long Shot</option><option value="WS">WS - Wide Shot</option><option value="EWS">EWS - Extreme Wide Shot</option><option value="OTS">OTS - Over the Shoulder</option><option value="POV">POV - Point of View</option><option value="2S">2S - Two Shot</option><option value="3S">3S - Three Shot</option><option value="INS">INS - Insert</option><option value="CUTAWAY">Cutaway</option>
-            </select></td>
-          <td className="px-4 py-3"><select value={item.angle} onChange={(e) => handleItemChange(item.id, 'angle', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all">
-              <option value="">Select...</option><option value="Eye Level">Eye Level</option><option value="High Angle">High Angle</option><option value="Low Angle">Low Angle</option><option value="Dutch/Canted">Dutch/Canted</option><option value="Bird's Eye">Bird's Eye View</option><option value="Worm's Eye">Worm's Eye View</option><option value="Over Head">Over Head</option><option value="Hip Level">Hip Level</option><option value="Knee Level">Knee Level</option><option value="Ground Level">Ground Level</option><option value="Shoulder Level">Shoulder Level</option><option value="Top 45">Top 45°</option><option value="Profile">Profile (90°)</option><option value="3/4 Front">3/4 Front</option><option value="3/4 Back">3/4 Back</option>
-            </select></td>
-          <td className="px-4 py-3"><select value={item.movement} onChange={(e) => handleItemChange(item.id, 'movement', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all">
-              <option value="">Select...</option><option value="Still">Still</option><option value="Pan Left">Pan Left</option><option value="Pan Right">Pan Right</option><option value="Tilt Up">Tilt Up</option><option value="Tilt Down">Tilt Down</option><option value="Dolly In">Dolly In</option><option value="Dolly Out">Dolly Out</option><option value="Dolly Left">Dolly Left</option><option value="Dolly Right">Dolly Right</option><option value="Truck Left">Truck Left</option><option value="Truck Right">Truck Right</option><option value="Zoom In">Zoom In</option><option value="Zoom Out">Zoom Out</option><option value="Handheld">Handheld</option><option value="Handheld (Ronin)">Handheld (Ronin)</option><option value="Steadicam">Steadicam</option><option value="Crane Up">Crane Up</option><option value="Crane Down">Crane Down</option><option value="Jib">Jib</option><option value="Track">Track</option><option value="Arc Left">Arc Left</option><option value="Arc Right">Arc Right</option><option value="360°">360° Rotation</option><option value="Whip Pan">Whip Pan</option><option value="Push In">Push In</option><option value="Pull Out">Pull Out</option><option value="Follow">Follow</option><option value="Lead">Lead</option>
-            </select></td>
+          <td className="px-4 py-3">
+            <select value={item.shotSize} onChange={(e) => handleItemChange(item.id, 'shotSize', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all">
+              <option value="">Select Size...</option>
+              <optgroup label="Wide Shots">
+                <option value="EWS">EWS - Extreme Wide Shot</option>
+                <option value="VWS">VWS - Very Wide Shot</option>
+                <option value="WS">WS - Wide Shot</option>
+                <option value="LS">LS - Long Shot</option>
+                <option value="FLS">FLS - Full Length Shot</option>
+              </optgroup>
+              <optgroup label="Medium Shots">
+                <option value="MS">MS - Medium Shot</option>
+                <option value="MCU">MCU - Medium Close-Up</option>
+                <option value="Cowboy">Cowboy Shot</option>
+              </optgroup>
+              <optgroup label="Close-Ups">
+                <option value="CU">CU - Close-Up</option>
+                <option value="ECU">ECU - Extreme Close-Up</option>
+                <option value="Insert">Insert Shot</option>
+              </optgroup>
+              <optgroup label="Multi-Subject">
+                <option value="2S">Two-Shot</option>
+                <option value="3S">Three-Shot</option>
+                <option value="Group">Group Shot</option>
+              </optgroup>
+              <optgroup label="Specialty">
+                <option value="POV">POV - Point of View</option>
+                <option value="OTS">OTS - Over the Shoulder</option>
+                <option value="Cutaway">Cutaway</option>
+                <option value="Establishing">Establishing Shot</option>
+              </optgroup>
+            </select>
+          </td>
+          <td className="px-4 py-3">
+            <select value={item.angle} onChange={(e) => handleItemChange(item.id, 'angle', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all">
+              <option value="">Select Angle...</option>
+              <optgroup label="Vertical Angles">
+                <option value="High Angle">High Angle</option>
+                <option value="Eye Level">Eye Level</option>
+                <option value="Low Angle">Low Angle</option>
+                <option value="Worm's Eye">Worm's Eye View</option>
+                <option value="Bird's Eye">Bird's Eye View</option>
+                <option value="Ground Level">Ground Level</option>
+              </optgroup>
+              <optgroup label="Horizontal Angles">
+                <option value="Front">Front Angle</option>
+                <option value="3/4 Front">3/4 Front</option>
+                <option value="Profile">Profile</option>
+                <option value="3/4 Back">3/4 Back</option>
+                <option value="Rear">Rear Angle</option>
+              </optgroup>
+              <optgroup label="Specialty">
+                <option value="Dutch/Canted">Dutch Angle / Canted</option>
+                <option value="OTS">Over-the-Shoulder (OTS)</option>
+                <option value="POV">Point of View (POV)</option>
+              </optgroup>
+            </select>
+          </td>
+          <td className="px-4 py-3">
+            <select value={item.movement} onChange={(e) => handleItemChange(item.id, 'movement', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all">
+              <option value="">Select Movement...</option>
+              <optgroup label="Stationary Camera">
+                <option value="Static">Static / Still</option>
+                <option value="Pan">Pan (Left/Right)</option>
+                <option value="Whip Pan">Whip Pan</option>
+                <option value="Tilt">Tilt (Up/Down)</option>
+                <option value="Pedestal">Pedestal (Up/Down)</option>
+              </optgroup>
+              <optgroup label="Camera on Wheels">
+                <option value="Dolly">Dolly (In/Out)</option>
+                <option value="Truck">Truck / Track (Left/Right)</option>
+                <option value="Arc">Arc (Left/Right)</option>
+                <option value="Creep">Creep (In/Out)</option>
+              </optgroup>
+              <optgroup label="Camera in Motion">
+                <option value="Handheld">Handheld</option>
+                <option value="Steadicam">Steadicam</option>
+                <option value="Gimbal">Gimbal (e.g., Ronin)</option>
+                <option value="Follow">Follow</option>
+                <option value="Lead">Lead</option>
+              </optgroup>
+              <optgroup label="Lens Movement">
+                <option value="Zoom">Zoom (In/Out)</option>
+                <option value="Dolly Zoom">Dolly Zoom (Vertigo)</option>
+              </optgroup>
+              <optgroup label="Crane / Jib">
+                <option value="Crane/Jib">Crane / Jib (Up/Down)</option>
+                <option value="Swing">Swing</option>
+              </optgroup>
+              <optgroup label="Specialized">
+                <option value="Drone/Aerial">Drone / Aerial</option>
+                <option value="360 Rotation">360° Rotation</option>
+              </optgroup>
+            </select>
+          </td>
           <td className="px-4 py-3"><div className="flex items-center gap-1"><input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', e.target.value)} className="text-gray-600 w-16 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="50" /><span className="text-sm text-gray-500">mm</span></div></td>
           <td className="px-4 py-3"><textarea value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="text-gray-600 w-52 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 resize-none transition-all" placeholder="Scene description" rows="2" /></td>
           <td className="px-4 py-3"><input type="text" value={item.cast} onChange={(e) => handleItemChange(item.id, 'cast', e.target.value)} className="text-gray-600 w-28 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="Cast" /></td>
-          <td className="px-4 py-3" onPaste={(e) => handlePasteImage(e, item.id)}>
+          <td className="px-4 py-3">
             <div className="flex flex-col items-center gap-2">
-              {imagePreviews[item.id] ? (
-                <div className="relative group"><img src={imagePreviews[item.id]} alt={`Ref for ${item.shotNumber}`} className="w-20 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity" onClick={() => window.open(imagePreviews[item.id], '_blank')} /><button onClick={() => handleRemoveImage(item.id)} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><X className="w-3 h-3" /></button></div>
-              ) : (
-                <div className="w-20 h-16 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center"><ImageIcon className="w-6 h-6 text-gray-400" /></div>
-              )}
-              <input type="file" accept="image/*" id={`image-${item.id}`} onChange={(e) => handleImageUpload(item.id, e.target.files[0])} className="hidden" />
-              <label htmlFor={`image-${item.id}`} className="text-xs font-medium text-indigo-600 hover:text-indigo-700 cursor-pointer transition-colors">{imagePreviews[item.id] ? 'Change' : 'Upload'}</label>
+                {imagePreviews[item.id] ? (
+                <div className="relative group/img">
+                    <img 
+                        src={imagePreviews[item.id]} 
+                        alt={`Ref for ${item.shotNumber}`} 
+                        className="w-20 h-16 object-cover rounded-lg border border-gray-200 transition-all cursor-pointer"
+                        onClick={handleImageAreaClick}
+                    />
+                    <button onClick={(e) => { e.stopPropagation(); handleRemoveImage(item.id); }} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity shadow-lg"><X className="w-3 h-3" /></button>
+                </div>
+                ) : (
+                    <div 
+                className={`w-20 h-16 bg-gray-100 rounded-lg border-2 border-dashed flex items-center justify-center hover:border-indigo-400 transition-all cursor-pointer ${isActiveForUpload ? 'border-indigo-500 bg-indigo-100 ring-2 ring-indigo-300' : 'border-gray-300'}`}
+                        onClick={handleImageAreaClick}
+                    >
+                        <ImageIcon className="w-6 h-6 text-gray-400" />
+                    </div>
+                )}
+                <input type="file" accept="image/*" id={`image-${item.id}`} onChange={(e) => handleImageUpload(item.id, e.target.files[0])} className="hidden" />
+                <label htmlFor={`image-${item.id}`} className="text-xs font-medium text-indigo-600 hover:text-indigo-700 cursor-pointer transition-colors">
+                    {imagePreviews[item.id] ? 'Change' : 'Upload'}
+                </label>
             </div>
           </td>
           <td className="px-4 py-3"><input type="text" value={item.props} onChange={(e) => handleItemChange(item.id, 'props', e.target.value)} className="text-gray-600 w-36 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="Props" /></td>
@@ -97,6 +203,134 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
       <td className="px-4 py-3 whitespace-nowrap text-center"><button onClick={() => removeTimelineItem(item.id)} className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button></td>
     </tr>
   );
+}
+
+function ShotImportModal({ isOpen, onClose, shotList, imagePreviews, onImport }) {
+    // Hooks are now at the top level
+    const [selectedShots, setSelectedShots] = useState(new Set());
+    const [searchTerm, setSearchTerm] = useState('');
+
+    useEffect(() => {
+        if (isOpen) {
+            setSelectedShots(new Set());
+            setSearchTerm('');
+        }
+    }, [isOpen]);
+
+    const groupedAndFilteredShots = useMemo(() => {
+        const filtered = shotList.filter(shot => 
+            shot.sceneNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            shot.shotNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            shot.description?.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+
+        const groups = filtered.reduce((acc, shot) => {
+            const sceneKey = shot.sceneNumber || 'Uncategorized';
+            if (!acc[sceneKey]) {
+                acc[sceneKey] = [];
+            }
+            acc[sceneKey].push(shot);
+            return acc;
+        }, {});
+
+        return Object.keys(groups)
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+            .reduce((acc, key) => ({ ...acc, [key]: groups[key] }), {});
+
+    }, [shotList, searchTerm]);
+
+    // Conditional return is now after all hooks
+    if (!isOpen) return null;
+
+    const handleImportClick = () => {
+        onImport(Array.from(selectedShots));
+        onClose();
+    };
+
+    const handleSelectAllFiltered = () => {
+        const allFilteredIds = Object.values(groupedAndFilteredShots).flat().map(s => s.id);
+        if (selectedShots.size === allFilteredIds.length) {
+            setSelectedShots(new Set());
+        } else {
+            setSelectedShots(new Set(allFilteredIds));
+        }
+    };
+    
+    const handleSelectScene = (sceneShots) => {
+        const sceneShotIds = sceneShots.map(s => s.id);
+        const allCurrentlySelected = sceneShotIds.every(id => selectedShots.has(id));
+        
+        setSelectedShots(prev => {
+            const newSet = new Set(prev);
+            if (allCurrentlySelected) {
+                sceneShotIds.forEach(id => newSet.delete(id));
+            } else {
+                sceneShotIds.forEach(id => newSet.add(id));
+            }
+            return newSet;
+        });
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+            <div className="flex items-center justify-center min-h-screen px-4">
+                <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose}></div>
+                <div className="relative bg-white rounded-xl shadow-xl max-w-4xl w-full my-8 animate-in fade-in zoom-in-95 duration-300 flex flex-col">
+                    <div className="p-6 border-b border-gray-200">
+                        <h3 className="text-xl font-semibold text-gray-900">Import from Shot List</h3>
+                        <p className="text-sm text-gray-500 mt-1">Select shots to add to your schedule.</p>
+                    </div>
+                    <div className="p-6 flex-grow overflow-hidden">
+                        <div className="flex justify-between items-center mb-4">
+                            <div className="relative flex-grow">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                                <input 
+                                    type="text"
+                                    placeholder="Search by scene, shot, or description..."
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                    className="text-gray-600 w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                />
+                            </div>
+                            <button onClick={handleSelectAllFiltered} className="ml-4 px-4 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
+                                {selectedShots.size === Object.values(groupedAndFilteredShots).flat().length ? 'Deselect All' : 'Select All'}
+                            </button>
+                        </div>
+                        <div className="max-h-[50vh] overflow-y-auto border border-gray-200 rounded-lg bg-gray-50/50">
+                            {Object.entries(groupedAndFilteredShots).length > 0 ? Object.entries(groupedAndFilteredShots).map(([sceneKey, shots]) => (
+                                <div key={sceneKey} className="border-b border-gray-200 last:border-b-0">
+                                    <div className="flex items-center justify-between p-3 bg-gray-100 sticky top-0 z-10">
+                                        <h4 className="font-semibold text-gray-800 flex items-center gap-2"><Layers size={16} /> Scene {sceneKey}</h4>
+                                        <button onClick={() => handleSelectScene(shots)} className="px-3 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-100 rounded-md transition-colors">
+                                            Select/Deselect Scene
+                                        </button>
+                                    </div>
+                                    <ul className="divide-y divide-gray-100">
+                                        {shots.map(shot => (
+                                            <li key={shot.id} onClick={() => setSelectedShots(prev => { const n = new Set(prev); n.has(shot.id) ? n.delete(shot.id) : n.add(shot.id); return n; })} className={`flex items-center gap-4 p-3 cursor-pointer transition-colors ${selectedShots.has(shot.id) ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}>
+                                                <input type="checkbox" checked={selectedShots.has(shot.id)} readOnly className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 border-gray-300" />
+                                                <img src={imagePreviews[shot.id] || 'https://placehold.co/80x60/e2e8f0/94a3b8?text=No+Ref'} alt="Ref" className="w-20 h-16 object-cover rounded-md bg-gray-100" />
+                                                <div className="flex-grow">
+                                                    <p className="font-semibold text-gray-800">Shot {shot.shotNumber}</p>
+                                                    <p className="text-sm text-gray-600 truncate">{shot.description || 'No description'}</p>
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )) : (
+                                <div className="text-center p-8 text-gray-500">No shots found.</div>
+                            )}
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-3 p-6 bg-gray-50 border-t border-gray-200 rounded-b-xl">
+                        <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+                        <button onClick={handleImportClick} disabled={selectedShots.size === 0} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50">Import {selectedShots.size} Shot(s)</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
 }
 
 // Main editor component
@@ -110,6 +344,8 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   const [saveStatus, setSaveStatus] = useState('idle');
   const [showProductionDetails, setShowProductionDetails] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [showZoomControls, setShowZoomControls] = useState(true);
+  const [activeImageUploadId, setActiveImageUploadId] = useState(null);
   const debounceTimeoutRef = useRef(null);
   const isInitialMount = useRef(true);
   const tableContainerRef = useRef(null);
@@ -117,76 +353,40 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   const floatingScrollbarContentRef = useRef(null);
   const [showFloatingScrollbar, setShowFloatingScrollbar] = useState(false);
   const isSyncingScroll = useRef(false);
+  const tableRef = useRef(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
-  // --- START: AUTOSAVE FIX ---
+  const shotList = useMemo(() => project?.data?.shotListData?.shotListItems || [], [project]);
+  const shotListImagePreviews = useMemo(() => project?.data?.shotListData?.imagePreviews || {}, [project]);
 
-  // Stringify the data to create a stable, primitive dependency for the useEffect hook.
   const stringifiedData = useMemo(() => JSON.stringify({ headerInfo, timelineItems, imagePreviews }), [headerInfo, timelineItems, imagePreviews]);
-
-  // Keep a ref to the onSave prop to prevent it from being a dependency.
   const onSaveRef = useRef(onSave);
-  useEffect(() => {
-    onSaveRef.current = onSave;
-  });
+  useEffect(() => { onSaveRef.current = onSave; });
 
-  // This is the new, robust autosave effect.
-    useEffect(() => {
-    onSaveRef.current = onSave;
-  });
-
-  // This is the new, robust autosave effect.
   useEffect(() => {
-    // Don't save on the initial render.
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
-
     setSaveStatus('dirty');
-
-    // Clear any existing timer.
-    if (debounceTimeoutRef.current) {
-      clearTimeout(debounceTimeoutRef.current);
-    }
-
-    // Set a new timer to save the data.
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
     debounceTimeoutRef.current = setTimeout(() => {
       const dataToSave = JSON.parse(stringifiedData);
-      
-      // Set status to "saving" so the user sees feedback.
       setSaveStatus('saving');
-      
-      // Use a promise chain with an artificial delay to ensure the "saving" state is visible.
       Promise.resolve()
-        // 1. Artificially wait for 500ms to simulate a network request.
         .then(() => new Promise(resolve => setTimeout(resolve, 500)))
-        // 2. Perform the actual save.
         .then(() => onSaveRef.current(dataToSave))
-        // 3. Update status to "saved".
         .then(() => {
           setSaveStatus('saved');
-          // 4. Wait before returning to the idle state.
           return new Promise(resolve => setTimeout(resolve, 2500));
         })
-        // 5. Return to idle.
-        .then(() => {
-          setSaveStatus('idle');
-        });
+        .then(() => setSaveStatus('idle'));
     }, 1000);
-
-    // Cleanup the timer if the component unmounts or the effect re-runs.
-    return () => {
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-      }
-    };
-  // The effect ONLY runs when the stringified data has actually changed.
+    return () => { if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current); };
   }, [stringifiedData]);
+  // --- END: AUTOSAVE ---
 
-  // --- END: AUTOSAVE FIX ---
-
-
-  // Floating scrollbar logic
+  // --- START: UI BEHAVIOR HOOKS ---
   useEffect(() => {
     const tableContainer = tableContainerRef.current;
     const floatingScrollbar = floatingScrollbarRef.current;
@@ -210,12 +410,24 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
 
     return () => {
       observer.disconnect();
-      tableContainer.removeEventListener('scroll', handleTableScroll);
-      floatingScrollbar.removeEventListener('scroll', handleFloatingScroll);
+      if (tableContainer) tableContainer.removeEventListener('scroll', handleTableScroll);
+      if (floatingScrollbar) floatingScrollbar.removeEventListener('scroll', handleFloatingScroll);
       window.removeEventListener('resize', updateScrollbar);
       window.removeEventListener('scroll', updateScrollbar, true);
     };
   }, [timelineItems, zoomLevel]);
+
+  // Deselect active row/image upload when clicking outside the table
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (tableRef.current && !tableRef.current.contains(event.target)) {
+        setActiveImageUploadId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+  // --- END: UI BEHAVIOR HOOKS ---
 
   const recalculateAndUpdateTimes = useCallback((items) => {
     let lastEndTime = headerInfo.callTime || '06:00';
@@ -265,7 +477,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   const addShot = useCallback(() => {
     const lastItem = timelineItems[timelineItems.length - 1];
     const newStartTime = lastItem ? lastItem.end : (headerInfo.callTime || '06:00');
-    const newShot = { id: generateId(), type: 'shot', start: newStartTime, duration: 10, end: '', sceneNumber: '', shotNumber: '', intExt: 'INT', dayNight: 'DAY', location: '', description: '', cast: '', shotSize: 'MS', angle: 'Eye Level', movement: 'Still', lens: '', props: '', costume: '', notes: '', imageUrl: '' };
+    const newShot = { id: generateId(), type: 'shot', start: newStartTime, duration: 10, end: '', sceneNumber: '', shotNumber: '', intExt: 'INT', dayNight: 'DAY', location: '', description: '', cast: '', shotSize: '', angle: '', movement: '', lens: '', props: '', costume: '', notes: '', imageUrl: '' };
     newShot.end = calculateEndTime(newShot.start, newShot.duration);
     setTimelineItems(prev => [...prev, newShot]);
   }, [timelineItems, headerInfo.callTime]);
@@ -290,7 +502,12 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   const handleImageUpload = useCallback((itemId, file) => {
     if (!file || !file.type.startsWith('image/')) return;
     const reader = new FileReader();
-    reader.onloadend = () => setImagePreviews(prev => ({ ...prev, [itemId]: reader.result as string }));
+    reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+            setImagePreviews(prev => ({ ...prev, [itemId]: reader.result }));
+            setActiveImageUploadId(null);
+        }
+    };
     reader.readAsDataURL(file);
   }, []);
 
@@ -298,16 +515,90 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     setImagePreviews(prev => { const newPreviews = { ...prev }; delete newPreviews[itemId]; return newPreviews; });
   }, []);
 
-  const handlePasteImage = useCallback((e, itemId) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const item of items) {
-      if (item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) { e.preventDefault(); handleImageUpload(itemId, file); return; }
+  const handlePasteImage = useCallback((e, targetItemId) => {
+    const itemIdToUse = targetItemId || activeImageUploadId;
+    if (!itemIdToUse) return;
+
+    const clipboardData = e.clipboardData;
+    if (!clipboardData) return;
+
+    e.preventDefault();
+
+    const html = clipboardData.getData('text/html');
+    if (html && html.includes('<img')) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const img = doc.querySelector('img');
+      if (img && img.src) {
+        if (img.src.startsWith('data:image')) {
+          setImagePreviews((prev) => ({ ...prev, [itemIdToUse]: img.src }));
+          setActiveImageUploadId(null);
+        } else {
+          fetch(img.src)
+            .then(res => res.blob())
+            .then(blob => {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                if (typeof reader.result === 'string') {
+                  setImagePreviews((prev) => ({ ...prev, [itemIdToUse]: reader.result }));
+                  setActiveImageUploadId(null);
+                }
+              };
+              reader.readAsDataURL(blob);
+            }).catch(err => console.error("Error fetching pasted image:", err));
+        }
+        return;
       }
     }
-  }, [handleImageUpload]);
+
+    if (clipboardData.files && clipboardData.files.length > 0) {
+      const file = Array.from(clipboardData.files).find(f => f.type.startsWith('image/'));
+      if (file) {
+        handleImageUpload(itemIdToUse, file);
+        return;
+      }
+    }
+  }, [activeImageUploadId, handleImageUpload]);
+  
+  useEffect(() => {
+    const globalPasteHandler = (e) => {
+        if (activeImageUploadId) {
+            handlePasteImage(e, activeImageUploadId);
+        }
+    };
+    document.addEventListener('paste', globalPasteHandler);
+    return () => document.removeEventListener('paste', globalPasteHandler);
+  }, [activeImageUploadId, handlePasteImage]);
+
+    const handleImportShots = useCallback((shotIdsToImport) => {
+      const shotsToAdd = shotIdsToImport
+          .map(shotId => shotList.find(s => s.id === shotId))
+          .filter(Boolean);
+
+      const newTimelineItems = shotsToAdd.map(shot => {
+          const newShot: TimelineItem = {
+              id: generateId(),
+              type: 'shot',
+              start: '', // Will be set by recalculation
+              duration: 15, // Default duration for imported shots
+              end: '', // Will be set by recalculation
+              sceneNumber: shot.sceneNumber,
+              shotNumber: shot.shotNumber,
+              shotSize: shot.shotSize,
+              angle: shot.angle,
+              movement: shot.movement,
+              lens: shot.lens,
+              description: shot.description,
+              notes: shot.notes,
+              linkedShotId: shot.id,
+              intExt: 'INT', dayNight: 'DAY', location: '', cast: '', props: '', costume: '',
+          };
+          return newShot;
+      });
+      
+      recalculateAndUpdateTimes([...timelineItems, ...newTimelineItems]);
+
+  }, [shotList, timelineItems, recalculateAndUpdateTimes]);
 
   const stats = useMemo(() => {
     const totalDuration = timelineItems.reduce((sum, item) => sum + (item.duration || 0), 0);
@@ -329,23 +620,21 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   }
 
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.05, 1.5));
-  const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.05, 0.75));
+  const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.05, 0.60));
 
   useEffect(() => { recalculateAndUpdateTimes(timelineItems); }, [headerInfo.callTime, recalculateAndUpdateTimes]);
 
-  // This is the new modifier to correct drag-and-drop coordinates based on zoom level
-  const dragModifiers = [
-    ({ transform }) => {
-      return {
-        ...transform,
-        x: transform.x / zoomLevel,
-        y: transform.y / zoomLevel,
-      };
-    },
-  ];
+  const dragModifiers = [({ transform }) => ({ ...transform, x: transform.x / zoomLevel, y: transform.y / zoomLevel })];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 relative overflow-x-hidden flex flex-col">
+            <ShotImportModal 
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          shotList={shotList}
+          imagePreviews={shotListImagePreviews}
+          onImport={handleImportShots}
+      />
       <div className="absolute inset-0 opacity-20" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='110' height='73.33' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3Cstyle%3E.pattern %7B width: 100%25; height: 100%25; --s: 110px; --c1: %23dedede; --c2: %23ededed; --c3: %23d6d6d6; --_g: var(--c1) 10%25,var(--c2) 10.5%25 19%25,%230000 19.5%25 80.5%25,var(--c2) 81%25 89.5%25,var(--c3) 90%25; --_c: from -90deg at 37.5%25 50%25,%230000 75%25; --_l1: linear-gradient(145deg,var(--_g)); --_l2: linear-gradient( 35deg,var(--_g)); background: var(--_l1), var(--_l1) calc(var(--s)/2) var(--s), var(--_l2), var(--_l2) calc(var(--s)/2) var(--s), conic-gradient(var(--_c),var(--c1) 0) calc(var(--s)/8) 0, conic-gradient(var(--_c),var(--c3) 0) calc(var(--s)/2) 0, linear-gradient(90deg,var(--c3) 38%25,var(--c1) 0 50%25,var(--c3) 0 62%25,var(--c1) 0); background-size: var(--s) calc(2*var(--s)/3); %7D%3C/style%3E%3C/defs%3E%3CforeignObject width='100%25' height='100%25'%3E%3Cdiv class='pattern' xmlns='http://www.w3.org/1999/xhtml'%3E%3C/div%3E%3C/foreignObject%3E%3C/svg%3E")` }}></div>
       <div className="relative z-10 flex flex-col flex-grow">
         <header className="w-screen bg-white shadow-sm border-b border-gray-100 fixed top-0 z-40">
@@ -357,8 +646,8 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
             <div className="flex items-center gap-3">
               <SaveStatusIndicator status={saveStatus} />
               <div className="h-6 w-px bg-gray-200"></div>
-              <button onClick={handleExportProject} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg"><FileDown className="w-4 h-4" /><span className="hidden sm:inline">Save .mbd</span></button>
-              <button onClick={() => exportToPDF(headerInfo, timelineItems, stats, imagePreviews)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"><Download className="w-4 h-4" /><span className="hidden sm:inline">Export PDF</span></button>
+              <button onClick={handleExportProject} className="cursor-pointer flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg"><FileDown className="w-4 h-4" /><span className="hidden sm:inline">Save .mbd</span></button>
+              <button onClick={() => exportToPDF(headerInfo, timelineItems, stats, imagePreviews)} className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"><Download className="w-4 h-4" /><span className="hidden sm:inline">Export PDF</span></button>
             </div>
           </div></div>
         </header>
@@ -443,6 +732,8 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
           <div className="flex gap-3 mb-6">
             <button onClick={addShot} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"><Plus className="w-4 h-4" />Add Shot</button>
             <button onClick={addBreak} className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white font-medium rounded-lg hover:bg-amber-600 transition-colors"><Coffee className="w-4 h-4" />Add Break</button>
+                        <div className="w-px bg-gray-300 mx-2"></div>
+            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white font-medium rounded-lg hover:bg-teal-700 transition-colors"><ListPlus className="w-4 h-4" />Import from Shot List</button>
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -457,7 +748,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
                 onDragEnd={handleDragEnd}
                 modifiers={dragModifiers}
               >
-                <table className="w-full" style={{ minWidth: '2400px' }}>
+                <table className="w-full" style={{ minWidth: '2400px' }} ref={tableRef}>
                   <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-20"><tr>
                     <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider"></th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Time</th>
@@ -481,7 +772,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
                   </tr></thead>
                   <tbody className="divide-y divide-gray-100">
                     <SortableContext items={timelineItems.map(item => item.id)} strategy={verticalListSortingStrategy}>
-                      {timelineItems.map((item, index) => <SortableItem key={item.id} id={item.id} item={item} index={index} imagePreviews={imagePreviews} handleItemChange={handleItemChange} handleImageUpload={handleImageUpload} handlePasteImage={handlePasteImage} removeTimelineItem={removeTimelineItem} handleRemoveImage={handleRemoveImage} />)}
+                      {timelineItems.map((item, index) => <SortableItem key={item.id} id={item.id} item={item} index={index} imagePreviews={imagePreviews} handleItemChange={handleItemChange} handleImageUpload={handleImageUpload} removeTimelineItem={removeTimelineItem} handleRemoveImage={handleRemoveImage} activeImageUploadId={activeImageUploadId} setActiveImageUploadId={setActiveImageUploadId} />)}
                     </SortableContext>
                   </tbody>
                 </table>
@@ -495,26 +786,36 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
           <div ref={floatingScrollbarContentRef} style={{ height: '1px' }}></div>
         </div>
 
-        <div className="fixed bottom-10 right-6 z-50 flex flex-col items-center gap-2">
-          <button
+<div className="fixed bottom-10 right-2 z-50 flex items-center gap-1">
+    <div className={`flex flex-col items-center gap-2 transition-all duration-300 ease-in-out ${showZoomControls ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0 pointer-events-none'}`}>
+        <button
             onClick={handleZoomIn}
-            className="w-10 h-10 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
+            className="w-8 h-8 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
             title="Zoom In"
-          >
-            <Plus className="w-5 h-5 text-gray-700" />
-          </button>
-          <span className="text-xs font-bold text-gray-600 bg-white/80 backdrop-blur-sm py-1 px-2 rounded-full border border-gray-200">
+        >
+            <Plus className="w-4 h-4 text-gray-700" />
+        </button>
+        <span className="text-xs font-bold text-gray-600 bg-white/80 backdrop-blur-sm py-1 px-2 rounded-full border border-gray-200">
             {Math.round(zoomLevel * 100)}%
-          </span>
-          <button
+        </span>
+        <button
             onClick={handleZoomOut}
-            className="w-10 h-10 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
+            className="w-8 h-8 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
             title="Zoom Out"
-          >
-            <Minus className="w-5 h-5 text-gray-700" />
-          </button>
-        </div>
+        >
+            <Minus className="w-4 h-4 text-gray-700" />
+        </button>
+    </div>
+
+    <button
+        onClick={() => setShowZoomControls(!showZoomControls)}
+        className="w-8 h-8 bg-white/80 backadrop-blur-sm border border-gray-200 rounded-lg flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
+        title={showZoomControls ? 'Hide Controls' : 'Show Controls'}
+    >
+        <ChevronsRight className={`w-5 h-5 text-gray-700 transition-transform duration-300 ${showZoomControls ? '' : 'rotate-180'}`} />
+    </button>
+</div>
+
       </div>
     </div>
-  );
-}
+  )

@@ -1,0 +1,1 @@
+export const sarabunBase64 = 'AAEAAAARAQAABAAQR0RFRg... (a very long string will be here in a real implementation)'; 

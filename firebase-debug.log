@@ -1,0 +1,51 @@
+[debug] [2025-07-23T12:13:33.821Z] ----------------------------------------------------------------------
+[debug] [2025-07-23T12:13:33.823Z] Command:       /usr/local/Cellar/node/23.11.0/bin/node /usr/local/bin/firebase init
+[debug] [2025-07-23T12:13:33.823Z] CLI Version:   14.11.1
+[debug] [2025-07-23T12:13:33.823Z] Platform:      darwin
+[debug] [2025-07-23T12:13:33.823Z] Node Version:  v23.11.0
+[debug] [2025-07-23T12:13:33.824Z] Time:          Wed Jul 23 2025 19:13:33 GMT+0700 (Indochina Time)
+[debug] [2025-07-23T12:13:33.824Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-07-23T12:13:33.950Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-07-23T12:13:33.951Z] > authorizing via signed-in user (tawitfilm0297@gmail.com)
+[info] 
+     ######## #### ########  ######## ########     ###     ######  ########
+     ##        ##  ##     ## ##       ##     ##  ##   ##  ##       ##
+     ######    ##  ########  ######   ########  #########  ######  ######
+     ##        ##  ##    ##  ##       ##     ## ##     ##       ## ##
+     ##       #### ##     ## ######## ########  ##     ##  ######  ########
+
+You're about to initialize a Firebase project in this directory:
+
+  /Users/tawichplengsuriyakarn/Documents/Code/breakdown
+
+Before we get started, keep in mind:
+
+  * You are initializing within an existing Firebase project directory
+
+[info] 
+=== Project Setup
+[info] 
+[info] First, let's associate this project directory with a Firebase project.
+[info] You can create multiple project aliases by running firebase use --add, 
+[info] but for now we'll just set up a default project.
+[info] 
+[debug] [2025-07-23T12:13:38.746Z] Using project from CLI flag: shootingscheduleeditor
+[debug] [2025-07-23T12:13:38.747Z] Checked if tokens are valid: true, expires at: 1753276394790
+[debug] [2025-07-23T12:13:38.747Z] Checked if tokens are valid: true, expires at: 1753276394790
+[debug] [2025-07-23T12:13:38.748Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/shootingscheduleeditor [none]
+[debug] [2025-07-23T12:13:39.399Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/shootingscheduleeditor 200
+[debug] [2025-07-23T12:13:39.400Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/shootingscheduleeditor {"projectId":"shootingscheduleeditor","projectNumber":"732747773766","displayName":"ShootingScheduleEditor","name":"projects/shootingscheduleeditor","resources":{"hostingSite":"shootingscheduleeditor"},"state":"ACTIVE","etag":"1_ceaed12c-c90c-42b2-9913-52737e47fb33"}
+[info] i  Using project shootingscheduleeditor (ShootingScheduleEditor) 
+[info] 
+=== Hosting Setup
+[debug] [2025-07-23T12:13:39.403Z] Checked if tokens are valid: true, expires at: 1753276394790
+[debug] [2025-07-23T12:13:39.403Z] Checked if tokens are valid: true, expires at: 1753276394790
+[debug] [2025-07-23T12:13:39.403Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/shootingscheduleeditor [none]
+[debug] [2025-07-23T12:13:39.670Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/shootingscheduleeditor 200
+[debug] [2025-07-23T12:13:39.670Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/shootingscheduleeditor {"projectId":"shootingscheduleeditor","projectNumber":"732747773766","displayName":"ShootingScheduleEditor","name":"projects/shootingscheduleeditor","resources":{"hostingSite":"shootingscheduleeditor"},"state":"ACTIVE","etag":"1_ceaed12c-c90c-42b2-9913-52737e47fb33"}
+[info] 
+[info] Your public directory is the folder (relative to your project directory) that
+[info] will contain Hosting assets to be uploaded with firebase deploy. If you
+[info] have a build process for your assets, use your build's output directory.
+[info] 

@@ -179,7 +179,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
 
   return (
     <div className=" min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50 relative overflow-hidden flex flex-col">
-       <div className="absolute inset-0 opacity-[0.01]" style={{ '--s': '100px', background: 'radial-gradient(100% 50% at 100% 0, #0000, #0004 5%, #797979FF 6% 14%, #ffffff 16% 24%, #797979FF 26% 34%, #ffffff 36% 44%, #797979FF 46% 54%, #ffffff 56% 64%, #797979FF 66% 74%, #ffffff 76% 84%, #797979FF 86% 94%, #0004 95%, #0000), radial-gradient(100% 50% at 0 50%, #0000, #0004 5%, #797979FF 6% 14%, #ffffff 16% 24%, #797979FF 26% 34%, #ffffff 36% 44%, #797979FF 46% 54%, #ffffff 56% 64%, #797979FF 66% 74%, #ffffff 76% 84%, #797979FF 86% 94%, #0004 95%, #0000), radial-gradient(100% 50% at 100% 100%, #0000, #0004 5%, #797979FF 6% 14%, #ffffff 16% 24%, #797979FF 26% 34%, #ffffff 36% 44%, #797979FF 46% 54%, #ffffff 56% 64%, #797979FF 66% 74%, #ffffff 76% 84%, #797979FF 86% 94%, #0004 95%, #0000)', backgroundSize: 'var(--s) calc(2 * var(--s))' }}></div>
+      <div className="absolute inset-0 opacity-[0.01]" style={{ '--s': '100px', background: 'radial-gradient(100% 50% at 100% 0, #0000, #0004 5%, #797979FF 6% 14%, #ffffff 16% 24%, #797979FF 26% 34%, #ffffff 36% 44%, #797979FF 46% 54%, #ffffff 56% 64%, #797979FF 66% 74%, #ffffff 76% 84%, #797979FF 86% 94%, #0004 95%, #0000), radial-gradient(100% 50% at 0 50%, #0000, #0004 5%, #797979FF 6% 14%, #ffffff 16% 24%, #797979FF 26% 34%, #ffffff 36% 44%, #797979FF 46% 54%, #ffffff 56% 64%, #797979FF 66% 74%, #ffffff 76% 84%, #797979FF 86% 94%, #0004 95%, #0000), radial-gradient(100% 50% at 100% 100%, #0000, #0004 5%, #797979FF 6% 14%, #ffffff 16% 24%, #797979FF 26% 34%, #ffffff 36% 44%, #797979FF 46% 54%, #ffffff 56% 64%, #797979FF 66% 74%, #ffffff 76% 84%, #797979FF 86% 94%, #0004 95%, #0000)', backgroundSize: 'var(--s) calc(2 * var(--s))' }}></div>
       <main className="flex-grow z-2">
         <nav className="w-screen bg-white shadow-sm border-b border-gray-100 fixed">
           <div className="max-w-7xl mx-auto px-6">
@@ -187,11 +187,11 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
               <div className="flex items-center gap-3">
                 <Film className="w-8 h-8 text-indigo-600" />
                 <div>
-                  <h1 className="text-xl font-semibold text-gray-900">MentalBreakdown</h1>
+                  <h1 className="text-xl font-semibold text-indigo-800">MentalBreakdown</h1>
                   <p className="text-xs text-gray-500">Film Production Suite</p>
                 </div>
               </div>
-              <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors">
+              <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 cursor-pointer hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors">
                 <Upload className="w-4 h-4" /> Import Project
               </button>
               <input ref={fileInputRef} type="file" accept=".mbd,.json" onChange={handleImportProject} className="hidden" />
@@ -242,25 +242,25 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
       {/* Modals */}
       {projectToOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
-            <div className="flex items-center justify-center min-h-screen px-4">
-                <div className="fixed inset-0 bg-black/15 backdrop-blur-sm transition-opacity" onClick={() => setProjectToOpen(null)}></div>
-                <div className="relative bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">Open Project</h3>
-                    <p className="text-gray-600 mb-6">Choose which editor you want to use for "{projectToOpen.name}".</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <button onClick={() => { onSelectProject(projectToOpen, 'schedule'); setProjectToOpen(null); }} className="flex flex-col items-center justify-center p-6 bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-lg transition-all">
-                            <Video className="w-10 h-10 text-gray-500 mb-3" />
-                            <span className="text-sm font-semibold text-gray-800">Shooting Schedule</span>
-                            <span className="text-xs text-gray-500">Plan your shooting days</span>
-                        </button>
-                        <button onClick={() => { onSelectProject(projectToOpen, 'shotlist'); setProjectToOpen(null); }} className="flex flex-col items-center justify-center p-6 bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-lg transition-all">
-                            <List className="w-10 h-10 text-gray-500 mb-3" />
-                            <span className="text-sm font-semibold text-gray-800">Shot List</span>
-                            <span className="text-xs text-gray-500">Organize all your shots</span>
-                        </button>
-                    </div>
-                </div>
+          <div className="flex items-center justify-center min-h-screen px-4">
+            <div className="fixed inset-0 bg-black/15 backdrop-blur-sm transition-opacity" onClick={() => setProjectToOpen(null)}></div>
+            <div className="relative bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Open Project</h3>
+              <p className="text-gray-600 mb-6">Choose which editor you want to use for "{projectToOpen.name}".</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button onClick={() => { onSelectProject(projectToOpen, 'shotlist'); setProjectToOpen(null); }} className="flex flex-col items-center justify-center p-6 bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-lg transition-all">
+                  <List className="w-10 h-10 text-gray-500 mb-3" />
+                  <span className="text-sm font-semibold text-gray-800">Shot List</span>
+                  <span className="text-xs text-gray-500">Organize all your shots</span>
+                </button>
+                <button onClick={() => { onSelectProject(projectToOpen, 'schedule'); setProjectToOpen(null); }} className="flex flex-col items-center justify-center p-6 bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-lg transition-all">
+                  <Video className="w-10 h-10 text-gray-500 mb-3" />
+                  <span className="text-sm font-semibold text-gray-800">Shooting Schedule</span>
+                  <span className="text-xs text-gray-500">Plan your shooting days</span>
+                </button>
+              </div>
             </div>
+          </div>
         </div>
       )}
       {showNewProjectModal && (
