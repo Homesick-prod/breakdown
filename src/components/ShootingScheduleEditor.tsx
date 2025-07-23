@@ -118,21 +118,73 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   const [showFloatingScrollbar, setShowFloatingScrollbar] = useState(false);
   const isSyncingScroll = useRef(false);
 
-  // Autosave effect
+  // --- START: AUTOSAVE FIX ---
+
+  // Stringify the data to create a stable, primitive dependency for the useEffect hook.
+  const stringifiedData = useMemo(() => JSON.stringify({ headerInfo, timelineItems, imagePreviews }), [headerInfo, timelineItems, imagePreviews]);
+
+  // Keep a ref to the onSave prop to prevent it from being a dependency.
+  const onSaveRef = useRef(onSave);
   useEffect(() => {
-    if (isInitialMount.current) { isInitialMount.current = false; return; }
+    onSaveRef.current = onSave;
+  });
+
+  // This is the new, robust autosave effect.
+    useEffect(() => {
+    onSaveRef.current = onSave;
+  });
+
+  // This is the new, robust autosave effect.
+  useEffect(() => {
+    // Don't save on the initial render.
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
     setSaveStatus('dirty');
-    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
-    debounceTimeoutRef.current = setTimeout(async () => {
+
+    // Clear any existing timer.
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+
+    // Set a new timer to save the data.
+    debounceTimeoutRef.current = setTimeout(() => {
+      const dataToSave = JSON.parse(stringifiedData);
+      
+      // Set status to "saving" so the user sees feedback.
       setSaveStatus('saving');
-      await new Promise(resolve => setTimeout(resolve, 500));
-      onSave({ headerInfo, timelineItems, imagePreviews });
-      setSaveStatus('saved');
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      setSaveStatus('idle');
-    }, 1200);
-    return () => { if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current); };
-  }, [headerInfo, timelineItems, imagePreviews, onSave]);
+      
+      // Use a promise chain with an artificial delay to ensure the "saving" state is visible.
+      Promise.resolve()
+        // 1. Artificially wait for 500ms to simulate a network request.
+        .then(() => new Promise(resolve => setTimeout(resolve, 500)))
+        // 2. Perform the actual save.
+        .then(() => onSaveRef.current(dataToSave))
+        // 3. Update status to "saved".
+        .then(() => {
+          setSaveStatus('saved');
+          // 4. Wait before returning to the idle state.
+          return new Promise(resolve => setTimeout(resolve, 2500));
+        })
+        // 5. Return to idle.
+        .then(() => {
+          setSaveStatus('idle');
+        });
+    }, 1000);
+
+    // Cleanup the timer if the component unmounts or the effect re-runs.
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  // The effect ONLY runs when the stringified data has actually changed.
+  }, [stringifiedData]);
+
+  // --- END: AUTOSAVE FIX ---
+
 
   // Floating scrollbar logic
   useEffect(() => {
