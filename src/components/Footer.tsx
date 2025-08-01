@@ -13,7 +13,7 @@ export default function Footer() {
               MentalBreakdown
             </p>
             <p className="text-xs text-slate-500 mt-1">
-              ©{new Date().getFullYear()} | V.2.3.2.1 (Beta) Created by Tawich P.
+              ©{new Date().getFullYear()} | V.2.3.5.1 (Beta) Created by Tawich P.
             </p>
           </div>
           <div className="flex items-center space-x-5">

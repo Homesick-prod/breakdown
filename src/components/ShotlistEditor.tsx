@@ -24,6 +24,7 @@ import {
   Loader2, Check, CloudOff, Image as ImageIcon, X, List, Camera, Minus,
   LayoutGrid, Eye, Edit3, Move3D, Aperture, FileText, StickyNote, Hash, ChevronsRight
 } from 'lucide-react';
+import { exportShotListToPDF } from '../utils/shotpdf'; // Make sure the path is correct
 
 //==============================================================================
 // TYPE DEFINITIONS
@@ -568,7 +569,24 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
     exportProject(fullProject);
   };
 
-  const handleExportPDF = () => alert("Exporting Shot List to PDF is not yet implemented.");
+const handleExportPDF = () => {
+  if (shotListItems.length === 0) {
+    // You can use a more elegant notification system than alert
+    alert("Cannot export an empty shot list.");
+    return;
+  }
+  // Show a loading indicator here if you want
+  exportShotListToPDF(projectTitle, shotListItems, imagePreviews)
+    .then(() => {
+      // Hide loading indicator
+      console.log("PDF export finished.");
+    })
+    .catch(error => {
+      // Hide loading indicator and show an error message
+      console.error("PDF export failed:", error);
+      alert("Sorry, there was an error creating the PDF.");
+    });
+};
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.05, 1.5));
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.05, 0.80));
 
