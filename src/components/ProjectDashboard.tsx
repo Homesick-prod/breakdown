@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Film, Upload, Plus, Folder, MoreVertical, Edit2, Copy, FileDown, Trash2, Calendar, Clock, List, Video } from 'lucide-react';
 import { exportProject, importProject } from '../utils/file';
 import { generateId } from '../utils/id';
+import { deleteImage } from '../utils/db'; // Import the deleteImage function
 import Footer from './Footer';
 
 // Component to show when there are no projects
@@ -134,15 +135,33 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
     setNewProjectName('');
     setNewProjectDescription('');
     setShowNewProjectModal(false);
-    // After creating, ask which editor to open
     setProjectToOpen(newProject);
   };
 
-  const handleDeleteProject = (projectId) => {
+  const handleDeleteProject = async (projectId) => {
     if (!window.confirm('Are you sure you want to delete this project? This action cannot be undone.')) return;
-    const updatedProjects = projects.filter(p => p.id !== projectId);
-    setProjects(updatedProjects);
-    localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
+    
+    try {
+      const projectToDelete = projects.find(p => p.id === projectId);
+
+      if (projectToDelete?.data?.shotListData?.shotListItems) {
+        console.log("Cleaning up images for deleted project...");
+        const imageDeletionPromises = projectToDelete.data.shotListData.shotListItems
+          .filter(shot => shot.imageUrl)
+          .map(shot => deleteImage(shot.id));
+        
+        await Promise.all(imageDeletionPromises);
+        console.log("Image cleanup complete.");
+      }
+
+      const updatedProjects = projects.filter(p => p.id !== projectId);
+      setProjects(updatedProjects);
+      localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
+
+    } catch (error) {
+      console.error("Error deleting project and its assets:", error);
+      alert("There was an error deleting the project.");
+    }
   };
 
   const handleDuplicateProject = (project) => {
@@ -159,20 +178,42 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
     localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
   };
 
-  const handleExportProject = (project) => exportProject(project);
+  // --- THIS IS THE CRITICAL FIX ---
+  // The function must be async and await the exportProject call.
+  const handleExportProject = async (project) => {
+    alert("Preparing project for export. This may take a moment...");
+    try {
+      await exportProject(project);
+    } catch (error) {
+      console.error("Export failed:", error);
+      alert("Export failed. Please check the console for details.");
+    }
+  };
 
   const handleImportProject = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     try {
       const importedProject = await importProject(file);
-      const updatedProjects = [...projects, importedProject];
+      const projectExists = projects.some(p => p.id === importedProject.id);
+      let updatedProjects;
+      if (projectExists) {
+        if(window.confirm('A project with this ID already exists. Do you want to overwrite it?')) {
+          updatedProjects = projects.map(p => p.id === importedProject.id ? importedProject : p);
+        } else {
+          e.target.value = null;
+          return;
+        }
+      } else {
+        updatedProjects = [...projects, importedProject];
+      }
+      
       updatedProjects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
       setProjects(updatedProjects);
       localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
       alert('Project imported successfully!');
     } catch (error) {
-      alert(error.message);
+      alert(error.message || 'Import failed. The file may be corrupt or not a valid project file.');
     }
     if (e.target) e.target.value = null;
   };

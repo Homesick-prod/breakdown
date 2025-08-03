@@ -1,4 +1,4 @@
-'use client';
+`use client`;
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
@@ -370,8 +370,14 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     }
     setSaveStatus('dirty');
     if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
-    debounceTimeoutRef.current = setTimeout(() => {
-      const dataToSave = JSON.parse(stringifiedData);
+debounceTimeoutRef.current = setTimeout(() => {
+      // Create a complete data payload for saving
+      const dataToSave = {
+        headerInfo,
+        timelineItems,
+        imagePreviews
+      };
+      
       setSaveStatus('saving');
       Promise.resolve()
         .then(() => new Promise(resolve => setTimeout(resolve, 500)))
@@ -607,7 +613,20 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     return { totalHours: Math.floor(totalDuration / 60), totalMinutes: totalDuration % 60, shotCount, breakHours: Math.floor(breakTime / 60), breakMinutes: breakTime % 60 };
   }, [timelineItems]);
 
-  const handleExportProject = () => exportProject({ ...project, data: { headerInfo, timelineItems, imagePreviews } });
+  const handleExportProject = () => {
+    // Explicitly construct the project object to ensure the ID is always included.
+    const fullProject = {
+      ...project,
+      id: project.id || generateId(), // Fallback to generate a new ID if one doesn't exist
+      data: { 
+        ...project.data,
+        headerInfo, 
+        timelineItems, 
+        imagePreviews 
+      }
+    };
+    exportProject(fullProject);
+  };
 
   const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
@@ -818,4 +837,5 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
 
       </div>
     </div>
-  )
+  );
+}

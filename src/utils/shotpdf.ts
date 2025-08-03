@@ -23,95 +23,56 @@ type ImagePreviews = {
  * Softer color palette for the PDF
  */
 const COLORS = {
-  primary: '#4F46E5',      // Softer Indigo
-  secondary: '#7C3AED',    // Softer Purple
-  accent: '#DB2777',       // Softer Pink
+  primary: '#4F46E5',      // Indigo
+  secondary: '#7C3AED',    // Purple
   dark: '#374151',         // Gray 700
   medium: '#9CA3AF',       // Gray 400
   light: '#F9FAFB',        // Gray 50
   white: '#FFFFFF',
-  success: '#059669',      // Softer Green
-  warning: '#D97706',      // Softer Amber
-  surface: '#FEFEFE',
   border: '#E5E7EB'
 };
 
 /**
- * Converts a base64 image data URL to a format compatible with jsPDF
- */
-const processImageData = (dataUrl: string): { format: string; data: string; width?: number; height?: number } | null => {
-  try {
-    if (!dataUrl || !dataUrl.startsWith('data:image/')) {
-      return null;
-    }
-    
-    const [header, data] = dataUrl.split(',');
-    if (!data) return null;
-    
-    const formatMatch = header.match(/data:image\/([^;]+)/);
-    const format = formatMatch ? formatMatch[1].toLowerCase() : 'jpeg';
-    
-    const supportedFormats = ['jpeg', 'jpg', 'png', 'webp'];
-    const finalFormat = supportedFormats.includes(format) ? format : 'jpeg';
-    
-    return { format: finalFormat, data };
-  } catch (error) {
-    console.warn('Error processing image data:', error);
-    return null;
-  }
-};
-
-/**
- * CHANGED: Creates a clean and subtle dot grid background suitable for printing.
+ * Creates a clean and subtle dot grid background.
  */
 const createBackgroundPattern = (doc: jsPDF): void => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
-  // Set a clean, light background color
-  doc.setFillColor(COLORS.light); // Uses a very light gray (#F9FAFB)
+  doc.setFillColor(COLORS.light);
   doc.rect(0, 0, pageWidth, pageHeight, 'F');
 
-  // --- Dot Grid Pattern ---
-  const spacing = 5;      // The distance between dots in mm
-  const dotRadius = 0.2;  // The size of each dot in mm
+  const spacing = 5;
+  const dotRadius = 0.2;
 
-  // Set the color and opacity for the dots
-  doc.setFillColor(COLORS.border); // A light, non-intrusive gray (#E5E7EB)
-  doc.setGState(new doc.GState({ opacity: 0.5 })); // Make dots semi-transparent
+  doc.setFillColor(COLORS.border);
+  doc.setGState(new doc.GState({ opacity: 0.5 }));
 
-  // Create the grid of dots across the page
-  for (let x = spacing; x < pageWidth - spacing; x += spacing) {
-    for (let y = spacing; y < pageHeight - spacing; y += spacing) {
+  for (let x = spacing; x < pageWidth; x += spacing) {
+    for (let y = spacing; y < pageHeight; y += spacing) {
       doc.circle(x, y, dotRadius, 'F');
     }
   }
 
-  // Reset the graphics state to full opacity for all subsequent content
   doc.setGState(new doc.GState({ opacity: 1 }));
 };
-
 
 /**
  * Creates a clean card background
  */
 const createCardBackground = (doc: jsPDF, x: number, y: number, width: number, height: number, isHeader = false): void => {
   if (isHeader) {
-    // Clean header background
     doc.setFillColor(COLORS.primary);
     doc.roundedRect(x, y, width, height, 2, 2, 'F');
   } else {
-    // Card shadow
     doc.setFillColor('#000000');
     doc.setGState(new doc.GState({ opacity: 0.03 }));
     doc.roundedRect(x + 0.3, y + 0.3, width, height, 2, 2, 'F');
     doc.setGState(new doc.GState({ opacity: 1 }));
     
-    // Card background
     doc.setFillColor(COLORS.white);
     doc.roundedRect(x, y, width, height, 2, 2, 'F');
     
-    // Card border
     doc.setDrawColor(COLORS.border);
     doc.setLineWidth(0.2);
     doc.roundedRect(x, y, width, height, 2, 2, 'S');
@@ -123,132 +84,125 @@ const createCardBackground = (doc: jsPDF, x: number, y: number, width: number, h
  */
 const wrapText = (doc: jsPDF, text: string, maxWidth: number, fontSize: number): string[] => {
   doc.setFontSize(fontSize);
+  if (!text) return [''];
   const words = text.split(' ');
   const lines: string[] = [];
   let currentLine = '';
 
   for (const word of words) {
-    const testLine = currentLine + (currentLine ? ' ' : '') + word;
-    const textWidth = doc.getTextWidth(testLine);
-    
-    if (textWidth > maxWidth && currentLine) {
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+    if (doc.getTextWidth(testLine) > maxWidth && currentLine) {
       lines.push(currentLine);
       currentLine = word;
     } else {
       currentLine = testLine;
     }
   }
+  lines.push(currentLine);
   
-  if (currentLine) {
-    lines.push(currentLine);
-  }
-  
-  return lines.length > 0 ? lines : [''];
+  return lines;
 };
 
 /**
- * Adds an image to the PDF with proper scaling and error handling
+ * OPTIMIZED: Resizes image to max 1920px, compresses, and adds to the PDF.
  */
-const addImageToPDF = async (doc: jsPDF, imageData: string, x: number, y: number, maxWidth: number, maxHeight: number): Promise<boolean> => {
+const addImageToPDF = (doc: jsPDF, imageDataUrl: string, x: number, y: number, maxWidth: number, maxHeight: number): Promise<boolean> => {
   return new Promise((resolve) => {
-    try {
-      const processedImage = processImageData(imageData);
-      if (!processedImage) {
-        resolve(false);
-        return;
-      }
+    const img = new Image();
+    img.onload = () => {
+      try {
+        // --- FIX 1: Downscale image to a max of 1920px on its longest side ---
+        const MAX_DIMENSION = 1920;
+        const aspectRatio = img.naturalWidth / img.naturalHeight;
+        
+        let canvasWidth = img.naturalWidth;
+        let canvasHeight = img.naturalHeight;
 
-      const img = new Image();
-      img.onload = function() {
-        try {
-          // Calculate scaled dimensions
-          const aspectRatio = this.naturalWidth / this.naturalHeight;
-          let width = maxWidth;
-          let height = width / aspectRatio;
-          
-          if (height > maxHeight) {
-            height = maxHeight;
-            width = height * aspectRatio;
+        if (canvasWidth > MAX_DIMENSION || canvasHeight > MAX_DIMENSION) {
+          if (aspectRatio > 1) { // Landscape
+            canvasWidth = MAX_DIMENSION;
+            canvasHeight = MAX_DIMENSION / aspectRatio;
+          } else { // Portrait or square
+            canvasHeight = MAX_DIMENSION;
+            canvasWidth = MAX_DIMENSION * aspectRatio;
           }
-          
-          // Center the image
-          const centeredX = x + (maxWidth - width) / 2;
-          const centeredY = y + (maxHeight - height) / 2;
-          
-          // Add the image
-          doc.addImage(
-            `data:image/${processedImage.format};base64,${processedImage.data}`,
-            processedImage.format.toUpperCase(),
-            centeredX,
-            centeredY,
-            width,
-            height
-          );
-          
-          // Add subtle border around image
-          doc.setDrawColor(COLORS.border);
-          doc.setLineWidth(0.2);
-          doc.roundedRect(centeredX, centeredY, width, height, 1, 1, 'S');
-          
-          resolve(true);
-        } catch (error) {
-          console.warn('Error adding image to PDF:', error);
-          resolve(false);
         }
-      };
-      
-      img.onerror = () => {
-        console.warn('Failed to load image');
+
+        const canvas = document.createElement('canvas');
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        
+        const ctx = canvas.getContext('2d', { alpha: false });
+        if (!ctx) {
+            resolve(false);
+            return;
+        }
+
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        
+        const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.8); // Adjusted quality for good balance
+        
+        let displayWidth = maxWidth;
+        let displayHeight = displayWidth / aspectRatio;
+        if (displayHeight > maxHeight) {
+          displayHeight = maxHeight;
+          displayWidth = displayHeight * aspectRatio;
+        }
+        const centeredX = x + (maxWidth - displayWidth) / 2;
+        const centeredY = y + (maxHeight - displayHeight) / 2;
+        
+        doc.addImage(jpegDataUrl, 'JPEG', centeredX, centeredY, displayWidth, displayHeight);
+        
+        // --- FIX 2: Removed the unwanted border drawing ---
+        // The line that drew the border has been deleted.
+
+        resolve(true);
+      } catch (e) {
+        console.error('Error adding canvas image to PDF:', e);
         resolve(false);
-      };
-      
-      img.src = imageData;
-    } catch (error) {
-      console.warn('Error processing image:', error);
+      }
+    };
+
+    img.onerror = () => {
+      console.error('Failed to load image for canvas processing.');
       resolve(false);
-    }
+    };
+
+    img.src = imageDataUrl;
   });
 };
+
 
 /**
  * Sanitizes filename by removing invalid characters
  */
 const sanitizeFilename = (filename: string): string => {
-  return filename
-    .replace(/[<>:"/\\|?*]/g, '')
-    .replace(/\s+/g, '-')
-    .substring(0, 100);
+  return filename.replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, '-').substring(0, 100);
 };
 
 /**
- * Creates a clean header without problematic unicode characters but with Thai font support
+ * Creates a clean header with Thai font support
  */
 const createCleanHeader = (doc: jsPDF, projectTitle: string): void => {
   const pageWidth = doc.internal.pageSize.getWidth();
   
-  // Header background
   createCardBackground(doc, 15, 15, pageWidth - 30, 30, true);
   
-  // Project title with Thai font support
   doc.setFont('IBMPlexSansThai', 'bold');
   doc.setFontSize(20);
   doc.setTextColor(COLORS.white);
   doc.text(projectTitle || 'Untitled Project', 25, 32);
   
-  // Subtitle without emojis but with Thai font
   doc.setFont('IBMPlexSansThai', 'normal');
   doc.setFontSize(11);
   doc.setTextColor(COLORS.white);
   doc.setGState(new doc.GState({ opacity: 0.9 }));
-  doc.text('Professional Shot List', 25, 40);
+  doc.text('Shot List', 25, 40);
   doc.setGState(new doc.GState({ opacity: 1 }));
   
-  // Date with Thai font
-  const dateText = new Date().toLocaleDateString('en-US', { 
-    year: 'numeric', 
-    month: 'long', 
-    day: 'numeric' 
-  });
+  const dateText = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   doc.setFont('IBMPlexSansThai', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(COLORS.white);
@@ -258,7 +212,7 @@ const createCleanHeader = (doc: jsPDF, projectTitle: string): void => {
 };
 
 /**
- * Optimized table for fitting exactly 6 shots per page
+ * Optimized table for rendering the shot list
  */
 class OptimizedTable {
   private doc: jsPDF;
@@ -266,7 +220,6 @@ class OptimizedTable {
   private pageHeight: number;
   private pageWidth: number;
   private marginLeft: number;
-  private marginRight: number;
   private baseRowHeight: number;
   private headerHeight: number;
   private cardSpacing: number;
@@ -277,61 +230,45 @@ class OptimizedTable {
     this.pageHeight = doc.internal.pageSize.getHeight();
     this.pageWidth = doc.internal.pageSize.getWidth();
     this.marginLeft = 15;
-    this.marginRight = 15;
-    // Adjusted height and spacing for exactly 6 shots per page
-    this.baseRowHeight = 18; 
+    this.baseRowHeight = 18;
     this.headerHeight = 15;
-    this.cardSpacing = 2;    
+    this.cardSpacing = 2;
   }
 
-  private getOptimizedColumnWidths(): number[] {
-    const tableWidth = this.pageWidth - this.marginLeft - this.marginRight;
-    
-    const widthPercentages = [5, 5, 8, 8, 10, 6, 28, 18, 12]; // Total: 100%
+  private getColumnWidths(): number[] {
+    const tableWidth = this.pageWidth - (this.marginLeft * 2);
+    const widthPercentages = [5, 5, 8, 8, 10, 6, 28, 18, 12];
     return widthPercentages.map(p => (tableWidth * p) / 100);
   }
 
   private getColumnPositions(): number[] {
-    const widths = this.getOptimizedColumnWidths();
+    const widths = this.getColumnWidths();
     const positions = [this.marginLeft];
-    
     for (let i = 0; i < widths.length - 1; i++) {
-      positions.push(positions[positions.length - 1] + widths[i]);
+      positions.push(positions[i] + widths[i]);
     }
-    
     return positions;
   }
 
   private checkPageBreak(requiredHeight: number): void {
-    if (this.currentY + requiredHeight > this.pageHeight - 20) { // Page bottom margin
+    if (this.currentY + requiredHeight > this.pageHeight - 20) {
       this.doc.addPage();
       createBackgroundPattern(this.doc);
-      this.currentY = 25;
-      this.drawCleanHeader();
+      this.currentY = 20;
+      this.drawTableHeader();
     }
   }
 
-  private drawCleanHeader(): void {
-    const headers = [
-      'SCENE',
-      'SHOT', 
-      'SIZE',
-      'ANGLE',
-      'MOVEMENT',
-      'LENS',
-      'DESCRIPTION',
-      'REFERENCE',
-      'NOTES'
-    ];
-    
+  private drawTableHeader(): void {
+    const headers = ['SCENE', 'SHOT', 'SIZE', 'ANGLE', 'MOVEMENT', 'LENS', 'DESCRIPTION', 'REFERENCE', 'NOTES'];
     const positions = this.getColumnPositions();
-    const widths = this.getOptimizedColumnWidths();
+    const widths = this.getColumnWidths();
 
     createCardBackground(
-      this.doc, 
-      this.marginLeft, 
-      this.currentY, 
-      this.pageWidth - this.marginLeft - this.marginRight, 
+      this.doc,
+      this.marginLeft,
+      this.currentY,
+      this.pageWidth - (this.marginLeft * 2),
       this.headerHeight,
       true
     );
@@ -341,152 +278,89 @@ class OptimizedTable {
     this.doc.setTextColor(COLORS.white);
 
     headers.forEach((header, index) => {
-      const x = positions[index] + widths[index] / 2;
-      const y = this.currentY + this.headerHeight / 2 + 1;
-      
-      this.doc.text(header, x, y, { align: 'center' });
+      this.doc.text(header, positions[index] + widths[index] / 2, this.currentY + this.headerHeight / 2 + 1, { align: 'center' });
     });
 
     this.currentY += this.headerHeight + this.cardSpacing;
   }
 
-  async drawOptimizedTable(data: string[][], imagePreviews: ImagePreviews, shotItems: ShotItem[]): Promise<void> {
-    this.drawCleanHeader();
+  async drawTable(data: string[][], imagePreviews: ImagePreviews, shotItems: ShotItem[]): Promise<void> {
+    this.drawTableHeader();
 
     for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
-      const row = data[rowIndex];
-      const rowHeight = this.calculateRowHeight(row, shotItems[rowIndex], imagePreviews);
+      const rowData = data[rowIndex];
+      const shot = shotItems[rowIndex];
       
-      this.checkPageBreak(rowHeight + this.cardSpacing);
+      this.checkPageBreak(this.baseRowHeight + this.cardSpacing);
 
       const positions = this.getColumnPositions();
-      const widths = this.getOptimizedColumnWidths();
+      const widths = this.getColumnWidths();
 
-      createCardBackground(
-        this.doc,
-        this.marginLeft,
-        this.currentY,
-        this.pageWidth - this.marginLeft - this.marginRight,
-        rowHeight
-      );
+      createCardBackground(this.doc, this.marginLeft, this.currentY, this.pageWidth - (this.marginLeft * 2), this.baseRowHeight);
 
-      this.doc.setFont('IBMPlexSansThai', 'normal');
-      this.doc.setFontSize(8);
-      this.doc.setTextColor(COLORS.dark);
-
-      for (let colIndex = 0; colIndex < row.length; colIndex++) {
-        const cell = row[colIndex];
-        const x = positions[colIndex];
-        const y = this.currentY;
-        const cellWidth = widths[colIndex];
-        const cellHeight = rowHeight;
-
-        await this.renderCell(cell, colIndex, x, y, cellWidth, cellHeight, shotItems[rowIndex], imagePreviews);
+      for (let colIndex = 0; colIndex < rowData.length; colIndex++) {
+        await this.renderCellContent(rowData[colIndex], colIndex, positions[colIndex], this.currentY, widths[colIndex], this.baseRowHeight, shot, imagePreviews);
       }
 
-      this.currentY += rowHeight + this.cardSpacing;
+      this.currentY += this.baseRowHeight + this.cardSpacing;
     }
   }
-
-  private calculateRowHeight(row: string[], shot: ShotItem, imagePreviews: ImagePreviews): number {
-    let maxHeight = this.baseRowHeight;
-    
-    if (imagePreviews[shot.id]) {
-      maxHeight = Math.max(maxHeight, 16); 
-    }
-    
-    const descriptionLines = Math.ceil((row[6] || '').length / 50);
-    const notesLines = Math.ceil((row[8] || '').length / 35);
-    const textHeight = Math.max(descriptionLines, notesLines) * 3.5 + 10;
-    
-    // Cap the row height to the base height to enforce 6 shots per page
-    return Math.min(Math.max(maxHeight, textHeight), this.baseRowHeight);
-  }
-
-  private async renderCell(
-    content: string, 
-    colIndex: number, 
-    x: number, 
-    y: number, 
-    width: number, 
-    height: number, 
-    shot: ShotItem, 
-    imagePreviews: ImagePreviews
+  
+  private async renderCellContent(
+    content: string, colIndex: number, x: number, y: number,
+    width: number, height: number, shot: ShotItem, imagePreviews: ImagePreviews
   ): Promise<void> {
     const padding = 2;
     const textY = y + height / 2 + 1;
 
-    if (colIndex === 7) { // Reference column
-      if (imagePreviews[shot.id]) {
-        const imageSuccess = await addImageToPDF(
-          this.doc,
-          imagePreviews[shot.id],
-          x + padding,
-          y + padding,
-          width - padding * 2,
-          height - padding * 2
-        );
-        
-        if (!imageSuccess) {
-          this.doc.setTextColor(COLORS.warning);
-          this.doc.setFontSize(7);
-          this.doc.text('Image Error', x + width / 2, textY, { align: 'center' });
+    if (colIndex === 7) { // REFERENCE column
+      const imageUrl = imagePreviews[shot.id];
+      if (imageUrl) {
+        const success = await addImageToPDF(this.doc, imageUrl, x + padding, y + padding, width - (padding * 2), height - (padding * 2));
+        if (!success) {
+          this.doc.setTextColor('#E74C3C');
+          this.doc.text('Error', x + width / 2, textY, { align: 'center' });
         }
       } else {
-        // No image placeholder
         this.doc.setFillColor(COLORS.light);
-        this.doc.roundedRect(x + padding, y + padding, width - padding * 2, height - padding * 2, 1, 1, 'F');
+        this.doc.roundedRect(x + padding, y + padding, width - (padding * 2), height - (padding * 2), 1, 1, 'F');
         this.doc.setTextColor(COLORS.medium);
-        this.doc.setFontSize(7);
         this.doc.text('No Image', x + width / 2, textY, { align: 'center' });
       }
-    } else if (colIndex === 6 || colIndex === 8) { // Description and Notes
-      const lines = wrapText(this.doc, content, width - padding * 2, 7);
-      const startY = y + padding + 3;
-      
-      this.doc.setFont('IBMPlexSansThai', 'normal');
-      this.doc.setTextColor(COLORS.dark);
-      this.doc.setFontSize(7);
-      lines.slice(0, 4).forEach((line, lineIndex) => {
-        const lineY = startY + lineIndex * 3.5;
-        if (lineY < y + height - padding) {
-          this.doc.text(line, x + padding, lineY, { align: 'left' });
-        }
-      });
-    } else {
-      // Regular cells with Thai font support
-      let textColor = COLORS.dark;
-      let fontSize = 8;
-      
-      if (colIndex === 0 || colIndex === 1) { // Scene and Shot numbers
-        textColor = COLORS.primary;
-        this.doc.setFont('IBMPlexSansThai', 'bold');
-      } else if (colIndex === 2) { // Shot size
-        textColor = COLORS.secondary;
-        this.doc.setFont('IBMPlexSansThai', 'bold');
-      } else {
-        this.doc.setFont('IBMPlexSansThai', 'normal');
-      }
-      
-      this.doc.setTextColor(textColor);
-      this.doc.setFontSize(fontSize);
-      
-      const align = (colIndex === 6 || colIndex === 8) ? 'left' : 'center';
-      const textX = align === 'center' ? x + width / 2 : x + padding;
-      this.doc.text(content, textX, textY, { align });
+      return;
     }
+
+    this.doc.setFont('IBMPlexSansThai', 'normal');
+    this.doc.setFontSize(8);
+    this.doc.setTextColor(COLORS.dark);
+    
+    if(colIndex === 0 || colIndex === 1 || colIndex === 2) { // Scene, Shot, Size
+      this.doc.setFont('IBMPlexSansThai', 'bold');
+      if (colIndex === 0 || colIndex === 1) this.doc.setTextColor(COLORS.primary);
+      if (colIndex === 2) this.doc.setTextColor(COLORS.secondary);
+    }
+    
+    const textX = (colIndex < 6 || colIndex === 7) ? x + width / 2 : x + padding;
+    const align = (colIndex < 6 || colIndex === 7) ? 'center' : 'left';
+
+    const lines = wrapText(this.doc, content, width - (padding * 2), (colIndex === 6 || colIndex === 8) ? 7 : 8);
+    const lineHeight = 4.2;
+    const startY = y + padding + 3;
+
+    lines.slice(0, 3).forEach((line, index) => {
+        let lineY = textY;
+        if(colIndex === 6 || colIndex === 8) { // Align multi-line text to top
+            lineY = startY + (index * lineHeight);
+        }
+        if(lineY < y + height - padding) {
+            this.doc.text(line, textX, lineY, { align });
+        }
+    });
   }
 }
 
 /**
- * Creates a clean footer with statistics
- */
-const createCleanFooter = (doc: jsPDF, shotItems: ShotItem[], imagePreviews: ImagePreviews, pageNum: number, totalPages: number): void => {
-  // Footer removed as requested
-};
-
-/**
- * Exports shot list data to an optimized PDF document
+ * Main export function
  */
 export const exportShotListToPDF = async (
   projectTitle: string,
@@ -494,56 +368,32 @@ export const exportShotListToPDF = async (
   imagePreviews: ImagePreviews
 ): Promise<void> => {
   try {
-    // Create new PDF document in landscape orientation
-    const doc = new jsPDF({
-      orientation: 'landscape',
-      unit: 'mm',
-      format: 'a4'
-    });
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
-    // Register and set IBM Plex Sans Thai font with proper error handling
     try {
       doc.addFileToVFS('IBMPlexSansThai-Regular.ttf', IBMPlexSansThaiRegular);
       doc.addFont('IBMPlexSansThai-Regular.ttf', 'IBMPlexSansThai', 'normal');
       doc.addFont('IBMPlexSansThai-Regular.ttf', 'IBMPlexSansThai', 'bold');
-      doc.setFont('IBMPlexSansThai');
     } catch (fontError) {
       console.warn('Failed to load custom font, using helvetica:', fontError);
-      doc.setFont('helvetica');
     }
+    doc.setFont('IBMPlexSansThai');
 
-    // Create subtle background pattern
     createBackgroundPattern(doc);
-
-    // Create clean header
     createCleanHeader(doc, projectTitle);
 
-    // Prepare table data
     const tableRows = shotListItems.map(shot => [
-      shot.sceneNumber || '',
-      shot.shotNumber || '',
-      shot.shotSize || '',
-      shot.angle || '',
-      shot.movement || '',
-      shot.lens || '',
-      shot.description || '',
-      '', // Reference column handled separately
-      shot.notes || ''
+      shot.sceneNumber, shot.shotNumber, shot.shotSize, shot.angle,
+      shot.movement, shot.lens, shot.description, '', shot.notes
     ]);
 
-    // Create and draw the optimized table
     const table = new OptimizedTable(doc, 50);
-    await table.drawOptimizedTable(tableRows, imagePreviews, shotListItems);
+    await table.drawTable(tableRows, imagePreviews, shotListItems);
 
-    // Footer removed as requested
-
-    // Generate filename and save the PDF
     const sanitizedTitle = sanitizeFilename(projectTitle || 'Shot-List');
-    const filename = `${sanitizedTitle}-Shot-List-${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(`${sanitizedTitle}-Shot-List-${new Date().toISOString().split('T')[0]}.pdf`);
     
-    doc.save(filename);
-    
-    console.log(`PDF exported successfully: ${filename}`);
+    console.log(`PDF exported successfully.`);
     
   } catch (error) {
     console.error('Error generating PDF:', error);

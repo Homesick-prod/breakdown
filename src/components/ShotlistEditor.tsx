@@ -24,12 +24,14 @@ import {
   Loader2, Check, CloudOff, Image as ImageIcon, X, List, Camera, Minus,
   LayoutGrid, Eye, Edit3, Move3D, Aperture, FileText, StickyNote, Hash, ChevronsRight
 } from 'lucide-react';
-import { exportShotListToPDF } from '../utils/shotpdf'; // Make sure the path is correct
+
+// --- Important: Make sure the path to your db helper and pdf utility is correct ---
+import { exportShotListToPDF } from '../utils/shotpdf'; 
+import { setImage, getImage, deleteImage } from '../utils/db'; 
 
 //==============================================================================
-// TYPE DEFINITIONS
+// TYPE DEFINITIONS (No changes needed)
 //==============================================================================
-
 type ShotItem = {
   id: string;
   sceneNumber: string;
@@ -40,7 +42,7 @@ type ShotItem = {
   lens: string;
   description: string;
   notes: string;
-  imageUrl: string;
+  imageUrl: string; 
 };
 
 type ImagePreviews = {
@@ -49,8 +51,15 @@ type ImagePreviews = {
 
 type ShotListData = {
   shotListItems: ShotItem[];
-  imagePreviews: ImagePreviews;
+  imagePreviews?: ImagePreviews;
 };
+
+type ProjectSaveData = {
+  name: string;
+  shotListData: {
+    shotListItems: ShotItem[];
+  };
+}
 
 type ProjectData = {
   shotListData?: ShotListData;
@@ -68,7 +77,7 @@ type ViewMode = 'cards' | 'list';
 type ShotListEditorProps = {
   project?: Partial<Project>;
   onBack?: () => void;
-  onSave?: (data: { shotListData: ShotListData }) => void | Promise<void>;
+  onSave?: (data: ProjectSaveData) => void | Promise<void>;
 };
 
 type SortableItemProps = {
@@ -86,16 +95,15 @@ type SortableItemProps = {
 
 
 //==============================================================================
-// MOCK UTILITY FUNCTIONS
+// MOCK UTILITY FUNCTIONS (No changes needed)
 //==============================================================================
 const generateId = (): string => `shot_${Math.random().toString(36).substr(2, 9)}`;
 const exportProject = (project: Project) => console.log('Exporting project:', project);
 
 
 //==============================================================================
-// CHILD COMPONENTS
+// CHILD COMPONENTS (No changes needed)
 //==============================================================================
-
 const SaveStatusIndicator: React.FC<{ status: SaveStatus }> = ({ status }) => {
   const getStatusDisplay = () => {
     switch (status) {
@@ -474,35 +482,84 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
 }) => {
   const [projectTitle, setProjectTitle] = useState<string>(() => project?.name || 'Untitled Project');
   const [shotListItems, setShotListItems] = useState<ShotItem[]>(() => project?.data?.shotListData?.shotListItems || []);
-  const [imagePreviews, setImagePreviews] = useState<ImagePreviews>(() => project?.data?.shotListData?.imagePreviews || {});
+  const [imagePreviews, setImagePreviews] = useState<ImagePreviews>({});
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [zoomLevel, setZoomLevel] = useState(1);
   const [showZoomControls, setShowZoomControls] = useState(true);
   const [activeImageUploadId, setActiveImageUploadId] = useState<string | null>(null);
+  const [isExportingPDF, setIsExportingPDF] = useState(false); // New state for PDF export loading
 
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isInitialMount = useRef(true);
   const onSaveRef = useRef(onSave);
   useEffect(() => { onSaveRef.current = onSave; });
 
-  const stringifiedData = useMemo(() => JSON.stringify({ shotListItems, imagePreviews }), [shotListItems, imagePreviews]);
-
   useEffect(() => {
-    if (isInitialMount.current) { isInitialMount.current = false; return; }
+    const loadImages = async () => {
+      const previews: ImagePreviews = {};
+      for (const item of shotListItems) {
+        if (item.imageUrl) {
+          try {
+            const imageFile = await getImage(item.id);
+            if (imageFile) {
+              previews[item.id] = URL.createObjectURL(imageFile);
+            }
+          } catch (error) {
+            console.error(`Failed to load image for shot ${item.id}:`, error);
+          }
+        }
+      }
+      setImagePreviews(previews);
+    };
+
+    if (shotListItems.length > 0) {
+        loadImages();
+    }
+
+    return () => {
+      Object.values(imagePreviews).forEach(url => URL.revokeObjectURL(url));
+    };
+  }, []);
+
+  // FIX 1: Auto-saving with guaranteed animation time
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
     setSaveStatus('dirty');
     if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
-    debounceTimeoutRef.current = setTimeout(() => {
-      const dataToSave: ShotListData = JSON.parse(stringifiedData);
+
+debounceTimeoutRef.current = setTimeout(() => {
+      // Create a complete data payload for saving
+      const dataToSave = { 
+        name: projectTitle, 
+        shotListData: { 
+          shotListItems 
+        } 
+      };
+
       setSaveStatus('saving');
-      Promise.resolve().then(() => new Promise(resolve => setTimeout(resolve, 500)))
-        .then(() => onSaveRef.current({ shotListData: dataToSave }))
-        .then(() => { setSaveStatus('saved'); return new Promise(resolve => setTimeout(resolve, 1500)); })
-        .then(() => setSaveStatus('idle'))
-        .catch(err => { console.error("Save failed:", err); setSaveStatus('dirty'); });
+
+      const savePromise = Promise.resolve(onSaveRef.current(dataToSave));
+      const minDelayPromise = new Promise(resolve => setTimeout(resolve, 400));
+
+      Promise.all([savePromise, minDelayPromise])
+        .then(() => {
+          setSaveStatus('saved');
+          setTimeout(() => setSaveStatus('idle'), 1500);
+        })
+        .catch(err => {
+          console.error("Save failed:", err);
+          setSaveStatus('dirty');
+        });
     }, 1200);
+    
     return () => { if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current); };
-  }, [stringifiedData]);
+  }, [projectTitle, shotListItems]);
+
 
   const handleItemChange = useCallback((itemId: string, field: keyof ShotItem, value: any) => {
     setShotListItems(prevItems => prevItems.map(item => item.id === itemId ? { ...item, [field]: value } : item));
@@ -513,33 +570,56 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
     setShotListItems(prev => [...prev, newShot]);
   }, []);
 
-  const removeShotItem = useCallback((itemId: string) => {
+  const removeShotItem = useCallback(async (itemId: string) => {
+    await deleteImage(itemId);
     setShotListItems(prevItems => prevItems.filter(item => item.id !== itemId));
     setImagePreviews(prevPreviews => {
-      if (!prevPreviews[itemId]) return prevPreviews;
       const newPreviews = { ...prevPreviews };
-      delete newPreviews[itemId];
+      if (newPreviews[itemId]) {
+        URL.revokeObjectURL(newPreviews[itemId]);
+        delete newPreviews[itemId];
+      }
       return newPreviews;
     });
   }, []);
 
-  const handleImageUpload = useCallback((itemId: string, file: File | null) => {
+  const handleImageUpload = useCallback(async (itemId: string, file: File | null) => {
     if (!file || !file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
-        setImagePreviews(prev => ({ ...prev, [itemId]: reader.result as string }));
-        setActiveImageUploadId(null);
+    
+    await setImage(itemId, file);
+
+    setShotListItems(prev => prev.map(item => 
+      item.id === itemId ? { ...item, imageUrl: 'true' } : item
+    ));
+
+    setImagePreviews(prev => {
+      if (prev[itemId]) {
+        URL.revokeObjectURL(prev[itemId]);
       }
-    };
-    reader.readAsDataURL(file);
+      return { ...prev, [itemId]: URL.createObjectURL(file) };
+    });
+    
+    setActiveImageUploadId(null);
   }, []);
 
-  const handleRemoveImage = useCallback((itemId: string) => {
-    setImagePreviews(prev => { const newPreviews = { ...prev }; delete newPreviews[itemId]; return newPreviews; });
+  const handleRemoveImage = useCallback(async (itemId: string) => {
+    await deleteImage(itemId);
+    
+    setShotListItems(prev => prev.map(item => 
+      item.id === itemId ? { ...item, imageUrl: '' } : item
+    ));
+
+    setImagePreviews(prev => {
+      const newPreviews = { ...prev };
+      if (newPreviews[itemId]) {
+        URL.revokeObjectURL(newPreviews[itemId]);
+        delete newPreviews[itemId];
+      }
+      return newPreviews;
+    });
   }, []);
 
-  const handlePasteImage = useCallback((e: React.ClipboardEvent, targetItemId?: string) => {
+  const handlePasteImage = useCallback(async (e: React.ClipboardEvent, targetItemId?: string) => {
     const itemIdToUse = targetItemId || activeImageUploadId;
     if (!itemIdToUse) return;
     const items = e.clipboardData?.items;
@@ -547,7 +627,11 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
     for (const item of items) {
       if (item.type.startsWith('image/')) {
         const file = item.getAsFile();
-        if (file) { e.preventDefault(); handleImageUpload(itemIdToUse, file); return; }
+        if (file) { 
+          e.preventDefault(); 
+          await handleImageUpload(itemIdToUse, file); 
+          return;
+        }
       }
     }
   }, [activeImageUploadId, handleImageUpload]);
@@ -565,36 +649,57 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
   }, [activeImageUploadId, handlePasteImage]);
 
   const handleExportProject = () => {
-    const fullProject: Project = { id: project.id || 'proj-1', name: projectTitle, data: { ...project.data, shotListData: { shotListItems, imagePreviews } } };
+    const fullProject: Project = { 
+        id: project.id || 'proj-1', 
+        name: projectTitle, 
+        data: { shotListData: { shotListItems } } 
+    };
     exportProject(fullProject);
   };
 
-const handleExportPDF = () => {
-  if (shotListItems.length === 0) {
-    // You can use a more elegant notification system than alert
-    alert("Cannot export an empty shot list.");
-    return;
-  }
-  // Show a loading indicator here if you want
-  exportShotListToPDF(projectTitle, shotListItems, imagePreviews)
-    .then(() => {
-      // Hide loading indicator
+  // FIX 2: PDF Export now converts images to Data URLs before exporting
+  const handleExportPDF = async () => {
+    if (shotListItems.length === 0) {
+      alert("Cannot export an empty shot list.");
+      return;
+    }
+    setIsExportingPDF(true);
+
+    try {
+      const imagePreviewsForPDF: ImagePreviews = {};
+      const itemsWithImages = shotListItems.filter(item => item.imageUrl);
+
+      for (const item of itemsWithImages) {
+        const imageFile = await getImage(item.id);
+        if (imageFile) {
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(imageFile);
+          });
+          imagePreviewsForPDF[item.id] = dataUrl;
+        }
+      }
+
+      await exportShotListToPDF(projectTitle, shotListItems, imagePreviewsForPDF);
       console.log("PDF export finished.");
-    })
-    .catch(error => {
-      // Hide loading indicator and show an error message
+    } catch (error) {
       console.error("PDF export failed:", error);
       alert("Sorry, there was an error creating the PDF.");
-    });
-};
+    } finally {
+      setIsExportingPDF(false);
+    }
+  };
+
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.05, 1.5));
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.05, 0.80));
 
   const stats = useMemo(() => ({
     shotCount: shotListItems.length,
     completedShots: shotListItems.filter(shot => shot.shotSize && shot.angle && shot.movement).length,
-    withReferences: shotListItems.filter(shot => imagePreviews[shot.id]).length,
-  }), [shotListItems, imagePreviews]);
+    withReferences: shotListItems.filter(shot => !!shot.imageUrl).length,
+  }), [shotListItems]);
 
   const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
@@ -623,7 +728,10 @@ const handleExportPDF = () => {
                 <SaveStatusIndicator status={saveStatus} />
                 <div className="h-6 w-px bg-gray-200"></div>
                 <button onClick={handleExportProject} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"><Save className="w-4 h-4" /><span className="hidden sm:inline">Save Project</span></button>
-                <button onClick={handleExportPDF} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"><Download className="w-4 h-4" /><span className="hidden sm:inline">Export PDF</span></button>
+                <button onClick={handleExportPDF} disabled={isExportingPDF} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:bg-indigo-400 disabled:cursor-not-allowed">
+                  {isExportingPDF ? <Loader2 className="w-4 h-4 animate-spin"/> : <Download className="w-4 h-4" />}
+                  <span className="hidden sm:inline">{isExportingPDF ? 'Exporting...' : 'Export PDF'}</span>
+                </button>
               </div>
             </div>
           </div>
