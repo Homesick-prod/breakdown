@@ -319,7 +319,7 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
           <div className="space-y-1">
             <label className="flex items-center gap-1 text-xs font-medium text-gray-600 uppercase tracking-wide"><Aperture className="w-3 h-3" />Lens</label>
             <div className="flex items-center gap-1">
-              <input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', `${e.target.value}mm`)} className="text-gray-600 flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="50" />
+              <input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', e.target.value)} className="text-gray-600 flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="50" />
               <span className="text-sm text-gray-500 font-medium">mm</span>
             </div>
           </div>
@@ -444,7 +444,7 @@ const SortableRow: React.FC<SortableItemProps> = ({ id, item, index, imagePrevie
           <option value="Drone/Aerial">Drone / Aerial</option>
           <option value="360 Rotation">360° Rotation</option>
         </optgroup></select></td>
-      <td className="px-4 py-4"><div className="flex items-center gap-2"><input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', `${e.target.value}mm`)} className="text-gray-600 w-20 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="50" /><span className="text-sm text-gray-500 font-medium">mm</span></div></td>
+      <td className="px-4 py-4"><div className="flex items-center gap-2"><input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', e.target.value)} className="text-gray-600 w-20 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="50" /><span className="text-sm text-gray-500 font-medium">mm</span></div></td>
       <td className="px-4 py-4"><textarea value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="text-gray-600 w-72 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 resize-none transition-all" placeholder="Shot description" rows={2} /></td>
       <td className="px-4 py-4" onClick={() => setActiveImageUploadId(isActiveForUpload ? null : item.id)}>
         <div className={`flex flex-col items-center gap-2 p-2 rounded-lg transition-colors cursor-pointer ${isActiveForUpload ? 'bg-indigo-100 ring-2 ring-indigo-300' : ''}`}>

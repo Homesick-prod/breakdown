@@ -237,8 +237,7 @@ export const exportToPDF = (headerInfo: any, timelineItems: any[], stats: any, i
                 }
 
                 .handheld {
-                    background-color: #66cccc !important;
-                    color: white;
+                    background-color: #ecececff !important;
                 }
 
                 .footer {
@@ -376,13 +375,11 @@ export const exportToPDF = (headerInfo: any, timelineItems: any[], stats: any, i
     let cellContent = '';
 
     if (item.type === 'break') {
-      if (item.description.toLowerCase().includes('lunch')) {
+      if (item.description.toLowerCase().includes('lunch')|| item.description.toLowerCase().includes('ข้าว')) {
         rowClass = 'lunch-row';
-      } else if (item.description.toLowerCase().includes('dinner')) {
-        rowClass = 'dinner-row';
       } else if (item.description.toLowerCase().includes('wrap')) {
         rowClass = 'wrap-row';
-      } else if (item.description.toLowerCase().includes('set up') || item.description.toLowerCase().includes('setup')) {
+      } else if (item.description.toLowerCase().includes('set') || item.description.toLowerCase().includes('setup') || item.description.toLowerCase().includes('เซ็ท') || item.description.toLowerCase().includes('เซ็ต')|| item.description.toLowerCase().includes('เซต')|| item.description.toLowerCase().includes('เซท')) {
         rowClass = 'setup-row';
       } else if (item.description.toLowerCase().includes('เดินทาง') || item.description.toLowerCase().includes('travel')) {
         rowClass = 'travel-row';
@@ -416,7 +413,7 @@ export const exportToPDF = (headerInfo: any, timelineItems: any[], stats: any, i
                                 <td>${item.shotSize || ''}</td>
                                 <td>${item.angle || ''}</td>
                                 <td>${item.movement || ''}</td>
-                                <td>${item.lens || ''}mm</td>
+                                                                <td>${(item.lens && typeof item.lens === 'string' && item.lens.toLowerCase().includes('mm')) ? `${item.lens.toLowerCase().replace(/mm/g, '').trim()}` : (item.lens || '')}mm</td>
                                 <td class="description-cell">${item.description || ''}</td>
                                 <td style="font-size: 8pt;">${item.cast || ''}</td>
                                 <td>${imageHtml}</td>
@@ -433,7 +430,7 @@ export const exportToPDF = (headerInfo: any, timelineItems: any[], stats: any, i
 
             <div class="footer">
                 <div style="font-size: 6pt;">Generated on ${new Date().toLocaleString('th-TH')}</div>
-                <div style="font-size: 6pt;">MentalBreakdown | Beta V.2.3.5.1 Created by Tawich P.</div>
+                <div style="font-size: 6pt;">MentalBreakdown | Beta V.2.3.5.3 Created by Tawich P.</div>
             </div>
         </body>
         </html>

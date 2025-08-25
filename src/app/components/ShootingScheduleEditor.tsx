@@ -7,12 +7,14 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   GripVertical, Clock, Film, Plus, Save, ChevronDown, Trash2, Download, Settings,
   FileDown, CloudRain, ListPlus, Search, Layers, Github, ArrowLeft, Users, MapPin, Sunrise, Sunset, Thermometer,
-  CloudDrizzle, Coffee, Moon, Loader2, Check, CloudOff, Image as ImageIcon, X, Minus, ChevronsRight
+  CloudDrizzle, Coffee, Moon, Loader2, Check, CloudOff, Image as ImageIcon, X, Minus, ChevronsRight, AlertTriangle
 } from 'lucide-react';
 import { generateId } from '../utils/id';
 import { calculateEndTime, calculateDuration } from '../utils/time';
 import { exportProject } from '../utils/file';
 import { exportToPDF } from '../utils/pdf';
+import { getImage } from '../utils/db'; // Import db helper
+import { StorageManager } from '../utils/storage';
 import Footer from './Footer';
 
 // Save status indicator component
@@ -22,6 +24,7 @@ function SaveStatusIndicator({ status }) {
       case 'saving': return { icon: <Loader2 className="w-4 h-4 animate-spin" />, text: 'Saving...', className: 'text-gray-600' };
       case 'dirty': return { icon: <CloudOff className="w-4 h-4" />, text: 'Unsaved changes', className: 'text-amber-600' };
       case 'saved': return { icon: <Check className="w-4 h-4" />, text: 'Saved', className: 'text-green-600' };
+      case 'error': return { icon: <AlertTriangle className="w-4 h-4" />, text: 'Save failed', className: 'text-red-600' };
       default: return { icon: <Save className="w-4 h-4" />, text: 'All changes saved', className: 'text-gray-500' };
     }
   };
@@ -205,17 +208,45 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
   );
 }
 
-function ShotImportModal({ isOpen, onClose, shotList, imagePreviews, onImport }) {
+function ShotImportModal({ isOpen, onClose, shotList, onImport }) {
     // Hooks are now at the top level
     const [selectedShots, setSelectedShots] = useState(new Set());
     const [searchTerm, setSearchTerm] = useState('');
+    const [shotListImagePreviews, setShotListImagePreviews] = useState({});
 
+    // Load images from IndexedDB when modal opens
     useEffect(() => {
         if (isOpen) {
             setSelectedShots(new Set());
             setSearchTerm('');
+            
+            // Load images for all shots that have imageUrl
+            const loadImages = async () => {
+                const imageMap = {};
+                for (const shot of shotList) {
+                    if (shot.imageUrl) {
+                        try {
+                            const imageFile = await getImage(shot.id);
+                            if (imageFile) {
+                                const dataUrl = await new Promise((resolve, reject) => {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => resolve(reader.result);
+                                    reader.onerror = reject;
+                                    reader.readAsDataURL(imageFile);
+                                });
+                                imageMap[shot.id] = dataUrl;
+                            }
+                        } catch (error) {
+                            console.error(`Failed to load image for shot ${shot.id}:`, error);
+                        }
+                    }
+                }
+                setShotListImagePreviews(imageMap);
+            };
+            
+            loadImages();
         }
-    }, [isOpen]);
+    }, [isOpen, shotList]);
 
     const groupedAndFilteredShots = useMemo(() => {
         const filtered = shotList.filter(shot => 
@@ -243,7 +274,7 @@ function ShotImportModal({ isOpen, onClose, shotList, imagePreviews, onImport })
     if (!isOpen) return null;
 
     const handleImportClick = () => {
-        onImport(Array.from(selectedShots));
+        onImport(Array.from(selectedShots), shotListImagePreviews);
         onClose();
     };
 
@@ -309,7 +340,11 @@ function ShotImportModal({ isOpen, onClose, shotList, imagePreviews, onImport })
                                         {shots.map(shot => (
                                             <li key={shot.id} onClick={() => setSelectedShots(prev => { const n = new Set(prev); n.has(shot.id) ? n.delete(shot.id) : n.add(shot.id); return n; })} className={`flex items-center gap-4 p-3 cursor-pointer transition-colors ${selectedShots.has(shot.id) ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}>
                                                 <input type="checkbox" checked={selectedShots.has(shot.id)} readOnly className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 border-gray-300" />
-                                                <img src={imagePreviews[shot.id] || 'https://placehold.co/80x60/e2e8f0/94a3b8?text=No+Ref'} alt="Ref" className="w-20 h-16 object-cover rounded-md bg-gray-100" />
+                                                <img 
+                                                    src={shotListImagePreviews[shot.id] || 'https://placehold.co/80x60/e2e8f0/94a3b8?text=No+Ref'} 
+                                                    alt="Ref" 
+                                                    className="w-20 h-16 object-cover rounded-md bg-gray-100" 
+                                                />
                                                 <div className="flex-grow">
                                                     <p className="font-semibold text-gray-800">Shot {shot.shotNumber}</p>
                                                     <p className="text-sm text-gray-600 truncate">{shot.description || 'No description'}</p>
@@ -357,12 +392,12 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const shotList = useMemo(() => project?.data?.shotListData?.shotListItems || [], [project]);
-  const shotListImagePreviews = useMemo(() => project?.data?.shotListData?.imagePreviews || {}, [project]);
 
   const stringifiedData = useMemo(() => JSON.stringify({ headerInfo, timelineItems, imagePreviews }), [headerInfo, timelineItems, imagePreviews]);
   const onSaveRef = useRef(onSave);
   useEffect(() => { onSaveRef.current = onSave; });
 
+  // --- START: AUTOSAVE WITH IMPROVED ERROR HANDLING ---
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
@@ -370,7 +405,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     }
     setSaveStatus('dirty');
     if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
-debounceTimeoutRef.current = setTimeout(() => {
+    debounceTimeoutRef.current = setTimeout(async () => {
       // Create a complete data payload for saving
       const dataToSave = {
         headerInfo,
@@ -379,17 +414,19 @@ debounceTimeoutRef.current = setTimeout(() => {
       };
       
       setSaveStatus('saving');
-      Promise.resolve()
-        .then(() => new Promise(resolve => setTimeout(resolve, 500)))
-        .then(() => onSaveRef.current(dataToSave))
-        .then(() => {
-          setSaveStatus('saved');
-          return new Promise(resolve => setTimeout(resolve, 2500));
-        })
-        .then(() => setSaveStatus('idle'));
+      try {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        await onSaveRef.current(dataToSave);
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2500);
+      } catch (error) {
+        console.error('Save failed:', error);
+        setSaveStatus('error');
+        setTimeout(() => setSaveStatus('idle'), 5000);
+      }
     }, 1000);
     return () => { if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current); };
-  }, [stringifiedData]);
+  }, [stringifiedData, headerInfo, timelineItems, imagePreviews]);
   // --- END: AUTOSAVE ---
 
   // --- START: UI BEHAVIOR HOOKS ---
@@ -505,23 +542,45 @@ debounceTimeoutRef.current = setTimeout(() => {
     recalculateAndUpdateTimes(timelineItems.filter(item => item.id !== itemId));
   }, [timelineItems, recalculateAndUpdateTimes, imagePreviews]);
 
-  const handleImageUpload = useCallback((itemId, file) => {
+  // Enhanced image upload with compression
+  const handleImageUpload = useCallback(async (itemId, file) => {
     if (!file || !file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
+    
+    try {
+      // Compress the image before storing
+      const compressedImage = await StorageManager.compressImage(file, 600, 0.7);
+      
+      if (compressedImage) {
+        setImagePreviews(prev => ({ ...prev, [itemId]: compressedImage }));
+        setActiveImageUploadId(null);
+      } else {
+        console.error('Failed to compress image');
+        // Fallback to original file reading (but with size warning)
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            // Check if the result is too large
+            const sizeInMB = (reader.result.length * 3) / 4 / (1024 * 1024); // Rough base64 size calculation
+            if (sizeInMB > 1) {
+              alert('Image is very large and may cause storage issues. Consider using a smaller image.');
+            }
             setImagePreviews(prev => ({ ...prev, [itemId]: reader.result }));
             setActiveImageUploadId(null);
-        }
-    };
-    reader.readAsDataURL(file);
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+    } catch (error) {
+      console.error('Image processing failed:', error);
+      alert('Failed to process image. Please try a smaller image.');
+    }
   }, []);
 
   const handleRemoveImage = useCallback((itemId) => {
     setImagePreviews(prev => { const newPreviews = { ...prev }; delete newPreviews[itemId]; return newPreviews; });
   }, []);
 
-  const handlePasteImage = useCallback((e, targetItemId) => {
+  const handlePasteImage = useCallback(async (e, targetItemId) => {
     const itemIdToUse = targetItemId || activeImageUploadId;
     if (!itemIdToUse) return;
 
@@ -536,22 +595,22 @@ debounceTimeoutRef.current = setTimeout(() => {
       const doc = parser.parseFromString(html, 'text/html');
       const img = doc.querySelector('img');
       if (img && img.src) {
-        if (img.src.startsWith('data:image')) {
-          setImagePreviews((prev) => ({ ...prev, [itemIdToUse]: img.src }));
-          setActiveImageUploadId(null);
-        } else {
-          fetch(img.src)
-            .then(res => res.blob())
-            .then(blob => {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                if (typeof reader.result === 'string') {
-                  setImagePreviews((prev) => ({ ...prev, [itemIdToUse]: reader.result }));
-                  setActiveImageUploadId(null);
-                }
-              };
-              reader.readAsDataURL(blob);
-            }).catch(err => console.error("Error fetching pasted image:", err));
+        try {
+          if (img.src.startsWith('data:image')) {
+            const compressedImage = await StorageManager.compressImage(img.src, 600, 0.7);
+            setImagePreviews((prev) => ({ ...prev, [itemIdToUse]: compressedImage || img.src }));
+            setActiveImageUploadId(null);
+          } else {
+            const response = await fetch(img.src);
+            const blob = await response.blob();
+            const compressedImage = await StorageManager.compressImage(blob, 600, 0.7);
+            if (compressedImage) {
+              setImagePreviews((prev) => ({ ...prev, [itemIdToUse]: compressedImage }));
+              setActiveImageUploadId(null);
+            }
+          }
+        } catch (err) {
+          console.error("Error processing pasted image:", err);
         }
         return;
       }
@@ -576,35 +635,54 @@ debounceTimeoutRef.current = setTimeout(() => {
     return () => document.removeEventListener('paste', globalPasteHandler);
   }, [activeImageUploadId, handlePasteImage]);
 
-    const handleImportShots = useCallback((shotIdsToImport) => {
-      const shotsToAdd = shotIdsToImport
-          .map(shotId => shotList.find(s => s.id === shotId))
-          .filter(Boolean);
+  const handleImportShots = useCallback((shotIdsToImport, shotImagePreviews) => {
+    const shotsToAdd = shotIdsToImport
+        .map(shotId => shotList.find(s => s.id === shotId))
+        .filter(Boolean);
 
-      const newTimelineItems = shotsToAdd.map(shot => {
-          const newShot: TimelineItem = {
-              id: generateId(),
-              type: 'shot',
-              start: '', // Will be set by recalculation
-              duration: 15, // Default duration for imported shots
-              end: '', // Will be set by recalculation
-              sceneNumber: shot.sceneNumber,
-              shotNumber: shot.shotNumber,
-              shotSize: shot.shotSize,
-              angle: shot.angle,
-              movement: shot.movement,
-              lens: shot.lens,
-              description: shot.description,
-              notes: shot.notes,
-              linkedShotId: shot.id,
-              intExt: 'INT', dayNight: 'DAY', location: '', cast: '', props: '', costume: '',
-          };
-          return newShot;
-      });
-      
-      recalculateAndUpdateTimes([...timelineItems, ...newTimelineItems]);
-
-  }, [shotList, timelineItems, recalculateAndUpdateTimes]);
+    const newTimelineItems = shotsToAdd.map(shot => {
+        const newShot = {
+            id: generateId(),
+            type: 'shot',
+            start: '', // Will be set by recalculation
+            duration: 15, // Default duration for imported shots
+            end: '', // Will be set by recalculation
+            sceneNumber: shot.sceneNumber,
+            shotNumber: shot.shotNumber,
+            shotSize: shot.shotSize,
+            angle: shot.angle,
+            movement: shot.movement,
+            lens: shot.lens,
+            description: shot.description,
+            notes: shot.notes,
+            linkedShotId: shot.id,
+            intExt: 'INT', dayNight: 'DAY', location: '', cast: '', props: '', costume: '',
+        };
+        return newShot;
+    });
+    
+    // Copy and compress images from shot list to schedule
+    const newImagePreviews = { ...imagePreviews };
+    for (let i = 0; i < shotsToAdd.length; i++) {
+        const shot = shotsToAdd[i];
+        if (shotImagePreviews[shot.id]) {
+            try {
+                // Compress imported images
+                StorageManager.compressImage(shotImagePreviews[shot.id], 600, 0.7).then(compressed => {
+                    if (compressed) {
+                        setImagePreviews(prev => ({ ...prev, [newTimelineItems[i].id]: compressed }));
+                    }
+                });
+            } catch (error) {
+                console.error('Failed to compress imported image:', error);
+                newImagePreviews[newTimelineItems[i].id] = shotImagePreviews[shot.id];
+            }
+        }
+    }
+    
+    setImagePreviews(newImagePreviews);
+    recalculateAndUpdateTimes([...timelineItems, ...newTimelineItems]);
+  }, [shotList, timelineItems, imagePreviews, recalculateAndUpdateTimes]);
 
   const stats = useMemo(() => {
     const totalDuration = timelineItems.reduce((sum, item) => sum + (item.duration || 0), 0);
@@ -647,12 +725,11 @@ debounceTimeoutRef.current = setTimeout(() => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 relative overflow-x-hidden flex flex-col">
-            <ShotImportModal 
-          isOpen={isImportModalOpen}
-          onClose={() => setIsImportModalOpen(false)}
-          shotList={shotList}
-          imagePreviews={shotListImagePreviews}
-          onImport={handleImportShots}
+      <ShotImportModal 
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        shotList={shotList}
+        onImport={handleImportShots}
       />
       <div className="absolute inset-0 opacity-20" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='110' height='73.33' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3Cstyle%3E.pattern %7B width: 100%25; height: 100%25; --s: 110px; --c1: %23dedede; --c2: %23ededed; --c3: %23d6d6d6; --_g: var(--c1) 10%25,var(--c2) 10.5%25 19%25,%230000 19.5%25 80.5%25,var(--c2) 81%25 89.5%25,var(--c3) 90%25; --_c: from -90deg at 37.5%25 50%25,%230000 75%25; --_l1: linear-gradient(145deg,var(--_g)); --_l2: linear-gradient( 35deg,var(--_g)); background: var(--_l1), var(--_l1) calc(var(--s)/2) var(--s), var(--_l2), var(--_l2) calc(var(--s)/2) var(--s), conic-gradient(var(--_c),var(--c1) 0) calc(var(--s)/8) 0, conic-gradient(var(--_c),var(--c3) 0) calc(var(--s)/2) 0, linear-gradient(90deg,var(--c3) 38%25,var(--c1) 0 50%25,var(--c3) 0 62%25,var(--c1) 0); background-size: var(--s) calc(2*var(--s)/3); %7D%3C/style%3E%3C/defs%3E%3CforeignObject width='100%25' height='100%25'%3E%3Cdiv class='pattern' xmlns='http://www.w3.org/1999/xhtml'%3E%3C/div%3E%3C/foreignObject%3E%3C/svg%3E")` }}></div>
       <div className="relative z-10 flex flex-col flex-grow">
@@ -751,7 +828,7 @@ debounceTimeoutRef.current = setTimeout(() => {
           <div className="flex gap-3 mb-6">
             <button onClick={addShot} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"><Plus className="w-4 h-4" />Add Shot</button>
             <button onClick={addBreak} className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white font-medium rounded-lg hover:bg-amber-600 transition-colors"><Coffee className="w-4 h-4" />Add Break</button>
-                        <div className="w-px bg-gray-300 mx-2"></div>
+            <div className="w-px bg-gray-300 mx-2"></div>
             <button onClick={() => setIsImportModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white font-medium rounded-lg hover:bg-teal-700 transition-colors"><ListPlus className="w-4 h-4" />Import from Shot List</button>
           </div>
 
@@ -805,35 +882,35 @@ debounceTimeoutRef.current = setTimeout(() => {
           <div ref={floatingScrollbarContentRef} style={{ height: '1px' }}></div>
         </div>
 
-<div className="fixed bottom-10 right-2 z-50 flex items-center gap-1">
-    <div className={`flex flex-col items-center gap-2 transition-all duration-300 ease-in-out ${showZoomControls ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0 pointer-events-none'}`}>
-        <button
-            onClick={handleZoomIn}
-            className="w-8 h-8 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
-            title="Zoom In"
-        >
-            <Plus className="w-4 h-4 text-gray-700" />
-        </button>
-        <span className="text-xs font-bold text-gray-600 bg-white/80 backdrop-blur-sm py-1 px-2 rounded-full border border-gray-200">
-            {Math.round(zoomLevel * 100)}%
-        </span>
-        <button
-            onClick={handleZoomOut}
-            className="w-8 h-8 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
-            title="Zoom Out"
-        >
-            <Minus className="w-4 h-4 text-gray-700" />
-        </button>
-    </div>
+        <div className="fixed bottom-10 right-2 z-50 flex items-center gap-1">
+            <div className={`flex flex-col items-center gap-2 transition-all duration-300 ease-in-out ${showZoomControls ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0 pointer-events-none'}`}>
+                <button
+                    onClick={handleZoomIn}
+                    className="w-8 h-8 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
+                    title="Zoom In"
+                >
+                    <Plus className="w-4 h-4 text-gray-700" />
+                </button>
+                <span className="text-xs font-bold text-gray-600 bg-white/80 backdrop-blur-sm py-1 px-2 rounded-full border border-gray-200">
+                    {Math.round(zoomLevel * 100)}%
+                </span>
+                <button
+                    onClick={handleZoomOut}
+                    className="w-8 h-8 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
+                    title="Zoom Out"
+                >
+                    <Minus className="w-4 h-4 text-gray-700" />
+                </button>
+            </div>
 
-    <button
-        onClick={() => setShowZoomControls(!showZoomControls)}
-        className="w-8 h-8 bg-white/80 backadrop-blur-sm border border-gray-200 rounded-lg flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
-        title={showZoomControls ? 'Hide Controls' : 'Show Controls'}
-    >
-        <ChevronsRight className={`w-5 h-5 text-gray-700 transition-transform duration-300 ${showZoomControls ? '' : 'rotate-180'}`} />
-    </button>
-</div>
+            <button
+                onClick={() => setShowZoomControls(!showZoomControls)}
+                className="w-8 h-8 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-lg flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
+                title={showZoomControls ? 'Hide Controls' : 'Show Controls'}
+            >
+                <ChevronsRight className={`w-5 h-5 text-gray-700 transition-transform duration-300 ${showZoomControls ? '' : 'rotate-180'}`} />
+            </button>
+        </div>
 
       </div>
     </div>
