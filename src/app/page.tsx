@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import ProjectDashboard from '@/components/ProjectDashboard';
 import ShootingScheduleEditor from '@/components/ShootingScheduleEditor';
-import ShotListEditor from '@/components/ShotListEditor';
+import ShotListEditor from '@/components/ShotlistEditor';
 
 /**
  * The main application component that handles view routing between the
