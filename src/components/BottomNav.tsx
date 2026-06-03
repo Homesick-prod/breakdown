@@ -1,5 +1,5 @@
-import React from 'react';
-import { Folder, List, Video } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { List, Video } from 'lucide-react';
 
 interface BottomNavProps {
   currentView: string;
@@ -8,17 +8,29 @@ interface BottomNavProps {
 }
 
 export default function BottomNav({ currentView, onNavigate, projectName }: BottomNavProps) {
+  const [isIOS, setIsIOS] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      setIsIOS(ios);
+    }
+  }, []);
+
   return (
     <div className="bottom-nav-container">
       <nav className="bottom-nav">
         <button
-          onClick={() => onNavigate('dashboard')}
-          className={`bottom-nav-item ${currentView === 'dashboard' ? 'active' : ''}`}
-          aria-label="Dashboard"
+          onClick={() => onNavigate('shotListEditor')}
+          className={`bottom-nav-item ${currentView === 'shotListEditor' ? 'active' : ''}`}
+          aria-label="Shot List"
         >
-          <Folder className="w-5 h-5 bottom-nav-icon" />
-          <span className="bottom-nav-label">Dashboard</span>
+          <List className="w-5 h-5 bottom-nav-icon" />
+          <span className="bottom-nav-label">Shotlist</span>
         </button>
+
+        {isIOS && <div className="bottom-nav-spacer" style={{ flex: 1, height: '100%' }} />}
 
         <button
           onClick={() => onNavigate('scheduleEditor')}
@@ -27,15 +39,6 @@ export default function BottomNav({ currentView, onNavigate, projectName }: Bott
         >
           <Video className="w-5 h-5 bottom-nav-icon" />
           <span className="bottom-nav-label">Schedule</span>
-        </button>
-
-        <button
-          onClick={() => onNavigate('shotListEditor')}
-          className={`bottom-nav-item ${currentView === 'shotListEditor' ? 'active' : ''}`}
-          aria-label="Shot List"
-        >
-          <List className="w-5 h-5 bottom-nav-icon" />
-          <span className="bottom-nav-label">Shotlist</span>
         </button>
       </nav>
     </div>
