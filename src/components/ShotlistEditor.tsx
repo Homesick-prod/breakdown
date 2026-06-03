@@ -6,6 +6,7 @@ import {
   closestCenter,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragEndEvent
@@ -203,7 +204,7 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
       </div>
 
       <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'center' }} className="shotlist-image-container">
           {imagePreviews[item.id] ? (
             <div className="relative group/img" onClick={() => setActiveImageUploadId(isActiveForUpload ? null : item.id)}>
               <img
@@ -831,7 +832,20 @@ debounceTimeoutRef.current = setTimeout(() => {
     withReferences: shotListItems.filter(shot => !!shot.imageUrl).length,
   }), [shotListItems]);
 
-  const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 250,
+        tolerance: 5,
+      },
+    }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   function handleDragEnd({ active, over }: DragEndEvent) {
     if (active && over && active.id !== over.id) {
@@ -870,7 +884,7 @@ debounceTimeoutRef.current = setTimeout(() => {
                 <p style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shot List Editor</p>
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }} className="desktop-only-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginRight: '4px' }}>
                 <button onClick={undo} disabled={!canUndo} className="btn-ghost" style={{ padding: '6px', opacity: canUndo ? 1 : 0.4, cursor: canUndo ? 'pointer' : 'not-allowed', borderRadius: '6px', display: 'flex', alignItems: 'center' }} title="Undo (Ctrl+Z)"><Undo2 className="w-4 h-4" /></button>
                 <button onClick={redo} disabled={!canRedo} className="btn-ghost" style={{ padding: '6px', opacity: canRedo ? 1 : 0.4, cursor: canRedo ? 'pointer' : 'not-allowed', borderRadius: '6px', display: 'flex', alignItems: 'center' }} title="Redo (Ctrl+Shift+Z)"><Redo2 className="w-4 h-4" /></button>
@@ -940,7 +954,7 @@ debounceTimeoutRef.current = setTimeout(() => {
             {viewMode === 'cards' ? (
               <div style={{ minHeight: '400px' }}>
                 <SortableContext items={shotListItems.map(item => item.id)} strategy={rectSortingStrategy}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }} className="shotlist-grid">
                     {shotListItems.map((item, index) => (<SortableCard key={item.id} id={item.id} item={item} index={index} {...{ imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, focusedItemId, setFocusedItemId }} />))}
                   </div>
                 </SortableContext>

@@ -614,12 +614,12 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
       <div style={S.bgGlow2} />
 
       {/* Nav */}
-      <nav style={S.nav}>
-        <div style={S.navInner}>
+      <nav style={S.nav} className="dashboard-nav">
+        <div style={S.navInner} className="dashboard-nav-inner">
           <div style={S.logoRow}>
             <div>
               <div style={S.logoTitle}>MentalBreakdown</div>
-              <div style={S.logoSub}>Film Production Suite</div>
+              <div style={S.logoSub} className="dashboard-logo-sub">Film Production Suite</div>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -680,10 +680,10 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
       </nav>
 
       {/* Main */}
-      <main style={S.main}>
-        <div style={S.contentWrap}>
+      <main style={S.main} className="dashboard-main">
+        <div style={S.contentWrap} className="dashboard-content-wrap">
           {/* Hero */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '40px', flexWrap: 'wrap', gap: '16px' }} className="animate-fade-in-up">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '40px', flexWrap: 'wrap', gap: '16px' }} className="dashboard-hero animate-fade-in-up">
             <div>
               <h2 style={S.heroTitle}>Your Projects</h2>
               <p style={S.heroSub}>Manage your shooting schedules and production timelines</p>
@@ -706,7 +706,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
           ) : projects.length === 0 ? (
             <EmptyState onCreateProject={() => setShowNewProjectModal(true)} />
           ) : (
-            <div style={S.grid}>
+            <div style={S.grid} className="dashboard-grid">
               {/* Create card */}
               <button
                 onClick={() => setShowNewProjectModal(true)}

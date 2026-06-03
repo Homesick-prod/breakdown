@@ -1,7 +1,7 @@
 `use client`;
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
@@ -343,6 +343,385 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
         </button>
       </td>
     </tr>
+  );
+}
+
+function SortableMobileCard({
+  id,
+  item,
+  index,
+  imagePreviews,
+  handleItemChange,
+  handleImageUpload,
+  removeTimelineItem,
+  handleRemoveImage,
+  activeImageUploadId,
+  setActiveImageUploadId
+}: {
+  id: string;
+  item: any;
+  index: number;
+  imagePreviews: Record<string, string>;
+  handleItemChange: (itemId: string, field: string, value: any) => void;
+  handleImageUpload: (itemId: string, file: File | null) => void;
+  removeTimelineItem: (itemId: string) => void;
+  handleRemoveImage: (itemId: string) => void;
+  activeImageUploadId: any;
+  setActiveImageUploadId: any;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    background: 'var(--bg-surface)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: '12px',
+    marginBottom: '12px',
+    overflow: 'hidden',
+    position: 'relative' as const,
+  };
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const isBreak = item.type === 'break';
+
+  if (isBreak) {
+    return (
+      <div ref={setNodeRef} style={style}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', gap: '12px', background: 'rgba(245,158,11,0.06)' }}>
+          {/* Drag Handle */}
+          <div {...attributes} {...listeners} className="touch-target" style={{ cursor: 'grab', color: 'var(--text-muted)' }}>
+            <GripVertical className="w-5 h-5" />
+          </div>
+          
+          <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
+            <span className="chip chip-amber" style={{ fontSize: '11px', fontWeight: 700 }}>BREAK</span>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>{item.start} - {item.end}</span>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>({item.duration}m)</span>
+            <input
+              type="text"
+              value={item.description || ''}
+              onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
+              className="no-style"
+              style={{
+                flex: 1,
+                minWidth: '120px',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: '1px dashed var(--border-subtle)',
+                fontSize: '13px',
+                color: 'var(--text-primary)',
+                padding: '2px 4px',
+                outline: 'none',
+              }}
+            />
+          </div>
+
+          <button
+            onClick={() => removeTimelineItem(item.id)}
+            className="btn-ghost"
+            style={{ color: 'var(--accent-red)', padding: '8px' }}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      {/* Header section (Always visible) */}
+      <div 
+        style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          padding: '12px 16px', 
+          gap: '12px', 
+          borderBottom: isExpanded ? '1px solid var(--border-subtle)' : 'none',
+          cursor: 'pointer'
+        }}
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        {/* Drag Handle */}
+        <div 
+          {...attributes} 
+          {...listeners} 
+          className="touch-target" 
+          style={{ cursor: 'grab', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={(e) => e.stopPropagation()} // Stop propagation so it doesn't toggle expand
+        >
+          <GripVertical className="w-5 h-5" />
+        </div>
+
+        {/* Scene Info */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            {item.sceneNumber && (
+              <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--accent-primary)' }}>
+                Sc. {item.sceneNumber}
+              </span>
+            )}
+            {item.shotNumber && (
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                Sh. {item.shotNumber}
+              </span>
+            )}
+            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+              {item.start} - {item.end}
+            </span>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              ({item.duration}m)
+            </span>
+          </div>
+
+          {/* Location & Int/Ext info */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+            <span style={{ fontWeight: 600, color: item.intExt === 'EXT' ? 'var(--accent-amber)' : 'var(--text-accent)' }}>
+              {item.intExt}
+            </span>
+            <span>•</span>
+            <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '180px' }}>
+              {item.location || 'No Location'}
+            </span>
+          </div>
+        </div>
+
+        {/* Action button: Expand/Collapse & Delete */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => removeTimelineItem(item.id)}
+            className="btn-ghost"
+            style={{ color: 'var(--accent-red)', padding: '8px' }}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+          
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="btn-ghost"
+            style={{ padding: '8px', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
+          >
+            <ChevronDown className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Expanded Content Details */}
+      {isExpanded && (
+        <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px', background: 'rgba(0,0,0,0.1)' }}>
+          {/* Row 1: Int/Ext & Period */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>INT/EXT</label>
+              <DarkSelect<SelectOption>
+                instanceId={`mobile-intExt-${item.id}`}
+                value={findOption(INT_EXT_OPTIONS, item.intExt)}
+                onChange={(opt) => handleItemChange(item.id, 'intExt', (opt as SelectOption)?.value ?? '')}
+                options={INT_EXT_OPTIONS}
+                isClearable={false}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Period/DayNight</label>
+              <DarkSelect<SelectOption>
+                instanceId={`mobile-period-${item.id}`}
+                value={findOption(PERIOD_OPTIONS, item.dayNight)}
+                onChange={(opt) => handleItemChange(item.id, 'dayNight', (opt as SelectOption)?.value ?? '')}
+                options={PERIOD_OPTIONS}
+                isClearable={false}
+              />
+            </div>
+          </div>
+
+          {/* Row 2: Scene # & Shot # */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Scene Number</label>
+              <input
+                type="text"
+                value={item.sceneNumber || ''}
+                onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Shot Number</label>
+              <input
+                type="text"
+                value={item.shotNumber || ''}
+                onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+              />
+            </div>
+          </div>
+
+          {/* Row 3: Duration & Location */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
+            <div>
+              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Duration</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <input
+                  type="number"
+                  min="0"
+                  value={item.duration}
+                  onChange={(e) => handleItemChange(item.id, 'duration', e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                />
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>m</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Location</label>
+              <input
+                type="text"
+                value={item.location || ''}
+                onChange={(e) => handleItemChange(item.id, 'location', e.target.value)}
+                placeholder="e.g. Living Room"
+                style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+              />
+            </div>
+          </div>
+
+          {/* Size, Angle, Movement */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Shot Size</label>
+              <DarkSelect<SelectOption>
+                instanceId={`mobile-size-${item.id}`}
+                options={SHOT_SIZE_OPTIONS}
+                value={findOption(SHOT_SIZE_OPTIONS, item.shotSize)}
+                onChange={(opt) => handleItemChange(item.id, 'shotSize', (opt as SelectOption)?.value ?? '')}
+                placeholder="Size..."
+                isClearable
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Lens</label>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <input
+                  type="number"
+                  value={item.lens ? item.lens.replace('mm', '').trim() : ''}
+                  onChange={(e) => handleItemChange(item.id, 'lens', e.target.value ? `${e.target.value}mm` : '')}
+                  placeholder="50"
+                  style={{ width: '100%', padding: '8px 30px 8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                />
+                <span style={{ position: 'absolute', right: '8px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', pointerEvents: 'none' }}>mm</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Angle</label>
+              <DarkSelect<SelectOption>
+                instanceId={`mobile-angle-${item.id}`}
+                options={ANGLE_OPTIONS}
+                value={item.angle}
+                onChange={(val: any) => {
+                  const valueStr = Array.isArray(val)
+                    ? val.map((opt: any) => opt.value).join(',')
+                    : (val?.value ?? '');
+                  handleItemChange(item.id, 'angle', valueStr);
+                }}
+                placeholder="Angle..."
+                isMulti
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Movement</label>
+              <DarkSelect<SelectOption>
+                instanceId={`mobile-movement-${item.id}`}
+                options={MOVEMENT_OPTIONS}
+                value={item.movement}
+                onChange={(val: any) => {
+                  const valueStr = Array.isArray(val)
+                    ? val.map((opt: any) => opt.value).join(',')
+                    : (val?.value ?? '');
+                  handleItemChange(item.id, 'movement', valueStr);
+                }}
+                placeholder="Movement..."
+                isMulti
+              />
+            </div>
+          </div>
+
+          {/* Row 4: Description */}
+          <div>
+            <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Description</label>
+            <textarea
+              value={item.description || ''}
+              onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
+              placeholder="e.g. John enters and sits down"
+              rows={2}
+              style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }}
+            />
+          </div>
+
+          {/* Row 5: Cast */}
+          <div>
+            <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Cast / Characters</label>
+            <input
+              type="text"
+              value={item.cast || ''}
+              onChange={(e) => handleItemChange(item.id, 'cast', e.target.value)}
+              placeholder="e.g. John, Sarah"
+              style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+            />
+          </div>
+
+          {/* Image Upload/Reference */}
+          <div>
+            <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Reference Image</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {imagePreviews[item.id] ? (
+                <div style={{ position: 'relative', width: '100%', height: '140px', borderRadius: '8px', overflow: 'hidden' }}>
+                  <img src={imagePreviews[item.id]} alt="Reference" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <button 
+                    onClick={() => handleRemoveImage(item.id)} 
+                    style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: '50%', padding: '4px', border: 'none', cursor: 'pointer' }}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleImageUpload(item.id, file);
+                    }}
+                    id={`file-upload-mobile-${item.id}`}
+                    style={{ display: 'none' }}
+                  />
+                  <label
+                    htmlFor={`file-upload-mobile-${item.id}`}
+                    className="btn-secondary"
+                    style={{ flex: 1, justifyContent: 'center', fontSize: '12px', padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <ImageIcon className="w-4 h-4" /> Upload Image
+                  </label>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Row 6: Notes */}
+          <div>
+            <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Notes</label>
+            <input
+              type="text"
+              value={item.notes || ''}
+              onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)}
+              placeholder="Any additional notes..."
+              style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1223,7 +1602,30 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     }
   ]);
 
-  const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const media = window.matchMedia('(max-width: 768px)');
+    const listener = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    setIsMobile(media.matches);
+    media.addEventListener('change', listener);
+    return () => media.removeEventListener('change', listener);
+  }, []);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 250,
+        tolerance: 5,
+      },
+    }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   function handleDragEnd({ active, over }) {
     if (active && over && active.id !== over.id) {
@@ -1274,7 +1676,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
                 <p style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shooting Schedule Editor</p>
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }} className="desktop-only-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginRight: '4px' }}>
                 <button onClick={undo} disabled={!canUndo} className="btn-ghost" style={{ padding: '6px', opacity: canUndo ? 1 : 0.4, cursor: canUndo ? 'pointer' : 'not-allowed', borderRadius: '6px', display: 'flex', alignItems: 'center' }} title="Undo (Ctrl+Z)"><Undo2 className="w-4 h-4" /></button>
                 <button onClick={redo} disabled={!canRedo} className="btn-ghost" style={{ padding: '6px', opacity: canRedo ? 1 : 0.4, cursor: canRedo ? 'pointer' : 'not-allowed', borderRadius: '6px', display: 'flex', alignItems: 'center' }} title="Redo (Ctrl+Shift+Z)"><Redo2 className="w-4 h-4" /></button>
@@ -1428,67 +1830,105 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
             <button onClick={() => setIsImportModalOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '10px 16px', background: 'rgba(20,184,166,0.15)', color: '#2dd4bf', fontWeight: 600, fontSize: '13px', border: '1px solid rgba(20,184,166,0.3)', borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s', fontFamily: 'inherit' }}><ListPlus className="w-4 h-4" />Import from Shot List</button>
           </div>
 
-          {/* Table container */}
-          <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: '14px', overflow: 'hidden' }}>
-            <div
-              ref={tableContainerRef}
-              className={`table-scroll-hidden ${isTableScrolled ? 'table-scrolled' : ''}`}
-              style={{ overflowX: 'auto', zoom: zoomLevel }}
-            >
+          {/* Schedule list container */}
+          {isMobile ? (
+            <div style={{ padding: '4px' }}>
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
                 onDragEnd={handleDragEnd}
                 modifiers={dragModifiers}
               >
-                <table className="dark-table" style={{ minWidth: '2400px' }} ref={tableRef}>
-                  <thead>
-                    <tr>
-                      <th className="col-drag" style={{ width: '48px' }}></th>
-                      <th>Time</th>
-                      <th>Dur.</th>
-                      <th className="col-scene" style={{ width: '84px' }}>Scene</th>
-                      <th className="col-shot" style={{ width: '84px' }}>Shot</th>
-                      <th>INT/EXT</th>
-                      <th>Period</th>
-                      <th>Location</th>
-                      <th>Size</th>
-                      <th>Angle</th>
-                      <th>Movement</th>
-                      <th>Lens</th>
-                      <th>Description</th>
-                      <th>Cast</th>
-                      <th style={{ textAlign: 'center' }}>Reference</th>
-                      <th>Props</th>
-                      <th>Costume</th>
-                      <th>Notes</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <SortableContext items={timelineItems.map(item => item.id)} strategy={verticalListSortingStrategy}>
-                      {timelineItems.map((item, index) => <SortableItem key={item.id} id={item.id} item={item} index={index} imagePreviews={imagePreviews} handleItemChange={handleItemChange} handleImageUpload={handleImageUpload} removeTimelineItem={removeTimelineItem} handleRemoveImage={handleRemoveImage} activeImageUploadId={activeImageUploadId} setActiveImageUploadId={setActiveImageUploadId} focusedItemId={focusedItemId} setFocusedItemId={setFocusedItemId} />)}
-                    </SortableContext>
-                  </tbody>
-                </table>
+                <SortableContext items={timelineItems.map((item: any) => item.id)} strategy={verticalListSortingStrategy}>
+                  {timelineItems.map((item: any, index: number) => (
+                    <SortableMobileCard
+                      key={item.id}
+                      id={item.id}
+                      item={item}
+                      index={index}
+                      imagePreviews={imagePreviews}
+                      handleItemChange={handleItemChange}
+                      handleImageUpload={handleImageUpload}
+                      removeTimelineItem={removeTimelineItem}
+                      handleRemoveImage={handleRemoveImage}
+                      activeImageUploadId={activeImageUploadId}
+                      setActiveImageUploadId={setActiveImageUploadId}
+                    />
+                  ))}
+                </SortableContext>
               </DndContext>
               {timelineItems.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '64px 24px' }}>
-                  <div className="empty-state-icon" style={{ width: '64px', height: '64px', borderRadius: '16px', margin: '0 auto 16px' }}>
-                    <Film style={{ width: '28px', height: '28px', color: 'var(--accent-primary)' }} />
+                <div style={{ textAlign: 'center', padding: '48px 16px' }}>
+                  <div className="empty-state-icon" style={{ width: '48px', height: '48px', borderRadius: '12px', margin: '0 auto 16px' }}>
+                    <Film style={{ width: '20px', height: '20px', color: 'var(--accent-primary)' }} />
                   </div>
-                  <p style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>No shots added yet</p>
-                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '6px' }}>Click "Add Shot" to start building your schedule</p>
+                  <p style={{ color: 'var(--text-secondary)', fontWeight: 600, fontSize: '14px' }}>No shots added yet</p>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>Click "Add Shot" to start building your schedule</p>
                 </div>
               )}
             </div>
-          </div>
+          ) : (
+            <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: '14px', overflow: 'hidden' }}>
+              <div
+                ref={tableContainerRef}
+                className={`table-scroll-hidden ${isTableScrolled ? 'table-scrolled' : ''}`}
+                style={{ overflowX: 'auto', zoom: zoomLevel }}
+              >
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                  modifiers={dragModifiers}
+                >
+                  <table className="dark-table" style={{ minWidth: '2400px' }} ref={tableRef}>
+                    <thead>
+                      <tr>
+                        <th className="col-drag" style={{ width: '48px' }}></th>
+                        <th>Time</th>
+                        <th>Dur.</th>
+                        <th className="col-scene" style={{ width: '84px' }}>Scene</th>
+                        <th className="col-shot" style={{ width: '84px' }}>Shot</th>
+                        <th>INT/EXT</th>
+                        <th>Period</th>
+                        <th>Location</th>
+                        <th>Size</th>
+                        <th>Angle</th>
+                        <th>Movement</th>
+                        <th>Lens</th>
+                        <th>Description</th>
+                        <th>Cast</th>
+                        <th style={{ textAlign: 'center' }}>Reference</th>
+                        <th>Props</th>
+                        <th>Costume</th>
+                        <th>Notes</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <SortableContext items={timelineItems.map(item => item.id)} strategy={verticalListSortingStrategy}>
+                        {timelineItems.map((item, index) => <SortableItem key={item.id} id={item.id} item={item} index={index} imagePreviews={imagePreviews} handleItemChange={handleItemChange} handleImageUpload={handleImageUpload} removeTimelineItem={removeTimelineItem} handleRemoveImage={handleRemoveImage} activeImageUploadId={activeImageUploadId} setActiveImageUploadId={setActiveImageUploadId} focusedItemId={focusedItemId} setFocusedItemId={setFocusedItemId} />)}
+                      </SortableContext>
+                    </tbody>
+                  </table>
+                </DndContext>
+                {timelineItems.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '64px 24px' }}>
+                    <div className="empty-state-icon" style={{ width: '64px', height: '64px', borderRadius: '16px', margin: '0 auto 16px' }}>
+                      <Film style={{ width: '28px', height: '28px', color: 'var(--accent-primary)' }} />
+                    </div>
+                    <p style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>No shots added yet</p>
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '6px' }}>Click "Add Shot" to start building your schedule</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </main>
 
         {/* Floating scrollbar */}
         <div
           ref={floatingScrollbarRef}
-          className="floating-scrollbar-container"
+          className="floating-scrollbar-container desktop-only"
           style={{
             opacity: showFloatingScrollbar ? 1 : 0,
             pointerEvents: showFloatingScrollbar ? 'auto' : 'none'
@@ -1498,7 +1938,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
         </div>
 
         {/* Zoom controls */}
-        <div style={{ position: 'fixed', bottom: '40px', right: '8px', zIndex: 50, display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <div className="desktop-only" style={{ position: 'fixed', bottom: '40px', right: '8px', zIndex: 50, display: 'flex', alignItems: 'center', gap: '4px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', transition: 'all 0.3s', opacity: showZoomControls ? 1 : 0, transform: showZoomControls ? 'translateX(0)' : 'translateX(100%)', pointerEvents: showZoomControls ? 'auto' : 'none' }}>
             <button onClick={handleZoomIn} title="Zoom In" style={{ width: '32px', height: '32px', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow-md)', color: 'var(--text-secondary)', transition: 'all 0.2s' }}>
               <Plus style={{ width: '14px', height: '14px' }} />

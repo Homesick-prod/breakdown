@@ -5,6 +5,7 @@ import { Folder, List, Video } from 'lucide-react';
 import ProjectDashboard from '@/components/ProjectDashboard';
 import ShootingScheduleEditor from '@/components/ShootingScheduleEditor';
 import ShotListEditor from '@/components/ShotlistEditor';
+import BottomNav from '@/components/BottomNav';
 import { db, isFirebaseEnabled } from '@/lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { generateId } from '@/utils/id';
@@ -374,6 +375,20 @@ function App() {
           project={selectedProject}
           onBack={handleBackToDashboard}
           onSave={handleSaveProject}
+        />
+      )}
+
+      {selectedProject && (
+        <BottomNav
+          currentView={currentView}
+          onNavigate={(view) => {
+            if (view === 'dashboard') {
+              handleBackToDashboard();
+            } else {
+              setCurrentView(view);
+            }
+          }}
+          projectName={selectedProject.name}
         />
       )}
     </>
