@@ -437,6 +437,7 @@ textarea:not(.no-style):focus {
   z-index: 3;
   background: var(--bg-surface);
 }
+
 .dark-table tbody tr td.col-drag {
   position: sticky;
   left: 0;
@@ -451,6 +452,7 @@ textarea:not(.no-style):focus {
   z-index: 3;
   background: var(--bg-surface);
 }
+
 .dark-table tbody tr td.col-scene {
   position: sticky;
   left: 48px;
@@ -465,6 +467,7 @@ textarea:not(.no-style):focus {
   z-index: 3;
   background: var(--bg-surface);
 }
+
 .dark-table tbody tr td.col-shot {
   position: sticky;
   left: 132px;
@@ -1200,6 +1203,7 @@ textarea:not(.no-style):focus {
     opacity: 0;
     transform: scale(0.95);
   }
+
   to {
     opacity: 1;
     transform: scale(1);
