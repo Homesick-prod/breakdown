@@ -19,6 +19,8 @@ import Footer from './Footer';
 import { DarkSelect, findOption, SHOT_SIZE_OPTIONS, ANGLE_OPTIONS, MOVEMENT_OPTIONS, INT_EXT_OPTIONS, PERIOD_OPTIONS, SelectOption } from './DarkSelect';
 import { DarkDatePicker, DarkTimePicker } from './DarkDatePicker';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { setImage, getImage, deleteImage } from '../utils/db';
+import { isFirebaseEnabled, uploadImageToStorage } from '../lib/firebase';
 
 
 interface LocationAutocompleteProps {
@@ -1408,23 +1410,49 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     recalculateAndUpdateTimes(timelineItems.filter(item => item.id !== itemId));
   }, [timelineItems, recalculateAndUpdateTimes, imagePreviews]);
 
-  const handleImageUpload = useCallback((itemId, file) => {
+  const handleImageUpload = useCallback(async (itemId, file) => {
     if (!file || !file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
-        setImagePreviews(prev => ({ ...prev, [itemId]: reader.result }));
-        setActiveImageUploadId(null);
+
+    // Always store in IndexedDB as local cache
+    await setImage(itemId, file);
+
+    let finalImageUrl = 'true';
+    if (isFirebaseEnabled) {
+      try {
+        finalImageUrl = await uploadImageToStorage(`projects/${project?.id || 'schedule'}/schedule/${itemId}`, file);
+      } catch (err) {
+        console.error('Failed to upload image to Firebase Storage:', err);
       }
-    };
-    reader.readAsDataURL(file);
-  }, []);
+    }
 
-  const handleRemoveImage = useCallback((itemId) => {
-    setImagePreviews(prev => { const newPreviews = { ...prev }; delete newPreviews[itemId]; return newPreviews; });
-  }, []);
+    setImagePreviews(prev => {
+      const prevVal = prev || {};
+      if (prevVal[itemId] && !prevVal[itemId].startsWith('http')) {
+        URL.revokeObjectURL(prevVal[itemId]);
+      }
+      return {
+        ...prevVal,
+        [itemId]: finalImageUrl.startsWith('http') ? finalImageUrl : URL.createObjectURL(file)
+      };
+    });
+    setActiveImageUploadId(null);
+  }, [project?.id, setImagePreviews]);
 
-  const handlePasteImage = useCallback((e, targetItemId) => {
+  const handleRemoveImage = useCallback(async (itemId) => {
+    await deleteImage(itemId);
+    setImagePreviews(prev => {
+      const newPreviews = { ...prev };
+      if (newPreviews[itemId]) {
+        if (!newPreviews[itemId].startsWith('http')) {
+          URL.revokeObjectURL(newPreviews[itemId]);
+        }
+        delete newPreviews[itemId];
+      }
+      return newPreviews;
+    });
+  }, [setImagePreviews]);
+
+  const handlePasteImage = useCallback(async (e, targetItemId) => {
     const itemIdToUse = targetItemId || activeImageUploadId;
     if (!itemIdToUse) return;
 
@@ -1440,20 +1468,20 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       const img = doc.querySelector('img');
       if (img && img.src) {
         if (img.src.startsWith('data:image')) {
-          setImagePreviews((prev) => ({ ...prev, [itemIdToUse]: img.src }));
-          setActiveImageUploadId(null);
+          try {
+            const res = await fetch(img.src);
+            const blob = await res.blob();
+            const file = new File([blob], `pasted-${itemIdToUse}.png`, { type: blob.type });
+            await handleImageUpload(itemIdToUse, file);
+          } catch (err) {
+            console.error("Error processing pasted data URL image:", err);
+          }
         } else {
           fetch(img.src)
             .then(res => res.blob())
             .then(blob => {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                if (typeof reader.result === 'string') {
-                  setImagePreviews((prev) => ({ ...prev, [itemIdToUse]: reader.result }));
-                  setActiveImageUploadId(null);
-                }
-              };
-              reader.readAsDataURL(blob);
+              const file = new File([blob], `pasted-${itemIdToUse}.png`, { type: blob.type });
+              handleImageUpload(itemIdToUse, file);
             }).catch(err => console.error("Error fetching pasted image:", err));
         }
         return;
@@ -1463,7 +1491,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     if (clipboardData.files && clipboardData.files.length > 0) {
       const file = Array.from(clipboardData.files).find(f => f.type.startsWith('image/'));
       if (file) {
-        handleImageUpload(itemIdToUse, file);
+        await handleImageUpload(itemIdToUse, file);
         return;
       }
     }
@@ -1478,6 +1506,34 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     document.addEventListener('paste', globalPasteHandler);
     return () => document.removeEventListener('paste', globalPasteHandler);
   }, [activeImageUploadId, handlePasteImage]);
+
+  // Load images from IndexedDB on mount
+  useEffect(() => {
+    const loadImages = async () => {
+      const previews = { ...imagePreviews };
+      let updated = false;
+      for (const [itemId, url] of Object.entries(imagePreviews)) {
+        if (url === 'true' || (url && typeof url === 'string' && !url.startsWith('http') && !url.startsWith('data:'))) {
+          try {
+            const imageFile = await getImage(itemId);
+            if (imageFile) {
+              previews[itemId] = URL.createObjectURL(imageFile);
+              updated = true;
+            }
+          } catch (error) {
+            console.error(`Failed to load local image for schedule item ${itemId}:`, error);
+          }
+        }
+      }
+      if (updated) {
+        setImagePreviews(previews);
+      }
+    };
+
+    if (imagePreviews && Object.keys(imagePreviews).length > 0) {
+      loadImages();
+    }
+  }, []);
 
   const handleImportShots = useCallback((shotIdsToImport) => {
     const shotsToAdd = shotIdsToImport
