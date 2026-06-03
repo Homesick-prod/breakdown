@@ -1,30 +1,43 @@
 'use client';
 
 import React from 'react';
-import { Github } from 'lucide-react';
+import { Github, Clapperboard } from 'lucide-react';
 
 export default function Footer() {
   return (
-    <footer className="border-t border-slate-200 bg-white z-10">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex flex-col h-2 sm:flex-row items-center justify-between gap-4">
-          <div className="text-center sm:text-left">
-            <p className="text-sm text-slate-600 font-medium">
-              MentalBreakdown
-            </p>
-            <p className="text-xs text-slate-500 mt-1">
-              ©{new Date().getFullYear()} | V.2.3.5.1 (Beta) Created by Tawich P.
-            </p>
+    <footer style={{
+      borderTop: '1px solid var(--border-subtle)',
+      background: 'var(--bg-surface)',
+      padding: '18px 0',
+      position: 'relative',
+      zIndex: 1,
+    }}>
+      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '0 14  px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                MentalBreakdown
+              </span>
+              <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '8px' }}>
+                ©{new Date().getFullYear()} &middot; V.2.3.5.1 (Beta) &middot; by Tawich P.
+              </span>
+            </div>
           </div>
-          <div className="flex items-center space-x-5">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <a
               href="https://github.com/Homesick-prod/breakdown"
               target="_blank"
               rel="noopener noreferrer"
-              className="relative z-10 text-slate-400 hover:text-slate-600 transition-colors"
-              title="GitHub"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                fontSize: '12px', color: 'var(--text-muted)',
+                textDecoration: 'none', transition: 'color 0.2s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent-primary)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
             >
-              <Github className="w-5 h-5" />
+              <Github style={{ width: '16px', height: '16px' }} />
             </a>
           </div>
         </div>

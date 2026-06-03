@@ -1,72 +1,1211 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@100;200;300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @import "tailwindcss";
 
+/* Force text colors for labels to match new aesthetic */
+label {
+  color: var(--text-secondary) !important;
+}
+
+label.btn-primary,
+label[class*="cursor-pointer"] {
+  color: inherit !important;
+}
+
+/* ========================
+   DESIGN SYSTEM TOKENS
+   ======================== */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Core palette - DaVinci Resolve Studio Theme */
+  --bg-base: #181818;
+  --bg-surface: #262626;
+  --bg-elevated: #333333;
+  --bg-table-striped: #2a2a2a;
+  --bg-overlay: rgba(24, 24, 24, 0.85);
+  --bg-card: #262626;
+  --bg-input: #111111;
+  --bg-input-hover: #161616;
+
+  /* Accent - Brand Teal */
+  --accent-primary: #4CA18A;
+  --accent-primary-h: #5eb69e;
+  --accent-glow: rgba(76, 161, 138, 0.2);
+  --accent-glow-sm: rgba(76, 161, 138, 0.1);
+
+  /* Secondary Accents */
+  --accent-amber: #f59e0b;
+  --accent-green: #10b981;
+  --accent-red: #ef4444;
+
+  /* Text - High contrast neutral */
+  --text-primary: #d5d5d5;
+  --text-secondary: #8a8a8a;
+  --text-muted: #555555;
+  --text-accent: #7bcbb7;
+
+  ::placeholder {
+    color: rgb(75, 75, 75);
+    opacity: 1;
+    /* Firefox */
+  }
+
+  /* Borders - NLE software uses dark panel gaps/borders */
+  --border-subtle: #333333;
+  --border-default: #111111;
+  --border-strong: #000000;
+  --border-accent: #4CA18A;
+
+  /* Shadows - Crisp & Grounded */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 3px 6px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.2);
+  --shadow-glow: none;
+
+  /* Radius - Snappy */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
+
+  /* Scrollbar dimensions */
+  --scrollbar-height: 11px;
+  --scrollbar-width: 10px;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ========================
+   BASE RESET
+   ======================== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
-.ibm-plex-sans-thai-thin {
-  font-family: "IBM Plex Sans Thai", sans-serif;
-  font-weight: 100;
-  font-style: normal;
-}
-
-.ibm-plex-sans-thai-extralight {
-  font-family: "IBM Plex Sans Thai", sans-serif;
-  font-weight: 200;
-  font-style: normal;
-}
-
-.ibm-plex-sans-thai-light {
-  font-family: "IBM Plex Sans Thai", sans-serif;
-  font-weight: 300;
-  font-style: normal;
-}
-
-.ibm-plex-sans-thai-regular {
-  font-family: "IBM Plex Sans Thai", sans-serif;
-  font-weight: 400;
-  font-style: normal;
-}
-
-.ibm-plex-sans-thai-medium {
-  font-family: "IBM Plex Sans Thai", sans-serif;
-  font-weight: 500;
-  font-style: normal;
-}
-
-.ibm-plex-sans-thai-semibold {
-  font-family: "IBM Plex Sans Thai", sans-serif;
-  font-weight: 600;
-  font-style: normal;
-}
-
-.ibm-plex-sans-thai-bold {
-  font-family: "IBM Plex Sans Thai", sans-serif;
-  font-weight: 700;
-  font-style: normal;
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   max-width: 100vw;
-  font-family: '.ibm-plex-sans-thai-regular';
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+/* ========================
+   SCROLLBAR STYLING
+   ======================== */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255);
+  }
+}
+
+::-webkit-scrollbar {
+  width: var(--scrollbar-width);
+  height: var(--scrollbar-height);
+}
+
+/* Hide native scrollbar for elements that sync with custom scrollbars to prevent zoom-induced stickiness wobble */
+.table-scroll-hidden::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.table-scroll-hidden {
+  -ms-overflow-style: none !important;
+  /* IE and Edge */
+  scrollbar-width: none !important;
+  /* Firefox */
+}
+
+/* Floating bottom scrollbar wrapper */
+.floating-scrollbar-container {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  transition: opacity 0.2s;
+  height: var(--scrollbar-height);
+  z-index: 10;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border: 2.5px solid transparent;
+  background-clip: padding-box;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.17);
+  border: 2.5px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgba(255, 255, 255, 0.15);
+  border: 2.5px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ========================
+   BACKGROUND TEXTURES (Removed AI glow)
+   ======================== */
+.bg-film-grain {
+  background: var(--bg-base);
+}
+
+/* ========================
+   CARD BASE (Solid, no glass)
+   ======================== */
+.glass-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.glass-card:hover {
+  border-color: var(--text-muted);
+}
+
+/* ========================
+   BUTTONS
+   ======================== */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: var(--accent-green);
+  color: #ffffff;
+  font-weight: 500;
+  font-size: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:hover {
+  background: #2ea043;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-weight: 500;
+  font-size: 13px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-secondary:hover {
+  background: var(--border-subtle);
+  border-color: var(--text-muted);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 13px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-ghost:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+/* ========================
+   FORM INPUTS
+   ======================== */
+.input-dark,
+input[type="text"]:not(.no-style),
+input[type="number"]:not(.no-style),
+input[type="time"]:not(.no-style),
+input[type="date"]:not(.no-style),
+select:not(.no-style),
+textarea:not(.no-style) {
+  background: var(--bg-input) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-default) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 6px 12px !important;
+  font-family: inherit !important;
+  font-size: 13px !important;
+  transition: border-color 0.15s, box-shadow 0.15s !important;
+  outline: none !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.075) !important;
+}
+
+/* Hide default browser spinner buttons for number inputs */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield !important;
+}
+
+/* Fix for react-select inner input getting styled by the global rules */
+div[class*="dark-select"] input[type="text"],
+div[class*="-control"] input[type="text"],
+div[class*="dark-select"] input[type="text"]:hover,
+div[class*="-control"] input[type="text"]:hover,
+div[class*="dark-select"] input[type="text"]:focus,
+div[class*="-control"] input[type="text"]:focus {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  min-height: 0 !important;
+  appearance: none !important;
+}
+
+/* Custom react-select dropdown arrow override to ensure 15px size globally */
+div[class*="dark-select__dropdown-indicator"] svg,
+div[class*="-indicatorContainer"] svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+
+input[type="text"]:not(.no-style):focus,
+input[type="number"]:not(.no-style):focus,
+input[type="time"]:not(.no-style):focus,
+input[type="date"]:not(.no-style):focus,
+select:not(.no-style):focus,
+textarea:not(.no-style):focus {
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 0 0 2px var(--accent-glow) !important;
+}
+
+/* ========================
+   NAVBAR
+   ======================== */
+.app-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  height: 56px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-default);
+  display: flex;
+  align-items: center;
+}
+
+/* ========================
+   BADGE / CHIP
+   ======================== */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.chip-violet {
+  background: rgba(88, 166, 255, 0.1);
+  color: var(--text-accent);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+}
+
+.chip-amber {
+  background: rgba(210, 153, 34, 0.1);
+  color: var(--accent-amber);
+  border: 1px solid rgba(210, 153, 34, 0.2);
+}
+
+.chip-green {
+  background: rgba(35, 134, 54, 0.15);
+  color: #3fb950;
+  border: 1px solid rgba(35, 134, 54, 0.3);
+}
+
+/* ========================
+   MODAL OVERLAY
+   ======================== */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 17, 23, 0.8);
+  z-index: 50;
+}
+
+.modal-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ========================
+   TABLE DARK
+   ======================== */
+.dark-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+}
+
+.dark-table thead tr th {
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+  text-align: left;
+}
+
+.dark-table tbody tr td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px;
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+
+.dark-table tbody tr.row-break td {
+  background: rgba(210, 153, 34, 0.05) !important;
+}
+
+.dark-table tbody tr.row-even td {
+  background: var(--bg-base);
+}
+
+/* ========================
+   FREEZE / STICKY COLUMNS
+   ======================== */
+
+/* Sticky drag handle column */
+.dark-table thead tr th.col-drag {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--bg-surface);
+}
+.dark-table tbody tr td.col-drag {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: inherit;
+}
+
+/* Sticky Scene column — left offset = drag handle width (48px) */
+.dark-table thead tr th.col-scene {
+  position: sticky;
+  left: 48px;
+  z-index: 3;
+  background: var(--bg-surface);
+}
+.dark-table tbody tr td.col-scene {
+  position: sticky;
+  left: 48px;
+  z-index: 3;
+  background: inherit;
+}
+
+/* Sticky Shot column — left offset = drag handle (48px) + scene col (~84px) */
+.dark-table thead tr th.col-shot {
+  position: sticky;
+  left: 132px;
+  z-index: 3;
+  background: var(--bg-surface);
+}
+.dark-table tbody tr td.col-shot {
+  position: sticky;
+  left: 132px;
+  z-index: 3;
+  background: inherit;
+}
+
+/* The freeze shadow — applied to the LAST sticky column (Shot)
+   Opacity is driven by JS via the --freeze-opacity custom property on the container */
+.dark-table thead tr th.col-shot::after,
+.dark-table tbody tr td.col-shot::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: -10px;
+  bottom: 0;
+  width: 10px;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.08), transparent);
+  pointer-events: none;
+  opacity: var(--freeze-opacity, 0);
+  transition: none;
+}
+
+
+
+/* Also the drag handle gets a tiny separator shadow when scrolled */
+.dark-table thead tr th.col-drag::after,
+.dark-table tbody tr td.col-drag::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-subtle);
+  pointer-events: none;
+  opacity: var(--freeze-opacity, 0);
+  transition: none;
+}
+
+/* ========================
+   STAT CARD
+   ======================== */
+.stat-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ========================
+   PROJECT CARD
+   ======================== */
+.project-card {
+  height: 200px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.15s;
+}
+
+.project-card:hover {
+  border-color: var(--text-muted);
+}
+
+.project-card-create {
+  height: 200px;
+  background: transparent;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-muted);
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.project-card-create:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+/* ========================
+   LOGO MARK
+   ======================== */
+.logo-mark {
+  width: 32px;
+  height: 32px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ========================
+   DROPDOWN MENU
+   ======================== */
+.dropdown-menu {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  min-width: 168px;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.1s;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+}
+
+.dropdown-item:hover {
+  background: var(--accent-primary);
+  color: #ffffff;
+}
+
+/* ========================
+   SECTION HEADER
+   ======================== */
+.section-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* ========================
+   FOOTER
+   ======================== */
+.app-footer {
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-base);
+  padding: 20px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* ========================
+   UTILITIES
+   ======================== */
+.glow-text {
+  color: var(--text-primary);
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ========================
+   REACT-DATEPICKER DARK THEME
+   ======================== */
+
+/* --- Popper wrapper (z-index & positioning) --- */
+.dark-picker-popper {
+  z-index: 9999 !important;
+  margin-left: 8px !important;
+  /* gap between trigger and popup */
+  /* Hide until @floating-ui finishes positioning, then fade in */
+  opacity: 0;
+  animation: pickerAppear 0.15s ease 0.05s forwards;
+}
+
+@keyframes pickerAppear {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+
+/* --- Calendar panel --- */
+.dark-picker-calendar {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5) !important;
+  font-family: var(--font-sans, inherit) !important;
+  font-size: 13px !important;
+  padding: 8px !important;
+  color: var(--text-primary) !important;
+  overflow: hidden !important;
+}
+
+/* --- Header (month/year navigation) --- */
+.dark-picker-calendar .react-datepicker__header {
+  background: transparent !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+  padding: 8px 0 10px !important;
+  border-radius: 0 !important;
+}
+
+.dark-picker-calendar .react-datepicker__current-month {
+  color: var(--text-primary) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.01em !important;
+  margin-bottom: 8px !important;
+}
+
+/* --- Navigation arrows --- */
+.dark-picker-calendar .react-datepicker__navigation {
+  top: 12px !important;
+}
+
+.dark-picker-calendar .react-datepicker__navigation-icon::before {
+  border-color: var(--text-secondary) !important;
+  border-width: 2px 2px 0 0 !important;
+  width: 7px !important;
+  height: 7px !important;
+}
+
+.dark-picker-calendar .react-datepicker__navigation:hover .react-datepicker__navigation-icon::before {
+  border-color: var(--accent-primary) !important;
+}
+
+/* --- Day-of-week header row --- */
+.dark-picker-calendar .react-datepicker__day-names {
+  margin-top: 4px !important;
+}
+
+.dark-picker-calendar .react-datepicker__day-name {
+  color: var(--text-muted) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.06em !important;
+  width: 34px !important;
+  line-height: 28px !important;
+  margin: 1px !important;
+}
+
+/* --- Day cells --- */
+.dark-picker-calendar .react-datepicker__day {
+  color: var(--text-primary) !important;
+  border-radius: 50% !important;
+  width: 34px !important;
+  height: 34px !important;
+  line-height: 34px !important;
+  margin: 1px !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  transition: background 0.12s, color 0.12s !important;
+}
+
+.dark-picker-calendar .react-datepicker__day:hover {
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+  border-radius: 50% !important;
+}
+
+.dark-picker-calendar .react-datepicker__day--today {
+  font-weight: 700 !important;
+  color: var(--accent-primary) !important;
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1.5px var(--accent-primary) !important;
+  border-radius: 50% !important;
+}
+
+.dark-picker-calendar .react-datepicker__day--today:hover {
+  background: var(--bg-surface) !important;
+  color: var(--accent-primary) !important;
+}
+
+.dark-picker-calendar .react-datepicker__day--selected,
+.dark-picker-calendar .react-datepicker__day--selected:hover {
+  background: var(--accent-primary) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border-radius: 50% !important;
+  box-shadow: none !important;
+}
+
+.dark-picker-calendar .react-datepicker__day--outside-month {
+  color: var(--text-muted) !important;
+  opacity: 0.4 !important;
+}
+
+.dark-picker-calendar .react-datepicker__day--keyboard-selected {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+}
+
+/* --- Month container padding --- */
+.dark-picker-calendar .react-datepicker__month {
+  margin: 6px 0 0 !important;
+}
+
+.dark-picker-calendar .react-datepicker__week {
+  display: flex !important;
+  justify-content: center !important;
+}
+
+/* =============================================
+   TIME-ONLY PICKER PANEL
+   ============================================= */
+.dark-picker-time-only {
+  padding: 4px 6px !important;
+  min-width: 120px !important;
+  width: 120px !important;
+}
+
+.dark-picker-time-only .react-datepicker__header--time {
+  display: none !important;
+}
+
+.dark-picker-time-only .react-datepicker__time-container {
+  width: 100% !important;
+  border-left: none !important;
+}
+
+.dark-picker-time-only .react-datepicker__time {
+  background: transparent !important;
+  border-radius: 8px !important;
+}
+
+.dark-picker-time-only .react-datepicker__time-box {
+  width: 100% !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+}
+
+.dark-picker-time-only .react-datepicker__time-list {
+  height: 200px !important;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .dark-picker-time-only .react-datepicker__time-list {
+    scrollbar-width: thin !important;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent !important;
+  }
+}
+
+.dark-picker-time-only .react-datepicker__time-list-item {
+  color: var(--text-secondary) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  font-variant-numeric: tabular-nums !important;
+  letter-spacing: 0.03em !important;
+  padding: 6px 12px !important;
+  height: auto !important;
+  border-radius: 6px !important;
+  transition: background 0.1s, color 0.1s !important;
+}
+
+.dark-picker-time-only .react-datepicker__time-list-item:hover {
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+}
+
+.dark-picker-time-only .react-datepicker__time-list-item--selected {
+  background: var(--accent-primary) !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+}
+
+.dark-picker-time-only .react-datepicker__time-list-item--selected:hover {
+  background: var(--accent-primary) !important;
+  color: #fff !important;
+}
+
+/* Scrollbar styling for webkit */
+.dark-picker-time-only .react-datepicker__time-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dark-picker-time-only .react-datepicker__time-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark-picker-time-only .react-datepicker__time-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.dark-picker-time-only .react-datepicker__time-list::-webkit-scrollbar-thumb:hover {
+  background: yellow;
+}
+
+/* =============================================
+   CUSTOM DARK SELECT GRID PORTAL MENU
+   ============================================= */
+.dark-select-menu-card {
+  position: absolute;
+  top: 4px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  z-index: 9999;
+  width: max-content;
+  min-width: 100%;
+  max-width: 520px;
+  box-sizing: border-box;
+  overflow: hidden;
+  animation: dropdownAppear 0.15s ease-out;
+}
+
+@keyframes dropdownAppear {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dark-select-menu-card[data-align="left"] {
+  left: 0;
+  right: auto;
+}
+
+.dark-select-menu-card[data-align="right"] {
+  right: 0;
+  left: auto;
+}
+
+/* Custom Animation Utility Classes */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes float {
+  0% {
+    transform: translateY(0px);
+  }
+
+  50% {
+    transform: translateY(-6px);
+  }
+
+  100% {
+    transform: translateY(0px);
+  }
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* =============================================
+   PREMIUM MODAL & OPTION CARDS REDESIGN
+   ============================================= */
+.modal-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 9999 !important;
+  background: rgba(10, 10, 12, 0.6) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 16px !important;
+  animation: fadeIn 0.25s ease-out forwards;
+}
+
+.premium-modal {
+  background: #141416 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.8) !important;
+  padding: 32px !important;
+  position: relative !important;
+  overflow: hidden !important;
+  width: 100% !important;
+}
+
+.option-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 28px 16px !important;
+  background: #0a0a0c !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border-radius: 12px !important;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  position: relative !important;
+  overflow: hidden !important;
+  width: 100% !important;
+  outline: none !important;
+}
+
+.option-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, transparent 100%);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+.option-card:hover::before {
+  opacity: 1;
+}
+
+.option-card-icon-wrap {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  color: var(--text-secondary);
+}
+
+.option-card-icon-wrap svg {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.option-card:hover .option-card-icon-wrap svg {
+  transform: scale(1.08);
+}
+
+/* Custom outline styling when NOT hovered */
+.option-card.shotlist .option-card-icon-wrap {
+  border-color: rgba(76, 161, 138, 0.15);
+  background: rgba(76, 161, 138, 0.02);
+  color: rgba(76, 161, 138, 0.65);
+}
+
+.option-card.schedule .option-card-icon-wrap {
+  border-color: rgba(245, 158, 11, 0.15);
+  background: rgba(245, 158, 11, 0.02);
+  color: rgba(245, 158, 11, 0.65);
+}
+
+.option-card.shotlist:hover {
+  border-color: var(--accent-primary) !important;
+  background: #121214 !important;
+  transform: translateY(-2px) !important;
+}
+
+.option-card.shotlist:hover .option-card-icon-wrap {
+  border-color: var(--accent-primary) !important;
+  background: rgba(76, 161, 138, 0.1) !important;
+  color: var(--accent-primary) !important;
+}
+
+.option-card.schedule:hover {
+  border-color: var(--accent-amber) !important;
+  background: #121214 !important;
+  transform: translateY(-2px) !important;
+}
+
+.option-card.schedule:hover .option-card-icon-wrap {
+  border-color: var(--accent-amber) !important;
+  background: rgba(245, 158, 11, 0.1) !important;
+  color: var(--accent-amber) !important;
+}
+
+.option-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+  transition: color 0.2s ease;
+}
+
+.option-card:hover .option-card-title {
+  color: #ffffff;
+}
+
+.option-card-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* =============================================
+   LIGHT THEME OVERRIDES
+   ============================================= */
+[data-theme="light"] {
+  --bg-base: #ffffff;
+  --bg-surface: #f7f7f8;
+  --bg-elevated: #ededf0;
+  --bg-table-striped: #e5e5ea;
+  --bg-overlay: rgba(255, 255, 255, 0.85);
+  --bg-card: #f7f7f8;
+  --bg-input: #ffffff;
+  --bg-input-hover: #fafafa;
+
+  --text-primary: #181818;
+  --text-secondary: #5e5e6e;
+  --text-muted: #8e8e9e;
+  --text-accent: #347d69;
+
+  --border-subtle: #e5e5eb;
+  --border-default: #d1d1d6;
+  --border-strong: #8e8e93;
+  --border-accent: #4CA18A;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 3px 6px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:active {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="light"] .modal-backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="light"] .dark-picker-calendar {
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12) !important;
+}
+
+[data-theme="light"] .modal-overlay {
+  background: rgba(255, 255, 255, 0.6) !important;
+}
+
+[data-theme="light"] .premium-modal {
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.15) !important;
+}
+
+[data-theme="light"] .option-card {
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.06) !important;
+}
+
+[data-theme="light"] .option-card::before {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.01) 0%, transparent 100%);
+}
+
+[data-theme="light"] .option-card-icon-wrap {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme="light"] .option-card.shotlist:hover {
+  background: #f9f9fb !important;
+}
+
+[data-theme="light"] .option-card.schedule:hover {
+  background: #f9f9fb !important;
+}
+
+[data-theme="light"] .option-card:hover .option-card-title {
+  color: var(--text-primary) !important;
+}
+
+/* PWA Custom Animations */
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-in-scale {
+  animation: fadeInScale 0.3s ease-out forwards;
 }

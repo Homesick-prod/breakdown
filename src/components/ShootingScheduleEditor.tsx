@@ -7,27 +7,186 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   GripVertical, Clock, Film, Plus, Save, ChevronDown, Trash2, Download, Settings,
   FileDown, CloudRain, ListPlus, Search, Layers, Github, ArrowLeft, Users, MapPin, Sunrise, Sunset, Thermometer,
-  CloudDrizzle, Coffee, Moon, Loader2, Check, CloudOff, Image as ImageIcon, X, Minus, ChevronsRight
+  CloudDrizzle, Coffee, Moon, Loader2, Check, CloudOff, Image as ImageIcon, X, Minus, ChevronsRight,
+  Undo2, Redo2
 } from 'lucide-react';
+import { useUndoRedo } from '../hooks/useUndoRedo';
 import { generateId } from '../utils/id';
 import { calculateEndTime, calculateDuration } from '../utils/time';
 import { exportProject } from '../utils/file';
 import { exportToPDF } from '../utils/pdf';
 import Footer from './Footer';
+import { DarkSelect, findOption, SHOT_SIZE_OPTIONS, ANGLE_OPTIONS, MOVEMENT_OPTIONS, INT_EXT_OPTIONS, PERIOD_OPTIONS, SelectOption } from './DarkSelect';
+import { DarkDatePicker, DarkTimePicker } from './DarkDatePicker';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+
+
+interface LocationAutocompleteProps {
+  value: string;
+  onChange: (val: string) => void;
+  onSelectLocation: (loc: { lat: number; lon: number; displayName: string }) => void;
+  placeholder?: string;
+  className?: string;
+}
+
+function LocationAutocomplete({ value, onChange, onSelectLocation, placeholder, className }: LocationAutocompleteProps) {
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [inputValue, setInputValue] = useState(value);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setInputValue(value);
+  }, [value]);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  useEffect(() => {
+    if (!inputValue || inputValue.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+
+    if (suggestions.some(s => s.display_name === inputValue)) {
+      return;
+    }
+
+    const delayDebounce = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const thUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(inputValue)}&format=json&limit=5&countrycodes=th&accept-language=th,en;q=0.9`;
+        const res = await fetch(thUrl, {
+          headers: { 'User-Agent': 'MentalBreakdown-Film-Production-Suite-Client' }
+        });
+        let data = res.ok ? await res.json() : [];
+
+        if (!data || data.length === 0) {
+          const globalUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(inputValue)}&format=json&limit=5&accept-language=th,en;q=0.9`;
+          const globalRes = await fetch(globalUrl, {
+            headers: { 'User-Agent': 'MentalBreakdown-Film-Production-Suite-Client' }
+          });
+          data = globalRes.ok ? await globalRes.json() : [];
+        }
+
+        setSuggestions(data || []);
+        setShowDropdown(true);
+      } catch (err) {
+        console.error('Error fetching autocomplete suggestions:', err);
+      } finally {
+        setLoading(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(delayDebounce);
+  }, [inputValue]);
+
+  const handleSelect = (item: any) => {
+    const displayName = item.display_name;
+    setInputValue(displayName);
+    onChange(displayName);
+    onSelectLocation({
+      lat: parseFloat(item.lat),
+      lon: parseFloat(item.lon),
+      displayName
+    });
+    setShowDropdown(false);
+  };
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+      <input
+        type="text"
+        value={inputValue}
+        onChange={(e) => {
+          setInputValue(e.target.value);
+          onChange(e.target.value);
+        }}
+        onFocus={() => {
+          if (suggestions.length > 0) setShowDropdown(true);
+        }}
+        placeholder={placeholder}
+        className={className}
+      />
+      {loading && (
+        <div style={{ position: 'absolute', right: '10px', top: '10px', display: 'flex', alignItems: 'center' }}>
+          <div className="animate-spin" style={{ width: '14px', height: '14px', border: '2px solid var(--text-muted)', borderTopColor: 'var(--accent-primary)', borderRadius: '50%' }} />
+        </div>
+      )}
+      {showDropdown && suggestions.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-default)',
+            borderRadius: 'var(--radius-sm)',
+            boxShadow: 'var(--shadow-lg)',
+            zIndex: 1000,
+            maxHeight: '220px',
+            overflowY: 'auto',
+            padding: '4px',
+          }}
+        >
+          {suggestions.map((item, idx) => (
+            <div
+              key={item.place_id || idx}
+              onClick={() => handleSelect(item)}
+              style={{
+                padding: '8px 12px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                color: 'var(--text-primary)',
+                transition: 'background 0.15s',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-surface)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                {item.name || item.display_name.split(',')[0]}
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }} title={item.display_name}>
+                {item.display_name}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Save status indicator component
 function SaveStatusIndicator({ status }) {
   const getStatusDisplay = () => {
     switch (status) {
-      case 'saving': return { icon: <Loader2 className="w-4 h-4 animate-spin" />, text: 'Saving...', className: 'text-gray-600' };
-      case 'dirty': return { icon: <CloudOff className="w-4 h-4" />, text: 'Unsaved changes', className: 'text-amber-600' };
-      case 'saved': return { icon: <Check className="w-4 h-4" />, text: 'Saved', className: 'text-green-600' };
-      default: return { icon: <Save className="w-4 h-4" />, text: 'All changes saved', className: 'text-gray-500' };
+      case 'saving': return { icon: <Loader2 className="w-4 h-4 animate-spin" />, text: 'Saving...', style: { color: 'var(--text-muted)' } };
+      case 'dirty': return { icon: <CloudOff className="w-4 h-4" />, text: 'Unsaved changes', style: { color: 'var(--accent-amber)' } };
+      case 'saved': return { icon: <Check className="w-4 h-4" />, text: 'Saved', style: { color: 'var(--accent-green)' } };
+      default: return { icon: <Save className="w-4 h-4" />, text: 'All changes saved', style: { color: 'var(--text-muted)' } };
     }
   };
-  const { icon, text, className } = getStatusDisplay();
+  const { icon, text, style } = getStatusDisplay();
   return (
-    <div className={`flex items-center gap-2 text-sm font-medium ${className} transition-all duration-300`}>
+    <div style={{ ...style, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 500, transition: 'all 0.3s' }}>
       {icon}
       <span className="hidden sm:inline">{text}</span>
     </div>
@@ -35,326 +194,683 @@ function SaveStatusIndicator({ status }) {
 }
 
 // Sortable timeline item (table row) component
-function SortableItem({ id, item, index, imagePreviews, handleItemChange, handleImageUpload, removeTimelineItem, handleRemoveImage, activeImageUploadId, setActiveImageUploadId }) {
+function SortableItem({ id, item, index, imagePreviews, handleItemChange, handleImageUpload, removeTimelineItem, handleRemoveImage, activeImageUploadId, setActiveImageUploadId, focusedItemId, setFocusedItemId }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
   const style = { transform: CSS.Transform.toString(transform), transition };
   const isBreak = item.type === 'break';
   const isFirstItem = index === 0;
   const isActiveForUpload = activeImageUploadId === item.id;
+  const isFocused = focusedItemId === item.id;
 
   const handleImageAreaClick = () => {
     setActiveImageUploadId(isActiveForUpload ? null : item.id);
   };
 
+  const isEvenRow = index % 2 !== 0;
+  const rowBg = isBreak
+    ? 'rgba(245,158,11,0.05)'
+    : isEvenRow
+      ? 'var(--bg-table-striped)'
+      : 'var(--bg-elevated)';
+
   return (
-    <tr ref={setNodeRef} style={style} className={`group transition-colors duration-200 ${isBreak ? 'bg-amber-50 hover:bg-amber-100/70' : `${(index % 2 === 0 ? 'bg-white' : 'bg-gray-50')} hover:bg-indigo-50/60`}`}>
-      <td className="px-2 py-3 whitespace-nowrap text-center"><button {...attributes} {...listeners} className="cursor-grab p-1 text-gray-400 hover:text-gray-600 transition-colors"><GripVertical size={16} /></button></td>
-      <td className="px-4 py-3 whitespace-nowrap">
-        <div className="flex items-center gap-2">
-          <input type="time" value={item.start} onChange={(e) => handleItemChange(item.id, 'start', e.target.value)} disabled={!isFirstItem} className={`text-gray-600 px-3 py-1.5 text-sm border rounded-lg font-medium transition-all ${isFirstItem ? 'border-gray-300 hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20' : 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed'}`} />
-          <span className="text-gray-400">→</span>
-          <input type="time" value={item.end} onChange={(e) => handleItemChange(item.id, 'end', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 font-medium transition-all" />
+    <tr
+      ref={setNodeRef}
+      onFocusCapture={() => setFocusedItemId(item.id)}
+      onClickCapture={() => setFocusedItemId(item.id)}
+      style={{
+        ...style,
+        background: rowBg,
+      }}
+      className="group transition-colors duration-200"
+    >
+      <td className="col-drag" style={{ padding: '8px', textAlign: 'center', whiteSpace: 'nowrap', width: '48px', borderLeft: isFocused ? '3px solid var(--accent-primary)' : '3px solid transparent' }}>
+        <button {...attributes} {...listeners} style={{ cursor: 'grab', padding: '6px', color: 'var(--text-muted)', background: 'transparent', border: 'none', borderRadius: '8px', display: 'flex', alignItems: 'center', margin: '0 auto' }}>
+          <GripVertical size={16} />
+        </button>
+      </td>
+      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <DarkTimePicker value={item.start} onChange={(val) => handleItemChange(item.id, 'start', val)} disabled={!isFirstItem} style={{ width: '72px', padding: '6px 8px', fontSize: '13px' }} />
+          <span style={{ color: 'var(--text-muted)' }}>→</span>
+          <DarkTimePicker value={item.end} onChange={(val) => handleItemChange(item.id, 'end', val)} style={{ width: '72px', padding: '6px 8px', fontSize: '13px' }} />
         </div>
       </td>
-      <td className="px-4 py-3 whitespace-nowrap">
-        <div className="flex items-center gap-1">
-          <input type="number" min="0" value={item.duration} onChange={(e) => handleItemChange(item.id, 'duration', e.target.value)} className="text-gray-600 w-16 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 font-medium transition-all" />
-          <span className="text-sm text-gray-500">min</span>
+      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <input type="number" min="0" value={item.duration} onChange={(e) => handleItemChange(item.id, 'duration', e.target.value)} className="no-style" style={{ width: '64px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
+          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>min</span>
         </div>
       </td>
       {isBreak ? (
-        <td colSpan="15" className="px-4 py-3"><input type="text" value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="text-amber-700 w-full px-4 py-2 bg-amber-100 border border-amber-200 rounded-lg hover:border-amber-300 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 font-medium transition-all" placeholder="Break description" /></td>
+        <td colSpan={15} style={{ padding: '8px 12px' }}>
+          <input type="text" value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="no-style" style={{ width: '100%', padding: '8px 12px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', color: 'var(--accent-amber)', fontWeight: 600, fontSize: '13px', outline: 'none' }} placeholder="Break description" />
+        </td>
       ) : (
         <>
-          <td className="px-4 py-3"><input type="text" value={item.sceneNumber} onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)} className="text-gray-600 w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 font-medium transition-all" placeholder="1A" /></td>
-          <td className="px-4 py-3"><input type="text" value={item.shotNumber} onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)} className="text-gray-600 w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 font-medium transition-all" placeholder="001" /></td>
-          <td className="px-4 py-3"><select value={item.intExt} onChange={(e) => handleItemChange(item.id, 'intExt', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"><option value="INT">INT</option><option value="EXT">EXT</option><option value="INT/EXT">INT/EXT</option></select></td>
-          <td className="px-4 py-3"><select value={item.dayNight} onChange={(e) => handleItemChange(item.id, 'dayNight', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"><option value="DAY">DAY</option><option value="NIGHT">NIGHT</option><option value="DAWN">DAWN</option><option value="DUSK">DUSK</option></select></td>
-          <td className="px-4 py-3"><input type="text" value={item.location} onChange={(e) => handleItemChange(item.id, 'location', e.target.value)} className="text-gray-600 w-36 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="Location" /></td>
-          <td className="px-4 py-3">
-            <select value={item.shotSize} onChange={(e) => handleItemChange(item.id, 'shotSize', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all">
-              <option value="">Select Size...</option>
-              <optgroup label="Wide Shots">
-                <option value="EWS">EWS - Extreme Wide Shot</option>
-                <option value="VWS">VWS - Very Wide Shot</option>
-                <option value="WS">WS - Wide Shot</option>
-                <option value="LS">LS - Long Shot</option>
-                <option value="FLS">FLS - Full Length Shot</option>
-              </optgroup>
-              <optgroup label="Medium Shots">
-                <option value="MS">MS - Medium Shot</option>
-                <option value="MCU">MCU - Medium Close-Up</option>
-                <option value="Cowboy">Cowboy Shot</option>
-              </optgroup>
-              <optgroup label="Close-Ups">
-                <option value="CU">CU - Close-Up</option>
-                <option value="ECU">ECU - Extreme Close-Up</option>
-                <option value="Insert">Insert Shot</option>
-              </optgroup>
-              <optgroup label="Multi-Subject">
-                <option value="2S">Two-Shot</option>
-                <option value="3S">Three-Shot</option>
-                <option value="Group">Group Shot</option>
-              </optgroup>
-              <optgroup label="Specialty">
-                <option value="POV">POV - Point of View</option>
-                <option value="OTS">OTS - Over the Shoulder</option>
-                <option value="Cutaway">Cutaway</option>
-                <option value="Establishing">Establishing Shot</option>
-              </optgroup>
-            </select>
+          <td className="col-scene" style={{ padding: '8px 12px', width: '84px' }}>
+            <input type="text" value={item.sceneNumber} onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="1A" />
           </td>
-          <td className="px-4 py-3">
-            <select value={item.angle} onChange={(e) => handleItemChange(item.id, 'angle', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all">
-              <option value="">Select Angle...</option>
-              <optgroup label="Vertical Angles">
-                <option value="High Angle">High Angle</option>
-                <option value="Eye Level">Eye Level</option>
-                <option value="Low Angle">Low Angle</option>
-                <option value="Worm's Eye">Worm's Eye View</option>
-                <option value="Bird's Eye">Bird's Eye View</option>
-                <option value="Ground Level">Ground Level</option>
-              </optgroup>
-              <optgroup label="Horizontal Angles">
-                <option value="Front">Front Angle</option>
-                <option value="3/4 Front">3/4 Front</option>
-                <option value="Profile">Profile</option>
-                <option value="3/4 Back">3/4 Back</option>
-                <option value="Rear">Rear Angle</option>
-              </optgroup>
-              <optgroup label="Specialty">
-                <option value="Dutch/Canted">Dutch Angle / Canted</option>
-                <option value="OTS">Over-the-Shoulder (OTS)</option>
-                <option value="POV">Point of View (POV)</option>
-              </optgroup>
-            </select>
+          <td className="col-shot" style={{ padding: '8px 12px', width: '84px' }}>
+            <input type="text" value={item.shotNumber} onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="001" />
           </td>
-          <td className="px-4 py-3">
-            <select value={item.movement} onChange={(e) => handleItemChange(item.id, 'movement', e.target.value)} className="text-gray-600 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all">
-              <option value="">Select Movement...</option>
-              <optgroup label="Stationary Camera">
-                <option value="Static">Static / Still</option>
-                <option value="Pan">Pan (Left/Right)</option>
-                <option value="Whip Pan">Whip Pan</option>
-                <option value="Tilt">Tilt (Up/Down)</option>
-                <option value="Pedestal">Pedestal (Up/Down)</option>
-              </optgroup>
-              <optgroup label="Camera on Wheels">
-                <option value="Dolly">Dolly (In/Out)</option>
-                <option value="Truck">Truck / Track (Left/Right)</option>
-                <option value="Arc">Arc (Left/Right)</option>
-                <option value="Creep">Creep (In/Out)</option>
-              </optgroup>
-              <optgroup label="Camera in Motion">
-                <option value="Handheld">Handheld</option>
-                <option value="Steadicam">Steadicam</option>
-                <option value="Gimbal">Gimbal (e.g., Ronin)</option>
-                <option value="Follow">Follow</option>
-                <option value="Lead">Lead</option>
-              </optgroup>
-              <optgroup label="Lens Movement">
-                <option value="Zoom">Zoom (In/Out)</option>
-                <option value="Dolly Zoom">Dolly Zoom (Vertigo)</option>
-              </optgroup>
-              <optgroup label="Crane / Jib">
-                <option value="Crane/Jib">Crane / Jib (Up/Down)</option>
-                <option value="Swing">Swing</option>
-              </optgroup>
-              <optgroup label="Specialized">
-                <option value="Drone/Aerial">Drone / Aerial</option>
-                <option value="360 Rotation">360° Rotation</option>
-              </optgroup>
-            </select>
+          <td style={{ padding: '8px 12px', minWidth: '100px' }}>
+            <DarkSelect<SelectOption> instanceId={`row-intExt-${item.id}`} options={INT_EXT_OPTIONS} value={findOption(INT_EXT_OPTIONS, item.intExt)} onChange={(opt) => handleItemChange(item.id, 'intExt', (opt as SelectOption)?.value ?? '')} placeholder="INT/EXT" isClearable={false} />
           </td>
-          <td className="px-4 py-3"><div className="flex items-center gap-1"><input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', e.target.value)} className="text-gray-600 w-16 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="50" /><span className="text-sm text-gray-500">mm</span></div></td>
-          <td className="px-4 py-3"><textarea value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="text-gray-600 w-52 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 resize-none transition-all" placeholder="Scene description" rows="2" /></td>
-          <td className="px-4 py-3"><input type="text" value={item.cast} onChange={(e) => handleItemChange(item.id, 'cast', e.target.value)} className="text-gray-600 w-28 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="Cast" /></td>
-          <td className="px-4 py-3">
-            <div className="flex flex-col items-center gap-2">
-                {imagePreviews[item.id] ? (
-                <div className="relative group/img">
-                    <img 
-                        src={imagePreviews[item.id]} 
-                        alt={`Ref for ${item.shotNumber}`} 
-                        className="w-20 h-16 object-cover rounded-lg border border-gray-200 transition-all cursor-pointer"
-                        onClick={handleImageAreaClick}
-                    />
-                    <button onClick={(e) => { e.stopPropagation(); handleRemoveImage(item.id); }} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity shadow-lg"><X className="w-3 h-3" /></button>
-                </div>
-                ) : (
-                    <div 
-                className={`w-20 h-16 bg-gray-100 rounded-lg border-2 border-dashed flex items-center justify-center hover:border-indigo-400 transition-all cursor-pointer ${isActiveForUpload ? 'border-indigo-500 bg-indigo-100 ring-2 ring-indigo-300' : 'border-gray-300'}`}
-                        onClick={handleImageAreaClick}
-                    >
-                        <ImageIcon className="w-6 h-6 text-gray-400" />
-                    </div>
-                )}
-                <input type="file" accept="image/*" id={`image-${item.id}`} onChange={(e) => handleImageUpload(item.id, e.target.files[0])} className="hidden" />
-                <label htmlFor={`image-${item.id}`} className="text-xs font-medium text-indigo-600 hover:text-indigo-700 cursor-pointer transition-colors">
-                    {imagePreviews[item.id] ? 'Change' : 'Upload'}
-                </label>
+          <td style={{ padding: '8px 12px', minWidth: '115px' }}>
+            <DarkSelect<SelectOption> instanceId={`row-period-${item.id}`} options={PERIOD_OPTIONS} value={findOption(PERIOD_OPTIONS, item.dayNight)} onChange={(opt) => handleItemChange(item.id, 'dayNight', (opt as SelectOption)?.value ?? '')} placeholder="DAY/NIGHT" isClearable={false} />
+          </td>
+          <td style={{ padding: '8px 12px' }}>
+            <input type="text" value={item.location} onChange={(e) => handleItemChange(item.id, 'location', e.target.value)} className="no-style" style={{ width: '140px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="Location" />
+          </td>
+          <td style={{ padding: '8px 12px', minWidth: '140px' }}>
+            <DarkSelect<SelectOption> instanceId={`row-size-${item.id}`} options={SHOT_SIZE_OPTIONS} value={findOption(SHOT_SIZE_OPTIONS, item.shotSize)} onChange={(opt) => handleItemChange(item.id, 'shotSize', (opt as SelectOption)?.value ?? '')} placeholder="Size..." isClearable />
+          </td>
+          <td style={{ padding: '8px 12px', minWidth: '140px' }}>
+            <DarkSelect<SelectOption>
+              instanceId={`row-angle-${item.id}`}
+              options={ANGLE_OPTIONS}
+              value={item.angle}
+              onChange={(val: any) => {
+                const valueStr = Array.isArray(val)
+                  ? val.map((opt: any) => opt.value).join(',')
+                  : (val?.value ?? '');
+                handleItemChange(item.id, 'angle', valueStr);
+              }}
+              placeholder="Angle..."
+              isMulti
+            />
+          </td>
+          <td style={{ padding: '8px 12px', minWidth: '140px' }}>
+            <DarkSelect<SelectOption>
+              instanceId={`row-movement-${item.id}`}
+              options={MOVEMENT_OPTIONS}
+              value={item.movement}
+              onChange={(val: any) => {
+                const valueStr = Array.isArray(val)
+                  ? val.map((opt: any) => opt.value).join(',')
+                  : (val?.value ?? '');
+                handleItemChange(item.id, 'movement', valueStr);
+              }}
+              placeholder="Movement..."
+              isMulti
+            />
+          </td>
+          <td style={{ padding: '8px 12px' }}>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', e.target.value ? `${e.target.value}mm` : '')} className="no-style" style={{ width: '72px', height: '36px', paddingLeft: '8px', paddingRight: '28px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="50" />
+              <span style={{ position: 'absolute', right: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', pointerEvents: 'none' }}>mm</span>
             </div>
           </td>
-          <td className="px-4 py-3"><input type="text" value={item.props} onChange={(e) => handleItemChange(item.id, 'props', e.target.value)} className="text-gray-600 w-36 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="Props" /></td>
-          <td className="px-4 py-3"><input type="text" value={item.costume} onChange={(e) => handleItemChange(item.id, 'costume', e.target.value)} className="text-gray-600 w-36 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="Costume" /></td>
-          <td className="px-4 py-3"><textarea value={item.notes} onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)} className="text-gray-600 w-36 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 resize-none transition-all" placeholder="Notes" rows="2" /></td>
+          <td style={{ padding: '8px 12px' }}>
+            <textarea value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="no-style" style={{ width: '200px', padding: '7px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }} placeholder="Scene description" rows={2} />
+          </td>
+          <td style={{ padding: '8px 12px' }}>
+            <input type="text" value={item.cast} onChange={(e) => handleItemChange(item.id, 'cast', e.target.value)} className="no-style" style={{ width: '110px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="Cast" />
+          </td>
+          <td style={{ padding: '8px 12px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '4px', borderRadius: '8px', cursor: 'pointer', background: isActiveForUpload ? 'var(--accent-glow-sm)' : 'transparent', border: isActiveForUpload ? '1px solid var(--accent-primary)' : '1px solid transparent', transition: 'all 0.2s' }}>
+              {imagePreviews[item.id] ? (
+                <div className="relative group/img" onClick={handleImageAreaClick}>
+                  <img src={imagePreviews[item.id]} alt={`Ref for ${item.shotNumber}`} style={{ width: '72px', height: '56px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-default)' }} />
+                  <button onClick={(e) => { e.stopPropagation(); handleRemoveImage(item.id); }} className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity shadow-lg"><X className="w-3 h-3" /></button>
+                </div>
+              ) : (
+                <label htmlFor={`image-${item.id}`} style={{ width: '72px', height: '56px', background: 'var(--bg-input)', borderRadius: '6px', border: '2px dashed var(--border-default)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s' }} onClick={(e) => { e.preventDefault(); handleImageAreaClick(); }}>
+                  <ImageIcon style={{ width: '15px', height: '15px', color: 'var(--text-muted)' }} />
+                </label>
+              )}
+              <input type="file" accept="image/*" id={`image-${item.id}`} onChange={(e) => handleImageUpload(item.id, e.target.files ? e.target.files[0] : null)} className="hidden" />
+              <label htmlFor={`image-${item.id}`} style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent-primary)', cursor: 'pointer' }} onClick={(e) => e.stopPropagation()}>
+                {imagePreviews[item.id] ? 'Change' : 'Upload'}
+              </label>
+            </div>
+          </td>
+          <td style={{ padding: '8px 12px' }}>
+            <input type="text" value={item.props} onChange={(e) => handleItemChange(item.id, 'props', e.target.value)} className="no-style" style={{ width: '120px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="Props" />
+          </td>
+          <td style={{ padding: '8px 12px' }}>
+            <input type="text" value={item.costume} onChange={(e) => handleItemChange(item.id, 'costume', e.target.value)} className="no-style" style={{ width: '120px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="Costume" />
+          </td>
+          <td style={{ padding: '8px 12px' }}>
+            <textarea value={item.notes} onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)} className="no-style" style={{ width: '140px', padding: '7px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }} placeholder="Notes" rows={2} />
+          </td>
         </>
       )}
-      <td className="px-4 py-3 whitespace-nowrap text-center"><button onClick={() => removeTimelineItem(item.id)} className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button></td>
+      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', textAlign: 'center' }}>
+        <button onClick={() => removeTimelineItem(item.id)} className="opacity-0 group-hover:opacity-100" style={{ padding: '6px', color: 'var(--text-muted)', background: 'transparent', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.2s', margin: '0 auto' }} onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.12)'; }} onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}>
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </td>
     </tr>
   );
 }
 
 function ShotImportModal({ isOpen, onClose, shotList, imagePreviews, onImport }) {
-    // Hooks are now at the top level
-    const [selectedShots, setSelectedShots] = useState(new Set());
-    const [searchTerm, setSearchTerm] = useState('');
+  // Hooks are now at the top level
+  const [selectedShots, setSelectedShots] = useState(new Set());
+  const [searchTerm, setSearchTerm] = useState('');
 
-    useEffect(() => {
-        if (isOpen) {
-            setSelectedShots(new Set());
-            setSearchTerm('');
-        }
-    }, [isOpen]);
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedShots(new Set());
+      setSearchTerm('');
+    }
+  }, [isOpen]);
 
-    const groupedAndFilteredShots = useMemo(() => {
-        const filtered = shotList.filter(shot => 
-            shot.sceneNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            shot.shotNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            shot.description?.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-
-        const groups = filtered.reduce((acc, shot) => {
-            const sceneKey = shot.sceneNumber || 'Uncategorized';
-            if (!acc[sceneKey]) {
-                acc[sceneKey] = [];
-            }
-            acc[sceneKey].push(shot);
-            return acc;
-        }, {});
-
-        return Object.keys(groups)
-            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-            .reduce((acc, key) => ({ ...acc, [key]: groups[key] }), {});
-
-    }, [shotList, searchTerm]);
-
-    // Conditional return is now after all hooks
-    if (!isOpen) return null;
-
-    const handleImportClick = () => {
-        onImport(Array.from(selectedShots));
-        onClose();
-    };
-
-    const handleSelectAllFiltered = () => {
-        const allFilteredIds = Object.values(groupedAndFilteredShots).flat().map(s => s.id);
-        if (selectedShots.size === allFilteredIds.length) {
-            setSelectedShots(new Set());
-        } else {
-            setSelectedShots(new Set(allFilteredIds));
-        }
-    };
-    
-    const handleSelectScene = (sceneShots) => {
-        const sceneShotIds = sceneShots.map(s => s.id);
-        const allCurrentlySelected = sceneShotIds.every(id => selectedShots.has(id));
-        
-        setSelectedShots(prev => {
-            const newSet = new Set(prev);
-            if (allCurrentlySelected) {
-                sceneShotIds.forEach(id => newSet.delete(id));
-            } else {
-                sceneShotIds.forEach(id => newSet.add(id));
-            }
-            return newSet;
-        });
-    };
-
-    return (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-            <div className="flex items-center justify-center min-h-screen px-4">
-                <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose}></div>
-                <div className="relative bg-white rounded-xl shadow-xl max-w-4xl w-full my-8 animate-in fade-in zoom-in-95 duration-300 flex flex-col">
-                    <div className="p-6 border-b border-gray-200">
-                        <h3 className="text-xl font-semibold text-gray-900">Import from Shot List</h3>
-                        <p className="text-sm text-gray-500 mt-1">Select shots to add to your schedule.</p>
-                    </div>
-                    <div className="p-6 flex-grow overflow-hidden">
-                        <div className="flex justify-between items-center mb-4">
-                            <div className="relative flex-grow">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                                <input 
-                                    type="text"
-                                    placeholder="Search by scene, shot, or description..."
-                                    value={searchTerm}
-                                    onChange={e => setSearchTerm(e.target.value)}
-                                    className="text-gray-600 w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                />
-                            </div>
-                            <button onClick={handleSelectAllFiltered} className="ml-4 px-4 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
-                                {selectedShots.size === Object.values(groupedAndFilteredShots).flat().length ? 'Deselect All' : 'Select All'}
-                            </button>
-                        </div>
-                        <div className="max-h-[50vh] overflow-y-auto border border-gray-200 rounded-lg bg-gray-50/50">
-                            {Object.entries(groupedAndFilteredShots).length > 0 ? Object.entries(groupedAndFilteredShots).map(([sceneKey, shots]) => (
-                                <div key={sceneKey} className="border-b border-gray-200 last:border-b-0">
-                                    <div className="flex items-center justify-between p-3 bg-gray-100 sticky top-0 z-10">
-                                        <h4 className="font-semibold text-gray-800 flex items-center gap-2"><Layers size={16} /> Scene {sceneKey}</h4>
-                                        <button onClick={() => handleSelectScene(shots)} className="px-3 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-100 rounded-md transition-colors">
-                                            Select/Deselect Scene
-                                        </button>
-                                    </div>
-                                    <ul className="divide-y divide-gray-100">
-                                        {shots.map(shot => (
-                                            <li key={shot.id} onClick={() => setSelectedShots(prev => { const n = new Set(prev); n.has(shot.id) ? n.delete(shot.id) : n.add(shot.id); return n; })} className={`flex items-center gap-4 p-3 cursor-pointer transition-colors ${selectedShots.has(shot.id) ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}>
-                                                <input type="checkbox" checked={selectedShots.has(shot.id)} readOnly className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 border-gray-300" />
-                                                <img src={imagePreviews[shot.id] || 'https://placehold.co/80x60/e2e8f0/94a3b8?text=No+Ref'} alt="Ref" className="w-20 h-16 object-cover rounded-md bg-gray-100" />
-                                                <div className="flex-grow">
-                                                    <p className="font-semibold text-gray-800">Shot {shot.shotNumber}</p>
-                                                    <p className="text-sm text-gray-600 truncate">{shot.description || 'No description'}</p>
-                                                </div>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )) : (
-                                <div className="text-center p-8 text-gray-500">No shots found.</div>
-                            )}
-                        </div>
-                    </div>
-                    <div className="flex justify-end gap-3 p-6 bg-gray-50 border-t border-gray-200 rounded-b-xl">
-                        <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-                        <button onClick={handleImportClick} disabled={selectedShots.size === 0} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50">Import {selectedShots.size} Shot(s)</button>
-                    </div>
-                </div>
-            </div>
-        </div>
+  const groupedAndFilteredShots = useMemo(() => {
+    const filtered = shotList.filter(shot =>
+      shot.sceneNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      shot.shotNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      shot.description?.toLowerCase().includes(searchTerm.toLowerCase())
     );
+
+    const groups = filtered.reduce((acc, shot) => {
+      const sceneKey = shot.sceneNumber || 'Uncategorized';
+      if (!acc[sceneKey]) {
+        acc[sceneKey] = [];
+      }
+      acc[sceneKey].push(shot);
+      return acc;
+    }, {});
+
+    return Object.keys(groups)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .reduce((acc, key) => ({ ...acc, [key]: groups[key] }), {});
+
+  }, [shotList, searchTerm]);
+
+  // Conditional return is now after all hooks
+  if (!isOpen) return null;
+
+  const handleImportClick = () => {
+    onImport(Array.from(selectedShots));
+    onClose();
+  };
+
+  const handleSelectAllFiltered = () => {
+    const allFilteredIds = Object.values(groupedAndFilteredShots).flat().map(s => s.id);
+    if (selectedShots.size === allFilteredIds.length) {
+      setSelectedShots(new Set());
+    } else {
+      setSelectedShots(new Set(allFilteredIds));
+    }
+  };
+
+  const handleSelectScene = (sceneShots) => {
+    const sceneShotIds = sceneShots.map(s => s.id);
+    const allCurrentlySelected = sceneShotIds.every(id => selectedShots.has(id));
+
+    setSelectedShots(prev => {
+      const newSet = new Set(prev);
+      if (allCurrentlySelected) {
+        sceneShotIds.forEach(id => newSet.delete(id));
+      } else {
+        sceneShotIds.forEach(id => newSet.add(id));
+      }
+      return newSet;
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      <div className="flex items-center justify-center min-h-screen px-4">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md" onClick={onClose}></div>
+        <div className="relative bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-xl shadow-xl max-w-4xl w-full my-8 animate-in fade-in zoom-in-95 duration-300 flex flex-col" style={{ color: 'var(--text-primary)', overflow: 'hidden' }}>
+          <div className="p-6 border-b border-[var(--border-default)]">
+            <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>Import from Shot List</h3>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>Select shots to add to your schedule.</p>
+          </div>
+
+          <div className="p-6 flex-grow overflow-hidden flex flex-col gap-4">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+              <div style={{ position: 'relative', flexGrow: 1 }}>
+                <Search
+                  style={{
+                    position: 'absolute',
+                    left: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    width: '16px',
+                    height: '16px',
+                    color: 'var(--text-secondary)'
+                  }}
+                />
+                <input
+                  type="text"
+                  placeholder="Search by scene, shot, or description..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  style={{
+                    width: '100%',
+                    paddingLeft: '38px',
+                    paddingRight: '12px',
+                    paddingTop: '8px',
+                    paddingBottom: '8px',
+                    background: 'var(--bg-input)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-default)',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '13px',
+                    outline: 'none',
+                    transition: 'border-color 0.2s',
+                  }}
+                  onFocus={e => e.currentTarget.style.borderColor = 'var(--accent-primary)'}
+                  onBlur={e => e.currentTarget.style.borderColor = 'var(--border-default)'}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleSelectAllFiltered}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: 'var(--accent-primary)',
+                  transition: 'opacity 0.2s',
+                  whiteSpace: 'nowrap',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.opacity = '0.8'; }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+              >
+                {selectedShots.size === Object.values(groupedAndFilteredShots).flat().length ? 'Deselect All' : 'Select All'}
+              </button>
+            </div>
+
+            <div
+              style={{
+                maxHeight: '45vh',
+                overflowY: 'auto',
+                border: '1px solid var(--border-default)',
+                borderRadius: '8px',
+                background: 'var(--bg-input)',
+              }}
+            >
+              {Object.entries(groupedAndFilteredShots).length > 0 ? Object.entries(groupedAndFilteredShots).map(([sceneKey, shots]) => (
+                <div key={sceneKey} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'between',
+                      padding: '10px 14px',
+                      position: 'sticky',
+                      top: 0,
+                      zIndex: 10,
+                      background: 'var(--bg-elevated)',
+                      borderBottom: '1px solid var(--border-subtle)',
+                    }}
+                  >
+                    <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)', flexGrow: 1 }}>
+                      <Layers size={14} style={{ color: 'var(--text-secondary)' }} /> Scene {sceneKey}
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectScene(shots)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        color: 'var(--accent-primary)',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        transition: 'background 0.2s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent-glow)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      Select/Deselect Scene
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {shots.map(shot => (
+                      <div
+                        key={shot.id}
+                        onClick={() => setSelectedShots(prev => { const n = new Set(prev); n.has(shot.id) ? n.delete(shot.id) : n.add(shot.id); return n; })}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '16px',
+                          padding: '10px 14px',
+                          cursor: 'pointer',
+                          transition: 'background 0.15s',
+                          background: selectedShots.has(shot.id) ? 'var(--accent-glow-sm)' : 'transparent',
+                          borderBottom: '1px solid var(--border-subtle)',
+                        }}
+                        onMouseEnter={e => {
+                          if (!selectedShots.has(shot.id)) {
+                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)';
+                          }
+                        }}
+                        onMouseLeave={e => {
+                          if (!selectedShots.has(shot.id)) {
+                            e.currentTarget.style.background = 'transparent';
+                          }
+                        }}
+                      >
+                        {/* Custom Checkbox */}
+                        <div
+                          style={{
+                            width: '18px',
+                            height: '18px',
+                            borderRadius: '4px',
+                            border: selectedShots.has(shot.id) ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                            background: selectedShots.has(shot.id) ? 'var(--accent-primary)' : 'var(--bg-input)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#fff',
+                            transition: 'all 0.15s',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {selectedShots.has(shot.id) && (
+                            <svg style={{ width: '12px', height: '12px' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+
+                        {/* Local Image/No-Ref placeholder */}
+                        {imagePreviews[shot.id] ? (
+                          <img
+                            src={imagePreviews[shot.id]}
+                            alt="Ref"
+                            style={{ width: '72px', height: '54px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-default)', flexShrink: 0 }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: '72px',
+                              height: '54px',
+                              background: 'var(--bg-input)',
+                              border: '1px solid var(--border-subtle)',
+                              borderRadius: '6px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '4px',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <Film style={{ width: '14px', height: '14px', color: 'var(--text-muted)' }} />
+                            <span style={{ fontSize: '8px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                              NO REF
+                            </span>
+                          </div>
+                        )}
+
+                        <div style={{ flexGrow: 1, minWidth: 0 }}>
+                          <p style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>Shot {shot.shotNumber}</p>
+                          <p style={{ fontSize: '11px', color: 'var(--text-secondary)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                            {shot.description || 'No description'}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )) : (
+                <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-muted)', fontSize: '13px' }}>No shots found.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 p-6 border-t rounded-b-xl" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-default)' }}>
+            <button onClick={onClose} className="btn-ghost" style={{ fontSize: '13px' }}>Cancel</button>
+            <button onClick={handleImportClick} disabled={selectedShots.size === 0} className="btn-primary" style={{ fontSize: '13px', opacity: selectedShots.size === 0 ? 0.5 : 1 }}>Import {selectedShots.size} Shot(s)</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // Main editor component
 export default function ShootingScheduleEditor({ project, onBack, onSave }) {
-  const [headerInfo, setHeaderInfo] = useState(() => {
+  const [docState, setDocState, { undo, redo, canUndo, canRedo }] = useUndoRedo(() => {
     const defaultHeader = { projectTitle: project?.name || '', episodeNumber: '', shootingDay: '', totalDays: '', date: new Date().toISOString().split('T')[0], callTime: '', sunrise: '06:30', sunset: '18:30', weather: '', location1: '', location2: '', director: '', producer: '', dop: '', firstAD: '', secondAD: '', pd: '', artTime: '', lunchTime: '', dinnerTime: '', precipProb: '', temp: '', realFeel: '', firstmealTime: '', secondmealTime: '', wrapTime: '' };
-    return project?.data?.headerInfo ? { ...defaultHeader, ...project.data.headerInfo } : defaultHeader;
+    return {
+      headerInfo: project?.data?.headerInfo ? { ...defaultHeader, ...project.data.headerInfo } : defaultHeader,
+      timelineItems: project?.data?.timelineItems || [],
+      imagePreviews: project?.data?.imagePreviews || {}
+    };
   });
-  const [timelineItems, setTimelineItems] = useState(() => project?.data?.timelineItems || []);
-  const [imagePreviews, setImagePreviews] = useState(() => project?.data?.imagePreviews || {});
+
+  const headerInfo = docState.headerInfo;
+  const timelineItems = docState.timelineItems;
+  const imagePreviews = docState.imagePreviews;
+
+  const setHeaderInfo = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
+    const prevHeaderInfo = docState.headerInfo;
+    const headerInfoVal = typeof newValOrFn === 'function' ? newValOrFn(prevHeaderInfo) : newValOrFn;
+    
+    let isContinuous = options?.isContinuous;
+    if (isContinuous === undefined) {
+      const changedKeys = Object.keys(headerInfoVal).filter(k => headerInfoVal[k] !== prevHeaderInfo[k]);
+      const discreteKeys = ['date', 'callTime', 'wrapTime', 'firstmealTime', 'secondmealTime', 'sunrise', 'sunset', 'location1', 'location2'];
+      const hasDiscreteChange = changedKeys.some(k => discreteKeys.includes(k));
+      isContinuous = changedKeys.length > 0 && !hasDiscreteChange;
+    }
+
+    setDocState(prev => ({
+      ...prev,
+      headerInfo: headerInfoVal
+    }), { isContinuous });
+  }, [setDocState, docState.headerInfo]);
+
+  const setTimelineItems = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
+    setDocState(prev => {
+      const timelineItemsVal = typeof newValOrFn === 'function' ? newValOrFn(prev.timelineItems) : newValOrFn;
+      return {
+        ...prev,
+        timelineItems: timelineItemsVal
+      };
+    }, options);
+  }, [setDocState]);
+
+  const setImagePreviews = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
+    setDocState(prev => {
+      const imagePreviewsVal = typeof newValOrFn === 'function' ? newValOrFn(prev.imagePreviews) : newValOrFn;
+      return {
+        ...prev,
+        imagePreviews: imagePreviewsVal
+      };
+    }, options);
+  }, [setDocState]);
   const [saveStatus, setSaveStatus] = useState('idle');
   const [showProductionDetails, setShowProductionDetails] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [showZoomControls, setShowZoomControls] = useState(true);
   const [activeImageUploadId, setActiveImageUploadId] = useState(null);
+  const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
   const debounceTimeoutRef = useRef(null);
   const isInitialMount = useRef(true);
   const tableContainerRef = useRef(null);
   const floatingScrollbarRef = useRef(null);
   const floatingScrollbarContentRef = useRef(null);
   const [showFloatingScrollbar, setShowFloatingScrollbar] = useState(false);
+  const [isTableScrolled, setIsTableScrolled] = useState(false);
   const isSyncingScroll = useRef(false);
   const tableRef = useRef(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [loadingWeather, setLoadingWeather] = useState(false);
+  const [weatherToast, setWeatherToast] = useState<{ visible: boolean; locationName: string }>({ visible: false, locationName: '' });
+  const [resolvedCoords, setResolvedCoords] = useState<{
+    location1?: { lat: number; lon: number; displayName: string };
+    location2?: { lat: number; lon: number; displayName: string };
+  }>({});
+
+  useEffect(() => {
+    if (weatherToast.visible) {
+      const timer = setTimeout(() => {
+        setWeatherToast(prev => ({ ...prev, visible: false }));
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [weatherToast.visible]);
+
+  const handleAutoFillWeather = async () => {
+    if (!headerInfo.location1) {
+      alert('Please enter a location in "Location 1" first.');
+      return;
+    }
+    setLoadingWeather(true);
+    try {
+      // Helper function to query OSM Nominatim API (prioritizes Thailand & Thai language)
+      const runGeocoding = async (query: string) => {
+        const fetchGeocode = async (url: string) => {
+          try {
+            const res = await fetch(url, {
+              headers: {
+                'User-Agent': 'MentalBreakdown-Film-Production-Suite-Client'
+              }
+            });
+            if (!res.ok) return null;
+            const data = await res.json();
+            if (data && data.length > 0) {
+              return {
+                latitude: parseFloat(data[0].lat),
+                longitude: parseFloat(data[0].lon),
+                displayName: data[0].display_name
+              };
+            }
+          } catch (err) {
+            console.error('Single geocoding fetch error:', err);
+          }
+          return null;
+        };
+
+        // 1. Try Thailand search first
+        const thUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=th&accept-language=th,en;q=0.9`;
+        let result = await fetchGeocode(thUrl);
+
+        // 2. Fall back to global search if no result inside Thailand
+        if (!result) {
+          const globalUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&accept-language=th,en;q=0.9`;
+          result = await fetchGeocode(globalUrl);
+        }
+
+        return result;
+      };
+
+      let locationQuery = headerInfo.location1;
+      let geocodeData = null;
+
+      // Check if we already have cached coordinates from autocomplete
+      if (resolvedCoords.location1 && resolvedCoords.location1.displayName === locationQuery) {
+        geocodeData = {
+          latitude: resolvedCoords.location1.lat,
+          longitude: resolvedCoords.location1.lon,
+          displayName: resolvedCoords.location1.displayName
+        };
+      } else {
+        geocodeData = await runGeocoding(locationQuery);
+      }
+
+      // Fallback 1: If full name fails, check if we have a comma and search the parent segment (e.g. "Studio 4, Bangkok" -> "Bangkok")
+      if (!geocodeData && locationQuery.includes(',')) {
+        const parts = locationQuery.split(',');
+        const fallbackRegion = parts[parts.length - 1].trim();
+        if (fallbackRegion) {
+          geocodeData = await runGeocoding(fallbackRegion);
+        }
+      }
+
+      // Fallback 2: Interactive Prompt asking user for a nearby city/region (e.g. if location is "My Bedroom" or "Studio 3")
+      if (!geocodeData) {
+        const promptLocation = prompt(
+          `Could not resolve coordinates for "${locationQuery}".\nPlease enter a nearby city or region name (e.g., "Bangkok", "London") to fetch weather:`
+        );
+        if (promptLocation && promptLocation.trim()) {
+          geocodeData = await runGeocoding(promptLocation.trim());
+        }
+      }
+
+      if (!geocodeData) {
+        alert(`Could not find weather coordinates for "${locationQuery}".`);
+        setLoadingWeather(false);
+        return;
+      }
+
+      const { latitude, longitude } = geocodeData;
+      const targetDate = headerInfo.date || new Date().toISOString().split('T')[0];
+
+      // 2. Fetch Weather — use forecast API for future/today, archive API for past dates
+      const today = new Date().toISOString().split('T')[0];
+      const isPast = targetDate < today;
+      const baseUrl = isPast
+        ? `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&daily=weather_code,temperature_2m_max,apparent_temperature_max,precipitation_probability_max,sunrise,sunset&timezone=auto&start_date=${targetDate}&end_date=${targetDate}`
+        : `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=weather_code,temperature_2m_max,apparent_temperature_max,precipitation_probability_max,sunrise,sunset&timezone=auto&start_date=${targetDate}&end_date=${targetDate}`;
+
+      const weatherRes = await fetch(baseUrl);
+      if (!weatherRes.ok) {
+        const errText = await weatherRes.text().catch(() => '');
+        throw new Error(`Weather API error (${weatherRes.status}): ${errText.slice(0, 200)}`);
+      }
+      const weatherData = await weatherRes.json();
+
+      if (weatherData.daily) {
+        const d = weatherData.daily;
+        const code = d.weather_code?.[0] ?? 0;
+        const tempMax = d.temperature_2m_max?.[0] ?? '';
+        const feelMax = d.apparent_temperature_max?.[0] ?? '';
+        const precipProb = d.precipitation_probability_max?.[0] ?? '';
+
+        let sunriseTime = '';
+        if (d.sunrise?.[0]) {
+          const parts = d.sunrise[0].split('T');
+          if (parts[1]) sunriseTime = parts[1].slice(0, 5);
+        }
+
+        let sunsetTime = '';
+        if (d.sunset?.[0]) {
+          const parts = d.sunset[0].split('T');
+          if (parts[1]) sunsetTime = parts[1].slice(0, 5);
+        }
+
+        const mapWeatherCode = (c) => {
+          if (c === 0) return 'Clear sky';
+          if (c >= 1 && c <= 3) return 'Partly cloudy';
+          if (c === 45 || c === 48) return 'Foggy';
+          if (c >= 51 && c <= 55) return 'Drizzle';
+          if (c >= 61 && c <= 65) return 'Rainy';
+          if (c >= 71 && c <= 75) return 'Snowy';
+          if (c >= 80 && c <= 82) return 'Rain showers';
+          if (c >= 95 && c <= 99) return 'Thunderstorm';
+          return 'Overcast';
+        };
+
+        setHeaderInfo(prev => ({
+          ...prev,
+          weather: mapWeatherCode(code),
+          temp: tempMax !== '' ? `${Math.round(tempMax)}°` : prev.temp,
+          realFeel: feelMax !== '' ? `${Math.round(feelMax)}°` : prev.realFeel,
+          precipProb: precipProb !== '' ? `${precipProb}%` : prev.precipProb,
+          sunrise: sunriseTime || prev.sunrise,
+          sunset: sunsetTime || prev.sunset
+        }));
+
+        setWeatherToast({
+          visible: true,
+          locationName: geocodeData.displayName || locationQuery
+        });
+      } else {
+        alert('No weather data returned for this date.');
+      }
+    } catch (error) {
+      console.error(error);
+      alert('Failed to fetch weather data. Please check connection and try again.');
+    } finally {
+      setLoadingWeather(false);
+    }
+  };
 
   const shotList = useMemo(() => project?.data?.shotListData?.shotListItems || [], [project]);
   const shotListImagePreviews = useMemo(() => project?.data?.shotListData?.imagePreviews || {}, [project]);
@@ -370,14 +886,14 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     }
     setSaveStatus('dirty');
     if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
-debounceTimeoutRef.current = setTimeout(() => {
+    debounceTimeoutRef.current = setTimeout(() => {
       // Create a complete data payload for saving
       const dataToSave = {
         headerInfo,
         timelineItems,
         imagePreviews
       };
-      
+
       setSaveStatus('saving');
       Promise.resolve()
         .then(() => new Promise(resolve => setTimeout(resolve, 500)))
@@ -400,10 +916,17 @@ debounceTimeoutRef.current = setTimeout(() => {
     if (!tableContainer || !floatingScrollbar || !tableEl) return;
 
     const updateScrollbar = () => {
-      if (floatingScrollbarContentRef.current) floatingScrollbarContentRef.current.style.width = `${tableEl.offsetWidth + 100}px`;
-      setShowFloatingScrollbar(tableContainer.scrollWidth > tableContainer.clientWidth && tableContainer.getBoundingClientRect().bottom > window.innerHeight);
+      if (floatingScrollbarContentRef.current) {
+        floatingScrollbarContentRef.current.style.width = `${tableContainer.scrollWidth}px`;
+      }
+      setShowFloatingScrollbar(tableContainer.scrollWidth > tableContainer.clientWidth);
     };
-    const handleTableScroll = () => { if (!isSyncingScroll.current) { isSyncingScroll.current = true; floatingScrollbar.scrollLeft = tableContainer.scrollLeft; requestAnimationFrame(() => { isSyncingScroll.current = false; }); } };
+    const handleTableScroll = () => {
+      // Drive the freeze-shadow opacity proportionally: 0 at rest, 1.0 after 180px of scroll
+      const opacity = Math.min(tableContainer.scrollLeft / 180, 1);
+      tableContainer.style.setProperty('--freeze-opacity', String(opacity));
+      if (!isSyncingScroll.current) { isSyncingScroll.current = true; floatingScrollbar.scrollLeft = tableContainer.scrollLeft; requestAnimationFrame(() => { isSyncingScroll.current = false; }); }
+    };
     const handleFloatingScroll = () => { if (!isSyncingScroll.current) { isSyncingScroll.current = true; tableContainer.scrollLeft = floatingScrollbar.scrollLeft; requestAnimationFrame(() => { isSyncingScroll.current = false; }); } };
 
     const observer = new ResizeObserver(updateScrollbar);
@@ -428,6 +951,7 @@ debounceTimeoutRef.current = setTimeout(() => {
     const handleClickOutside = (event) => {
       if (tableRef.current && !tableRef.current.contains(event.target)) {
         setActiveImageUploadId(null);
+        setFocusedItemId(null);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -474,10 +998,10 @@ debounceTimeoutRef.current = setTimeout(() => {
       for (let i = itemIndex + 1; i < newItems.length; i++) {
         newItems[i].start = lastEndTime;
         newItems[i].end = calculateEndTime(lastEndTime, newItems[i].duration);
-        lastEndTime = newItems[i].end;
       }
     }
-    setTimelineItems(newItems);
+    const isTextField = ['sceneNumber', 'shotNumber', 'location', 'description', 'lens', 'cast', 'props', 'costume', 'notes'].includes(field);
+    setTimelineItems(newItems, { isContinuous: isTextField });
   }, [timelineItems]);
 
   const addShot = useCallback(() => {
@@ -509,10 +1033,10 @@ debounceTimeoutRef.current = setTimeout(() => {
     if (!file || !file.type.startsWith('image/')) return;
     const reader = new FileReader();
     reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-            setImagePreviews(prev => ({ ...prev, [itemId]: reader.result }));
-            setActiveImageUploadId(null);
-        }
+      if (typeof reader.result === 'string') {
+        setImagePreviews(prev => ({ ...prev, [itemId]: reader.result }));
+        setActiveImageUploadId(null);
+      }
     };
     reader.readAsDataURL(file);
   }, []);
@@ -565,44 +1089,44 @@ debounceTimeoutRef.current = setTimeout(() => {
       }
     }
   }, [activeImageUploadId, handleImageUpload]);
-  
+
   useEffect(() => {
     const globalPasteHandler = (e) => {
-        if (activeImageUploadId) {
-            handlePasteImage(e, activeImageUploadId);
-        }
+      if (activeImageUploadId) {
+        handlePasteImage(e, activeImageUploadId);
+      }
     };
     document.addEventListener('paste', globalPasteHandler);
     return () => document.removeEventListener('paste', globalPasteHandler);
   }, [activeImageUploadId, handlePasteImage]);
 
-    const handleImportShots = useCallback((shotIdsToImport) => {
-      const shotsToAdd = shotIdsToImport
-          .map(shotId => shotList.find(s => s.id === shotId))
-          .filter(Boolean);
+  const handleImportShots = useCallback((shotIdsToImport) => {
+    const shotsToAdd = shotIdsToImport
+      .map(shotId => shotList.find(s => s.id === shotId))
+      .filter(Boolean);
 
-      const newTimelineItems = shotsToAdd.map(shot => {
-          const newShot: TimelineItem = {
-              id: generateId(),
-              type: 'shot',
-              start: '', // Will be set by recalculation
-              duration: 15, // Default duration for imported shots
-              end: '', // Will be set by recalculation
-              sceneNumber: shot.sceneNumber,
-              shotNumber: shot.shotNumber,
-              shotSize: shot.shotSize,
-              angle: shot.angle,
-              movement: shot.movement,
-              lens: shot.lens,
-              description: shot.description,
-              notes: shot.notes,
-              linkedShotId: shot.id,
-              intExt: 'INT', dayNight: 'DAY', location: '', cast: '', props: '', costume: '',
-          };
-          return newShot;
-      });
-      
-      recalculateAndUpdateTimes([...timelineItems, ...newTimelineItems]);
+    const newTimelineItems = shotsToAdd.map(shot => {
+      const newShot: TimelineItem = {
+        id: generateId(),
+        type: 'shot',
+        start: '', // Will be set by recalculation
+        duration: 15, // Default duration for imported shots
+        end: '', // Will be set by recalculation
+        sceneNumber: shot.sceneNumber,
+        shotNumber: shot.shotNumber,
+        shotSize: shot.shotSize,
+        angle: shot.angle,
+        movement: shot.movement,
+        lens: shot.lens,
+        description: shot.description,
+        notes: shot.notes,
+        linkedShotId: shot.id,
+        intExt: 'INT', dayNight: 'DAY', location: '', cast: '', props: '', costume: '',
+      };
+      return newShot;
+    });
+
+    recalculateAndUpdateTimes([...timelineItems, ...newTimelineItems]);
 
   }, [shotList, timelineItems, recalculateAndUpdateTimes]);
 
@@ -613,20 +1137,91 @@ debounceTimeoutRef.current = setTimeout(() => {
     return { totalHours: Math.floor(totalDuration / 60), totalMinutes: totalDuration % 60, shotCount, breakHours: Math.floor(breakTime / 60), breakMinutes: breakTime % 60 };
   }, [timelineItems]);
 
-  const handleExportProject = () => {
+  const handleExportProject = useCallback(() => {
     // Explicitly construct the project object to ensure the ID is always included.
     const fullProject = {
       ...project,
       id: project.id || generateId(), // Fallback to generate a new ID if one doesn't exist
-      data: { 
+      data: {
         ...project.data,
-        headerInfo, 
-        timelineItems, 
-        imagePreviews 
+        headerInfo,
+        timelineItems,
+        imagePreviews
       }
     };
     exportProject(fullProject);
-  };
+  }, [project, headerInfo, timelineItems, imagePreviews]);
+
+  const forceSave = useCallback(() => {
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+    const dataToSave = {
+      headerInfo,
+      timelineItems,
+      imagePreviews
+    };
+    setSaveStatus('saving');
+    Promise.resolve()
+      .then(() => onSaveRef.current(dataToSave))
+      .then(() => {
+        setSaveStatus('saved');
+        return new Promise(resolve => setTimeout(resolve, 2500));
+      })
+      .then(() => setSaveStatus('idle'))
+      .catch((err) => {
+        console.error(err);
+        setSaveStatus('dirty');
+      });
+  }, [headerInfo, timelineItems, imagePreviews]);
+
+  const handleDeleteShortcut = useCallback(() => {
+    if (focusedItemId) {
+      removeTimelineItem(focusedItemId);
+      setFocusedItemId(null);
+    }
+  }, [focusedItemId, removeTimelineItem]);
+
+  useKeyboardShortcuts([
+    {
+      key: 's',
+      ctrl: true,
+      action: forceSave,
+    },
+    {
+      key: 'p',
+      ctrl: true,
+      action: () => exportToPDF(headerInfo, timelineItems, stats, imagePreviews),
+    },
+    {
+      key: 'n',
+      ctrl: true,
+      action: addShot,
+    },
+    {
+      key: 'z',
+      ctrl: true,
+      action: undo,
+    },
+    {
+      key: 'z',
+      ctrl: true,
+      shift: true,
+      action: redo,
+    },
+    {
+      key: 'y',
+      ctrl: true,
+      action: redo,
+    },
+    {
+      key: 'Delete',
+      action: handleDeleteShortcut,
+    },
+    {
+      key: 'Escape',
+      action: onBack,
+      preventDefault: false,
+    }
+  ]);
 
   const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
@@ -646,94 +1241,158 @@ debounceTimeoutRef.current = setTimeout(() => {
   const dragModifiers = [({ transform }) => ({ ...transform, x: transform.x / zoomLevel, y: transform.y / zoomLevel })];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 relative overflow-x-hidden flex flex-col">
-            <ShotImportModal 
-          isOpen={isImportModalOpen}
-          onClose={() => setIsImportModalOpen(false)}
-          shotList={shotList}
-          imagePreviews={shotListImagePreviews}
-          onImport={handleImportShots}
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+      {/* Background glows */}
+      <div style={{ display: 'none' }} />
+      <div style={{ position: 'fixed', bottom: '-10%', right: '5%', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(245,158,11,0.05) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 0 }} />
+
+      <ShotImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        shotList={shotList}
+        imagePreviews={shotListImagePreviews}
+        onImport={handleImportShots}
       />
-      <div className="absolute inset-0 opacity-20" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='110' height='73.33' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3Cstyle%3E.pattern %7B width: 100%25; height: 100%25; --s: 110px; --c1: %23dedede; --c2: %23ededed; --c3: %23d6d6d6; --_g: var(--c1) 10%25,var(--c2) 10.5%25 19%25,%230000 19.5%25 80.5%25,var(--c2) 81%25 89.5%25,var(--c3) 90%25; --_c: from -90deg at 37.5%25 50%25,%230000 75%25; --_l1: linear-gradient(145deg,var(--_g)); --_l2: linear-gradient( 35deg,var(--_g)); background: var(--_l1), var(--_l1) calc(var(--s)/2) var(--s), var(--_l2), var(--_l2) calc(var(--s)/2) var(--s), conic-gradient(var(--_c),var(--c1) 0) calc(var(--s)/8) 0, conic-gradient(var(--_c),var(--c3) 0) calc(var(--s)/2) 0, linear-gradient(90deg,var(--c3) 38%25,var(--c1) 0 50%25,var(--c3) 0 62%25,var(--c1) 0); background-size: var(--s) calc(2*var(--s)/3); %7D%3C/style%3E%3C/defs%3E%3CforeignObject width='100%25' height='100%25'%3E%3Cdiv class='pattern' xmlns='http://www.w3.org/1999/xhtml'%3E%3C/div%3E%3C/foreignObject%3E%3C/svg%3E")` }}></div>
-      <div className="relative z-10 flex flex-col flex-grow">
-        <header className="w-screen bg-white shadow-sm border-b border-gray-100 fixed top-0 z-40">
-          <div className="px-6"><div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
-              <button onClick={onBack} className="p-2 rounded-lg hover:bg-gray-100"><ArrowLeft className="w-5 h-5 text-gray-700" /></button>
-              <div><h1 className="text-xl font-semibold text-gray-900">{headerInfo.projectTitle || 'Untitled Project'}</h1><p className="text-xs text-gray-500">Shooting Schedule Editor</p></div>
+
+      <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+        <header style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50, height: '64px',
+          background: 'var(--bg-overlay)',
+          backdropFilter: 'blur(24px) saturate(1.4)',
+          WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex', alignItems: 'center',
+        }}>
+          <div style={{ width: '100%', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button onClick={onBack} style={{ padding: '8px', borderRadius: '8px', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: 'var(--text-secondary)', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-input)'; e.currentTarget.style.color = 'var(--text-primary)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}>
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div style={{ height: '28px', width: '1px', background: 'var(--border-subtle)' }} />
+              <div>
+                <h1 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em', lineHeight: 1.2 }}>{headerInfo.projectTitle || 'Untitled Project'}</h1>
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shooting Schedule Editor</p>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginRight: '4px' }}>
+                <button onClick={undo} disabled={!canUndo} className="btn-ghost" style={{ padding: '6px', opacity: canUndo ? 1 : 0.4, cursor: canUndo ? 'pointer' : 'not-allowed', borderRadius: '6px', display: 'flex', alignItems: 'center' }} title="Undo (Ctrl+Z)"><Undo2 className="w-4 h-4" /></button>
+                <button onClick={redo} disabled={!canRedo} className="btn-ghost" style={{ padding: '6px', opacity: canRedo ? 1 : 0.4, cursor: canRedo ? 'pointer' : 'not-allowed', borderRadius: '6px', display: 'flex', alignItems: 'center' }} title="Redo (Ctrl+Shift+Z)"><Redo2 className="w-4 h-4" /></button>
+              </div>
+              <div style={{ height: '20px', width: '1px', background: 'var(--border-subtle)' }} />
               <SaveStatusIndicator status={saveStatus} />
-              <div className="h-6 w-px bg-gray-200"></div>
-              <button onClick={handleExportProject} className="cursor-pointer flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg"><FileDown className="w-4 h-4" /><span className="hidden sm:inline">Save .mbd</span></button>
-              <button onClick={() => exportToPDF(headerInfo, timelineItems, stats, imagePreviews)} className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"><Download className="w-4 h-4" /><span className="hidden sm:inline">Export PDF</span></button>
+              <div style={{ height: '20px', width: '1px', background: 'var(--border-subtle)' }} />
+              <button onClick={handleExportProject} className="btn-ghost" style={{ fontSize: '13px', gap: '6px' }}><FileDown className="w-4 h-4" /><span className="hidden sm:inline">Save .mbd</span></button>
+              <button onClick={() => exportToPDF(headerInfo, timelineItems, stats, imagePreviews)} className="btn-primary" style={{ fontSize: '13px', gap: '6px' }}><Download className="w-4 h-4" /><span className="hidden sm:inline">Export PDF</span></button>
             </div>
-          </div></div>
+          </div>
         </header>
 
-        <main className="flex-1 p-8 pt-24">
-          <div className="mb-6">
-            <button onClick={() => setShowProductionDetails(!showProductionDetails)} className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-all">
-              <Settings className="w-4 h-4 text-gray-700" />
-              <span className="font-medium text-gray-900">Production Details</span>
-              <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${showProductionDetails ? 'rotate-180' : ''}`} />
+        <main style={{ flex: 1, padding: '24px', paddingTop: '88px' }}>
+          <div style={{ marginBottom: '24px' }}>
+            <button
+              onClick={() => setShowProductionDetails(!showProductionDetails)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '10px',
+                padding: '10px 16px',
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border-default)',
+                borderRadius: '10px', cursor: 'pointer',
+                color: 'var(--text-secondary)', fontSize: '13px', fontWeight: 600,
+                transition: 'all 0.2s', fontFamily: 'inherit',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-accent)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+            >
+              <Settings className="w-4 h-4" />
+              <span>Production Details</span>
+              <ChevronDown style={{ width: '14px', height: '14px', transform: showProductionDetails ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
             </button>
             {showProductionDetails && (
-              <div className="mt-4 bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-in slide-in-from-top-2 duration-300">
+              <div style={{ marginTop: '12px', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', borderRadius: '14px', padding: '24px' }} className="animate-fade-in-up">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><Film className="w-4 h-4 text-gray-600" />Project Information</h3>
+                    <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><Film className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />Project Information</h3>
                     <div className="space-y-3">
-                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Project Title</label><input type="text" value={headerInfo.projectTitle} onChange={(e) => setHeaderInfo({ ...headerInfo, projectTitle: e.target.value })} className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
+                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Project Title</label><input type="text" value={headerInfo.projectTitle} onChange={(e) => setHeaderInfo({ ...headerInfo, projectTitle: e.target.value })} className="w-full px-3 py-2" /></div>
                       <div className="grid grid-cols-2 gap-3">
-                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Episode #</label><input type="text" value={headerInfo.episodeNumber} placeholder="Ep. No." onChange={(e) => setHeaderInfo({ ...headerInfo, episodeNumber: e.target.value })} className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
-                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Day/Total</label><div className="flex items-center gap-2"><input type="text" value={headerInfo.shootingDay} onChange={(e) => setHeaderInfo({ ...headerInfo, shootingDay: e.target.value })} className="text-gray-500 w-14 px-2 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-center transition-all" placeholder="1" /><span className="text-gray-500">/</span><input type="text" value={headerInfo.totalDays} onChange={(e) => setHeaderInfo({ ...headerInfo, totalDays: e.target.value })} className="text-gray-500 w-14 px-2 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-center transition-all" placeholder="3" /></div></div>
+                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Episode #</label><input type="text" value={headerInfo.episodeNumber} placeholder="Ep. No." onChange={(e) => setHeaderInfo({ ...headerInfo, episodeNumber: e.target.value })} className="w-full px-3 py-2" /></div>
+                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Day/Total</label><div className="flex items-center gap-2"><input type="text" value={headerInfo.shootingDay} onChange={(e) => setHeaderInfo({ ...headerInfo, shootingDay: e.target.value })} className="w-14 px-2 py-2 text-center" placeholder="1" /><span style={{ color: 'var(--text-muted)' }}>/</span><input type="text" value={headerInfo.totalDays} onChange={(e) => setHeaderInfo({ ...headerInfo, totalDays: e.target.value })} className="w-14 px-2 py-2 text-center" placeholder="3" /></div></div>
                       </div>
-                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Shooting Date</label><input type="date" value={headerInfo.date} onChange={(e) => setHeaderInfo({ ...headerInfo, date: e.target.value })} className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
+                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Shooting Date</label><DarkDatePicker value={headerInfo.date} onChange={(val) => setHeaderInfo({ ...headerInfo, date: val })} className="w-full px-3 py-2" /></div>
                     </div>
                   </div>
 
                   <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><MapPin className="w-4 h-4 text-gray-600" />Time & Location</h3>
+                    <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><MapPin className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />Time, Location & Meals</h3>
                     <div className="space-y-3">
                       <div className="grid grid-cols-2 gap-3">
-                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Call Time</label><input type="time" value={headerInfo.callTime} onChange={(e) => setHeaderInfo({ ...headerInfo, callTime: e.target.value })} className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
-                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Wrap Time</label><input type="time" value={headerInfo.wrapTime} onChange={(e) => setHeaderInfo({ ...headerInfo, wrapTime: e.target.value })} className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
+                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Call Time</label><DarkTimePicker value={headerInfo.callTime} onChange={(val) => setHeaderInfo({ ...headerInfo, callTime: val })} className="w-full px-3 py-2" /></div>
+                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Wrap Time</label><DarkTimePicker value={headerInfo.wrapTime} onChange={(val) => setHeaderInfo({ ...headerInfo, wrapTime: val })} className="w-full px-3 py-2" /></div>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
-                        <div><label className="block text-sm font-medium text-gray-700 mb-1"><Sunrise className="w-3 h-3 inline mr-1" />Sunrise</label><input type="time" value={headerInfo.sunrise} onChange={(e) => setHeaderInfo({ ...headerInfo, sunrise: e.target.value })} className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
-                        <div><label className="block text-sm font-medium text-gray-700 mb-1"><Sunset className="w-3 h-3 inline mr-1" />Sunset</label><input type="time" value={headerInfo.sunset} onChange={(e) => setHeaderInfo({ ...headerInfo, sunset: e.target.value })} className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
+                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Coffee className="w-3 h-3 inline mr-1" />First Meal</label><DarkTimePicker value={headerInfo.firstmealTime} onChange={(val) => setHeaderInfo({ ...headerInfo, firstmealTime: val })} className="w-full px-3 py-2" /></div>
+                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Moon className="w-3 h-3 inline mr-1" />Second Meal</label><DarkTimePicker value={headerInfo.secondmealTime} onChange={(val) => setHeaderInfo({ ...headerInfo, secondmealTime: val })} className="w-full px-3 py-2" /></div>
                       </div>
-                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Location 1</label><input type="text" value={headerInfo.location1} onChange={(e) => setHeaderInfo({ ...headerInfo, location1: e.target.value })} placeholder="Main location" className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
-                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Location 2</label><input type="text" value={headerInfo.location2} onChange={(e) => setHeaderInfo({ ...headerInfo, location2: e.target.value })} placeholder="Secondary location (optional)" className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Location 1</label>
+                        <LocationAutocomplete
+                          value={headerInfo.location1}
+                          onChange={(val) => setHeaderInfo({ ...headerInfo, location1: val })}
+                          onSelectLocation={(loc) => setResolvedCoords(prev => ({ ...prev, location1: loc }))}
+                          placeholder="Main location"
+                          className="w-full px-3 py-2"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Location 2</label>
+                        <LocationAutocomplete
+                          value={headerInfo.location2}
+                          onChange={(val) => setHeaderInfo({ ...headerInfo, location2: val })}
+                          onSelectLocation={(loc) => setResolvedCoords(prev => ({ ...prev, location2: loc }))}
+                          placeholder="Secondary location (optional)"
+                          className="w-full px-3 py-2"
+                        />
+                      </div>
                     </div>
                   </div>
 
                   <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><CloudRain className="w-4 h-4 text-gray-600" />Weather & Meals</h3>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><CloudRain className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />Weather & Sun</h3>
+                      <button
+                        type="button"
+                        onClick={handleAutoFillWeather}
+                        className="btn-secondary"
+                        style={{ fontSize: '11px', padding: '4px 10px', height: '28px', gap: '4px', background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', whiteSpace: 'nowrap' }}
+                        disabled={loadingWeather}
+                      >
+                        {loadingWeather ? 'Fetching...' : 'Auto-Fill Weather'}
+                      </button>
+                    </div>
                     <div className="space-y-3">
-                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Weather Forecast</label><input type="text" value={headerInfo.weather} onChange={(e) => setHeaderInfo({ ...headerInfo, weather: e.target.value })} placeholder="Considerable cloudiness" className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
+                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Weather Forecast</label><input type="text" value={headerInfo.weather} onChange={(e) => setHeaderInfo({ ...headerInfo, weather: e.target.value })} placeholder="Considerable cloudiness" className="w-full px-3 py-2" /></div>
                       <div className="grid grid-cols-2 gap-3">
-                        <div><label className="block text-sm font-medium text-gray-700 mb-1"><Thermometer className="w-3 h-3 inline mr-1" />Temp</label><input type="text" value={headerInfo.temp} onChange={(e) => setHeaderInfo({ ...headerInfo, temp: e.target.value })} placeholder="34°" className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
-                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Real Feel</label><input type="text" value={headerInfo.realFeel} onChange={(e) => setHeaderInfo({ ...headerInfo, realFeel: e.target.value })} placeholder="37°" className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
+                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Thermometer className="w-3 h-3 inline mr-1" />Temp</label><input type="text" value={headerInfo.temp} onChange={(e) => setHeaderInfo({ ...headerInfo, temp: e.target.value })} placeholder="34°" className="w-full px-3 py-2" /></div>
+                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Real Feel</label><input type="text" value={headerInfo.realFeel} onChange={(e) => setHeaderInfo({ ...headerInfo, realFeel: e.target.value })} placeholder="37°" className="w-full px-3 py-2" /></div>
                       </div>
-                      <div><label className="block text-sm font-medium text-gray-700 mb-1"><CloudDrizzle className="w-3 h-3 inline mr-1" />Precipitation %</label><input type="text" value={headerInfo.precipProb} onChange={(e) => setHeaderInfo({ ...headerInfo, precipProb: e.target.value })} placeholder="73%" className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
                       <div className="grid grid-cols-2 gap-3">
-                        <div><label className="block text-sm font-medium text-gray-700 mb-1"><Coffee className="w-3 h-3 inline mr-1" />First Meal</label><input type="time" value={headerInfo.firstmealTime} onChange={(e) => setHeaderInfo({ ...headerInfo, firstmealTime: e.target.value })} className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
-                        <div><label className="block text-sm font-medium text-gray-700 mb-1"><Moon className="w-3 h-3 inline mr-1" />Second Meal</label><input type="time" value={headerInfo.secondmealTime} onChange={(e) => setHeaderInfo({ ...headerInfo, secondmealTime: e.target.value })} className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
+                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Sunrise className="w-3 h-3 inline mr-1" />Sunrise</label><DarkTimePicker value={headerInfo.sunrise} onChange={(val) => setHeaderInfo({ ...headerInfo, sunrise: val })} className="w-full px-3 py-2" /></div>
+                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Sunset className="w-3 h-3 inline mr-1" />Sunset</label><DarkTimePicker value={headerInfo.sunset} onChange={(val) => setHeaderInfo({ ...headerInfo, sunset: val })} className="w-full px-3 py-2" /></div>
                       </div>
+                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><CloudDrizzle className="w-3 h-3 inline mr-1" />Precipitation %</label><input type="text" value={headerInfo.precipProb} onChange={(e) => setHeaderInfo({ ...headerInfo, precipProb: e.target.value })} placeholder="73%" className="w-full px-3 py-2" /></div>
                     </div>
                   </div>
 
                   <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><Users className="w-4 h-4 text-gray-600" />Key Crew</h3>
+                    <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><Users className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />Key Crew</h3>
                     <div className="space-y-3">
-                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Producer</label><input type="text" value={headerInfo.producer} onChange={(e) => setHeaderInfo({ ...headerInfo, producer: e.target.value })} placeholder="Name & Phone" className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
-                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Director</label><input type="text" value={headerInfo.director} onChange={(e) => setHeaderInfo({ ...headerInfo, director: e.target.value })} placeholder="Name & Phone" className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
-                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Production Designer</label><input type="text" value={headerInfo.pd} onChange={(e) => setHeaderInfo({ ...headerInfo, pd: e.target.value })} placeholder="Name & Phone" className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
-                      <div><label className="block text-sm font-medium text-gray-700 mb-1">Director of Photography</label><input type="text" value={headerInfo.dop} onChange={(e) => setHeaderInfo({ ...headerInfo, dop: e.target.value })} placeholder="Name & Phone" className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
-                      <div><label className="block text-sm font-medium text-gray-700 mb-1">1st AD</label><input type="text" value={headerInfo.firstAD} onChange={(e) => setHeaderInfo({ ...headerInfo, firstAD: e.target.value })} placeholder="Name & Phone" className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
-                      <div><label className="block text-sm font-medium text-gray-700 mb-1">2nd AD</label><input type="text" value={headerInfo.secondAD} onChange={(e) => setHeaderInfo({ ...headerInfo, secondAD: e.target.value })} placeholder="Name & Phone" className="text-gray-500 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" /></div>
+                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Producer</label><input type="text" value={headerInfo.producer} onChange={(e) => setHeaderInfo({ ...headerInfo, producer: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" /></div>
+                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Director</label><input type="text" value={headerInfo.director} onChange={(e) => setHeaderInfo({ ...headerInfo, director: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" /></div>
+                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Production Designer</label><input type="text" value={headerInfo.pd} onChange={(e) => setHeaderInfo({ ...headerInfo, pd: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" /></div>
+                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Director of Photography</label><input type="text" value={headerInfo.dop} onChange={(e) => setHeaderInfo({ ...headerInfo, dop: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" /></div>
+                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>1st AD</label><input type="text" value={headerInfo.firstAD} onChange={(e) => setHeaderInfo({ ...headerInfo, firstAD: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" /></div>
+                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>2nd AD</label><input type="text" value={headerInfo.secondAD} onChange={(e) => setHeaderInfo({ ...headerInfo, secondAD: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" /></div>
                     </div>
                   </div>
                 </div>
@@ -741,99 +1400,189 @@ debounceTimeoutRef.current = setTimeout(() => {
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-600">Total Duration</p><p className="text-2xl font-semibold text-gray-900">{stats.totalHours}h {stats.totalMinutes}m</p></div><div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center"><Clock className="w-6 h-6 text-indigo-600" /></div></div></div>
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-600">Total Shots</p><p className="text-2xl font-semibold text-gray-900">{stats.shotCount}</p></div><div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center"><Film className="w-6 h-6 text-purple-600" /></div></div></div>
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-600">Break Time</p><p className="text-2xl font-semibold text-gray-900">{stats.breakHours}h {stats.breakMinutes}m</p></div><div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center"><Coffee className="w-6 h-6 text-amber-600" /></div></div></div>
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-600">Est. Wrap</p><p className="text-2xl font-semibold text-gray-900">{timelineItems.length > 0 ? timelineItems[timelineItems.length - 1].end : '--:--'}</p></div><div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center"><Check className="w-6 h-6 text-green-600" /></div></div></div>
+          {/* Stat Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+            {[
+              { label: 'Total Duration', value: `${stats.totalHours}h ${stats.totalMinutes}m`, icon: Clock, gradient: 'var(--accent-primary)' },
+              { label: 'Total Shots', value: stats.shotCount, icon: Film, gradient: 'var(--text-accent)' },
+              { label: 'Break Time', value: `${stats.breakHours}h ${stats.breakMinutes}m`, icon: Coffee, gradient: 'var(--accent-amber)' },
+              { label: 'Est. Wrap', value: timelineItems.length > 0 ? timelineItems[timelineItems.length - 1].end : '--:--', icon: Check, gradient: 'var(--accent-green)' },
+            ].map(({ label, value, icon: Icon, gradient }) => (
+              <div key={label} className="stat-card">
+                <div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: '6px' }}>{label}</p>
+                  <p style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{value}</p>
+                </div>
+                <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon style={{ width: '18px', height: '18px', color: '#fff' }} />
+                </div>
+              </div>
+            ))}
           </div>
 
-          <div className="flex gap-3 mb-6">
-            <button onClick={addShot} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"><Plus className="w-4 h-4" />Add Shot</button>
-            <button onClick={addBreak} className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white font-medium rounded-lg hover:bg-amber-600 transition-colors"><Coffee className="w-4 h-4" />Add Break</button>
-                        <div className="w-px bg-gray-300 mx-2"></div>
-            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white font-medium rounded-lg hover:bg-teal-700 transition-colors"><ListPlus className="w-4 h-4" />Import from Shot List</button>
+          {/* Action buttons */}
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <button onClick={addShot} className="btn-primary" style={{ fontSize: '13px' }}><Plus className="w-4 h-4" />Add Shot</button>
+            <button onClick={addBreak} className="btn-secondary" style={{ color: 'var(--accent-amber)', borderColor: 'var(--accent-amber)' }}><Coffee className="w-4 h-4" />Add Break</button>
+            <div style={{ width: '1px', background: 'var(--border-subtle)', margin: '0 4px' }} />
+            <button onClick={() => setIsImportModalOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '10px 16px', background: 'rgba(20,184,166,0.15)', color: '#2dd4bf', fontWeight: 600, fontSize: '13px', border: '1px solid rgba(20,184,166,0.3)', borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s', fontFamily: 'inherit' }}><ListPlus className="w-4 h-4" />Import from Shot List</button>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          {/* Table container */}
+          <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: '14px', overflow: 'hidden' }}>
             <div
               ref={tableContainerRef}
-              className="overflow-x-auto"
-              style={{ zoom: zoomLevel }}
+              className={`table-scroll-hidden ${isTableScrolled ? 'table-scrolled' : ''}`}
+              style={{ overflowX: 'auto', zoom: zoomLevel }}
             >
-              <DndContext 
-                sensors={sensors} 
-                collisionDetection={closestCenter} 
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
                 onDragEnd={handleDragEnd}
                 modifiers={dragModifiers}
               >
-                <table className="w-full" style={{ minWidth: '2400px' }} ref={tableRef}>
-                  <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-20"><tr>
-                    <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider"></th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Time</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Dur.</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Scene</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Shot</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">INT/EXT</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Period</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Location</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Size</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Angle</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Movement</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Lens</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Description</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Cast</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider">Reference</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Props</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Costume</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Notes</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-600 uppercase tracking-wider"></th>
-                  </tr></thead>
-                  <tbody className="divide-y divide-gray-100">
+                <table className="dark-table" style={{ minWidth: '2400px' }} ref={tableRef}>
+                  <thead>
+                    <tr>
+                      <th className="col-drag" style={{ width: '48px' }}></th>
+                      <th>Time</th>
+                      <th>Dur.</th>
+                      <th className="col-scene" style={{ width: '84px' }}>Scene</th>
+                      <th className="col-shot" style={{ width: '84px' }}>Shot</th>
+                      <th>INT/EXT</th>
+                      <th>Period</th>
+                      <th>Location</th>
+                      <th>Size</th>
+                      <th>Angle</th>
+                      <th>Movement</th>
+                      <th>Lens</th>
+                      <th>Description</th>
+                      <th>Cast</th>
+                      <th style={{ textAlign: 'center' }}>Reference</th>
+                      <th>Props</th>
+                      <th>Costume</th>
+                      <th>Notes</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
                     <SortableContext items={timelineItems.map(item => item.id)} strategy={verticalListSortingStrategy}>
-                      {timelineItems.map((item, index) => <SortableItem key={item.id} id={item.id} item={item} index={index} imagePreviews={imagePreviews} handleItemChange={handleItemChange} handleImageUpload={handleImageUpload} removeTimelineItem={removeTimelineItem} handleRemoveImage={handleRemoveImage} activeImageUploadId={activeImageUploadId} setActiveImageUploadId={setActiveImageUploadId} />)}
+                      {timelineItems.map((item, index) => <SortableItem key={item.id} id={item.id} item={item} index={index} imagePreviews={imagePreviews} handleItemChange={handleItemChange} handleImageUpload={handleImageUpload} removeTimelineItem={removeTimelineItem} handleRemoveImage={handleRemoveImage} activeImageUploadId={activeImageUploadId} setActiveImageUploadId={setActiveImageUploadId} focusedItemId={focusedItemId} setFocusedItemId={setFocusedItemId} />)}
                     </SortableContext>
                   </tbody>
                 </table>
               </DndContext>
-              {timelineItems.length === 0 && <div className="text-center py-16"><Film className="mx-auto h-12 w-12 text-gray-300 mb-4" /><p className="text-gray-500">No shots added yet</p><p className="text-sm text-gray-400 mt-2">Click "Add Shot" to start building your schedule</p></div>}
+              {timelineItems.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '64px 24px' }}>
+                  <div className="empty-state-icon" style={{ width: '64px', height: '64px', borderRadius: '16px', margin: '0 auto 16px' }}>
+                    <Film style={{ width: '28px', height: '28px', color: 'var(--accent-primary)' }} />
+                  </div>
+                  <p style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>No shots added yet</p>
+                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '6px' }}>Click "Add Shot" to start building your schedule</p>
+                </div>
+              )}
             </div>
           </div>
         </main>
 
-        <div ref={floatingScrollbarRef} className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 overflow-x-auto transition-opacity duration-200" style={{ opacity: showFloatingScrollbar ? 1 : 0, pointerEvents: showFloatingScrollbar ? 'auto' : 'none', height: '20px' }}>
-          <div ref={floatingScrollbarContentRef} style={{ height: '1px' }}></div>
+        {/* Floating scrollbar */}
+        <div
+          ref={floatingScrollbarRef}
+          className="floating-scrollbar-container"
+          style={{
+            opacity: showFloatingScrollbar ? 1 : 0,
+            pointerEvents: showFloatingScrollbar ? 'auto' : 'none'
+          }}
+        >
+          <div ref={floatingScrollbarContentRef} style={{ height: '50px' }}></div>
         </div>
 
-<div className="fixed bottom-10 right-2 z-50 flex items-center gap-1">
-    <div className={`flex flex-col items-center gap-2 transition-all duration-300 ease-in-out ${showZoomControls ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0 pointer-events-none'}`}>
-        <button
-            onClick={handleZoomIn}
-            className="w-8 h-8 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
-            title="Zoom In"
-        >
-            <Plus className="w-4 h-4 text-gray-700" />
-        </button>
-        <span className="text-xs font-bold text-gray-600 bg-white/80 backdrop-blur-sm py-1 px-2 rounded-full border border-gray-200">
-            {Math.round(zoomLevel * 100)}%
-        </span>
-        <button
-            onClick={handleZoomOut}
-            className="w-8 h-8 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
-            title="Zoom Out"
-        >
-            <Minus className="w-4 h-4 text-gray-700" />
-        </button>
-    </div>
+        {/* Zoom controls */}
+        <div style={{ position: 'fixed', bottom: '40px', right: '8px', zIndex: 50, display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', transition: 'all 0.3s', opacity: showZoomControls ? 1 : 0, transform: showZoomControls ? 'translateX(0)' : 'translateX(100%)', pointerEvents: showZoomControls ? 'auto' : 'none' }}>
+            <button onClick={handleZoomIn} title="Zoom In" style={{ width: '32px', height: '32px', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow-md)', color: 'var(--text-secondary)', transition: 'all 0.2s' }}>
+              <Plus style={{ width: '14px', height: '14px' }} />
+            </button>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', padding: '3px 8px', borderRadius: '99px' }}>{Math.round(zoomLevel * 100)}%</span>
+            <button onClick={handleZoomOut} title="Zoom Out" style={{ width: '32px', height: '32px', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow-md)', color: 'var(--text-secondary)', transition: 'all 0.2s' }}>
+              <Minus style={{ width: '14px', height: '14px' }} />
+            </button>
+          </div>
+          <button onClick={() => setShowZoomControls(!showZoomControls)} title={showZoomControls ? 'Hide Controls' : 'Show Controls'} style={{ width: '32px', height: '32px', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow-md)', color: 'var(--text-secondary)', transition: 'all 0.2s' }}>
+            <ChevronsRight style={{ width: '16px', height: '16px', transform: showZoomControls ? 'rotate(0deg)' : 'rotate(180deg)', transition: 'transform 0.3s' }} />
+          </button>
+        </div>
 
-    <button
-        onClick={() => setShowZoomControls(!showZoomControls)}
-        className="w-8 h-8 bg-white/80 backadrop-blur-sm border border-gray-200 rounded-lg flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all"
-        title={showZoomControls ? 'Hide Controls' : 'Show Controls'}
-    >
-        <ChevronsRight className={`w-5 h-5 text-gray-700 transition-transform duration-300 ${showZoomControls ? '' : 'rotate-180'}`} />
-    </button>
-</div>
+        {/* Weather Autofill Success Toast */}
+        <div
+          style={{
+            position: 'fixed',
+            top: '24px',
+            left: '50%',
+            transform: weatherToast.visible ? 'translate(-50%, 0)' : 'translate(-50%, -150%)',
+            transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease',
+            opacity: weatherToast.visible ? 1 : 0,
+            zIndex: 99999,
+            pointerEvents: weatherToast.visible ? 'auto' : 'none',
+          }}
+        >
+          <div
+            style={{
+              background: 'rgba(16, 185, 129, 0.08)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+              border: '1px solid rgba(16, 185, 129, 0.25)',
+              boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.3), 0 2px 8px 0 rgba(0, 0, 0, 0.2)',
+              borderRadius: '8px',
+              padding: '12px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              color: 'var(--text-primary)',
+              maxWidth: '400px',
+              width: 'calc(100vw - 48px)',
+            }}
+          >
+            {/* Minimal Check mark - no background circle, no glow */}
+            <svg style={{ width: '16px', height: '16px', color: 'var(--accent-green)', flexShrink: 0 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent-green)', letterSpacing: '-0.01em' }}>
+                Weather Autofill Complete
+              </span>
+              <span
+                title={weatherToast.locationName}
+                style={{ fontSize: '11px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              >
+                Fetched from <strong style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{weatherToast.locationName}</strong>
+              </span>
+            </div>
+
+            <button
+              onClick={() => setWeatherToast(prev => ({ ...prev, visible: false }))}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--text-muted)',
+                padding: '2px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'color 0.2s',
+                flexShrink: 0,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+            >
+              <svg style={{ width: '14px', height: '14px' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
 
       </div>
     </div>

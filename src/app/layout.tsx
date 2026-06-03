@@ -1,20 +1,33 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono } from "next/font/google";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+import { ThemeProvider } from "../components/ThemeProvider";
+import InstallPrompt from "../components/InstallPrompt";
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
 
+export const viewport = {
+  themeColor: "#4CA18A",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
+
 export const metadata: Metadata = {
-  title: "Mentalbreakdown",
-  description: "Mentalbreakdown is the perfect shooting schedule editor for lazy people. Whether you have 10 shots or 1000, it's not an issue. This website is guaranteed to save you at least three times the effort! (My personal guarantee). Spend your time on what actually matters :)",
+  title: "MentalBreakdown — Film Production Suite",
+  description: "MentalBreakdown is the ultimate shooting schedule & shot list editor for filmmakers. Manage your production timeline effortlessly. Save time, shoot smarter.",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "MentalBreakdown",
+  },
+  icons: {
+    apple: "/icon-192.png",
+  },
 };
 
 export default function RootLayout({
@@ -23,11 +36,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+      </head>
+      <body className={`${geistMono.variable} antialiased`} suppressHydrationWarning>
+        <ThemeProvider>
+          {children}
+          <InstallPrompt />
+        </ThemeProvider>
       </body>
     </html>
   );

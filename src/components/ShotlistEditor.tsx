@@ -22,12 +22,16 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   GripVertical, Film, Plus, Save, Trash2, Download, ArrowLeft,
   Loader2, Check, CloudOff, Image as ImageIcon, X, List, Camera, Minus,
-  LayoutGrid, Eye, Edit3, Move3D, Aperture, FileText, StickyNote, Hash, ChevronsRight
+  LayoutGrid, Eye, Edit3, Move3D, Aperture, FileText, StickyNote, Hash, ChevronsRight,
+  Undo2, Redo2
 } from 'lucide-react';
-
+import { useUndoRedo } from '../hooks/useUndoRedo';
+import { DarkSelect, findOption, SHOT_SIZE_OPTIONS, ANGLE_OPTIONS, MOVEMENT_OPTIONS, SelectOption } from './DarkSelect';
 // --- Important: Make sure the path to your db helper and pdf utility is correct ---
 import { exportShotListToPDF } from '../utils/shotpdf'; 
 import { setImage, getImage, deleteImage } from '../utils/db'; 
+import { isFirebaseEnabled, uploadImageToStorage } from '../lib/firebase';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 //==============================================================================
 // TYPE DEFINITIONS (No changes needed)
@@ -91,6 +95,8 @@ type SortableItemProps = {
   handleImageUpload: (itemId: string, file: File | null) => void;
   removeShotItem: (itemId: string) => void;
   handleRemoveImage: (itemId: string) => void;
+  focusedItemId: string | null;
+  setFocusedItemId: (id: string | null) => void;
 };
 
 
@@ -107,22 +113,22 @@ const exportProject = (project: Project) => console.log('Exporting project:', pr
 const SaveStatusIndicator: React.FC<{ status: SaveStatus }> = ({ status }) => {
   const getStatusDisplay = () => {
     switch (status) {
-      case 'saving': return { icon: <Loader2 className="w-4 h-4 animate-spin" />, text: 'Saving...', className: 'text-gray-600' };
-      case 'dirty': return { icon: <CloudOff className="w-4 h-4" />, text: 'Unsaved changes', className: 'text-amber-600' };
-      case 'saved': return { icon: <Check className="w-4 h-4" />, text: 'Saved', className: 'text-green-600' };
-      default: return { icon: <Save className="w-4 h-4" />, text: 'All changes saved', className: 'text-gray-500' };
+      case 'saving': return { icon: <Loader2 className="w-4 h-4 animate-spin" />, text: 'Saving...', style: { color: 'var(--text-muted)' } };
+      case 'dirty': return { icon: <CloudOff className="w-4 h-4" />, text: 'Unsaved changes', style: { color: 'var(--accent-amber)' } };
+      case 'saved': return { icon: <Check className="w-4 h-4" />, text: 'Saved', style: { color: 'var(--accent-green)' } };
+      default: return { icon: <Save className="w-4 h-4" />, text: 'All changes saved', style: { color: 'var(--text-muted)' } };
     }
   };
-  const { icon, text, className } = getStatusDisplay();
+  const { icon, text, style } = getStatusDisplay();
   return (
-    <div className={`flex items-center gap-2 text-sm font-medium ${className} transition-all duration-300`}>
+    <div style={{ ...style, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 500, transition: 'all 0.3s' }}>
       {icon}
       <span className="hidden sm:inline">{text}</span>
     </div>
   );
 };
 
-const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage }) => {
+const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, focusedItemId, setFocusedItemId }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -130,17 +136,33 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
     opacity: isDragging ? 0.5 : 1,
   };
   const isActiveForUpload = activeImageUploadId === item.id;
+  const isFocused = focusedItemId === item.id;
 
   return (
     <div
       ref={setNodeRef}
-      style={style}
-      className={`group bg-white rounded-xl border ${isActiveForUpload ? 'border-indigo-400 ring-2 ring-indigo-300' : 'border-gray-200'} shadow-xs hover:shadow-lg transition-all duration-200 ${isDragging ? 'rotate-3 scale-105' : ''}`}
+      onFocusCapture={() => setFocusedItemId(item.id)}
+      onClickCapture={() => setFocusedItemId(item.id)}
+      className={`group`}
+      style={{
+        ...style,
+        background: 'var(--bg-elevated)',
+        border: `1px solid ${isFocused ? 'var(--accent-primary)' : 'var(--border-subtle)'}`,
+        borderRadius: '14px',
+        boxShadow: isFocused ? '0 0 0 3px var(--accent-glow-sm)' : 'var(--shadow-sm)',
+        transition: 'all 0.25s',
+        opacity: isDragging ? 0.5 : 1,
+      }}
     >
-      <div className="p-4 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-purple-50">
+      <div style={{
+        padding: '14px 16px',
+        borderBottom: '1px solid var(--border-subtle)',
+        background: 'var(--bg-elevated)',
+        borderRadius: '14px 14px 0 0',
+      }}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button {...attributes} {...listeners} className="cursor-grab p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white/60 rounded-lg transition-all">
+            <button {...attributes} {...listeners} style={{ cursor: 'grab', padding: '6px', color: 'var(--text-muted)', background: 'transparent', border: 'none', borderRadius: '8px', display: 'flex', alignItems: 'center' }}>
               <GripVertical size={16} />
             </button>
             <div className="flex items-center gap-2">
@@ -150,41 +172,44 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
                     type="text"
                     value={item.sceneNumber}
                     onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)}
-                    className="text-sm font-semibold text-gray-800 bg-transparent border-none outline-none text-center"
+                    className="no-style"
+                    style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', background: 'transparent', border: 'none', outline: 'none', textAlign: 'center', width: `${Math.max(String(item.sceneNumber).length, 2)}ch`, padding: 0 }}
                     placeholder="1A"
-                    style={{ width: `${Math.max(String(item.sceneNumber).length, 2)}ch` }}
                   />
-                  <span className="text-gray-400">-</span>
+                  <span style={{ color: 'var(--text-muted)' }}>-</span>
                   <input
                     type="text"
                     value={item.shotNumber}
                     onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)}
-                    className="text-sm font-semibold text-gray-800 bg-transparent border-none outline-none text-center"
+                    className="no-style"
+                    style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', background: 'transparent', border: 'none', outline: 'none', textAlign: 'center', width: `${Math.max(String(item.shotNumber).length, 3)}ch`, padding: 0 }}
                     placeholder="001"
-                    style={{ width: `${Math.max(String(item.shotNumber).length, 3)}ch` }}
                   />
                 </div>
-                <p className="text-xs text-gray-500">Scene - Shot</p>
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Scene - Shot</p>
               </div>
             </div>
           </div>
           <button
             onClick={() => removeShotItem(item.id)}
-            className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+            className="opacity-0 group-hover:opacity-100"
+            style={{ padding: '6px', color: 'var(--text-muted)', background: 'transparent', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.2s' }}
+            onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.12)'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
           >
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
-        <div className="relative flex justify-center">
+      <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
           {imagePreviews[item.id] ? (
             <div className="relative group/img" onClick={() => setActiveImageUploadId(isActiveForUpload ? null : item.id)}>
               <img
                 src={imagePreviews[item.id]}
                 alt={`Ref for ${item.shotNumber}`}
-                className={`w-32 h-24 object-cover rounded-lg border-2 ${isActiveForUpload ? 'border-indigo-300' : 'border-gray-200'} cursor-pointer transition-colors`}
+                style={{ width: '128px', height: '96px', objectFit: 'cover', borderRadius: '10px', border: `2px solid ${isActiveForUpload ? 'var(--accent-primary)' : 'var(--border-default)'}`, cursor: 'pointer' }}
               />
               <button
                 onClick={(e) => { e.stopPropagation(); handleRemoveImage(item.id); }}
@@ -194,9 +219,9 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
               </button>
             </div>
           ) : (
-            <label htmlFor={`image-${item.id}`} onClick={() => setActiveImageUploadId(isActiveForUpload ? null : item.id)} className={`w-32 h-24 rounded-lg border-2 flex flex-col items-center justify-center cursor-pointer transition-all ${isActiveForUpload ? 'border-indigo-400 bg-gradient-to-br from-indigo-50 to-purple-50 ring-2 ring-indigo-200' : 'border-dashed border-gray-300 bg-gradient-to-br from-gray-100 to-gray-200 hover:border-indigo-400 hover:bg-gradient-to-br hover:from-indigo-50 hover:to-purple-50'}`}>
-              <ImageIcon className="w-6 h-6 text-gray-400 mb-1" />
-              <span className="text-xs text-gray-500">Add Reference</span>
+            <label htmlFor={`image-${item.id}`} onClick={() => setActiveImageUploadId(isActiveForUpload ? null : item.id)} style={{ width: '128px', height: '96px', borderRadius: '10px', border: `2px dashed ${isActiveForUpload ? 'var(--accent-primary)' : 'var(--border-default)'}`, background: isActiveForUpload ? 'var(--accent-glow-sm)' : 'var(--bg-input)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s' }}>
+              <ImageIcon style={{ width: '22px', height: '22px', color: 'var(--text-muted)', marginBottom: '4px' }} />
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Add Reference</span>
             </label>
           )}
           <input
@@ -208,267 +233,223 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="flex items-center gap-1 text-xs font-medium text-gray-600 uppercase tracking-wide"><Eye className="w-3 h-3" />Size</label>
-            <select value={item.shotSize} onChange={(e) => handleItemChange(item.id, 'shotSize', e.target.value)} className="text-gray-600 w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all">
-              <option value="">Select Size...</option>
-              <optgroup label="Wide Shots">
-                <option value="EWS">EWS - Extreme Wide Shot</option>
-                <option value="VWS">VWS - Very Wide Shot</option>
-                <option value="WS">WS - Wide Shot</option>
-                <option value="LS">LS - Long Shot</option>
-                <option value="FLS">FLS - Full Length Shot</option>
-              </optgroup>
-              <optgroup label="Medium Shots">
-                <option value="MS">MS - Medium Shot</option>
-                <option value="MCU">MCU - Medium Close-Up</option>
-                <option value="Cowboy">Cowboy Shot</option>
-              </optgroup>
-              <optgroup label="Close-Ups">
-                <option value="CU">CU - Close-Up</option>
-                <option value="ECU">ECU - Extreme Close-Up</option>
-                <option value="Insert">Insert Shot</option>
-              </optgroup>
-              <optgroup label="Multi-Subject">
-                <option value="2S">Two-Shot</option>
-                <option value="3S">Three-Shot</option>
-                <option value="Group">Group Shot</option>
-              </optgroup>
-              <optgroup label="Specialty">
-                <option value="POV">POV - Point of View</option>
-                <option value="OTS">OTS - Over the Shoulder</option>
-                <option value="Cutaway">Cutaway</option>
-                <option value="Establishing">Establishing Shot</option>
-              </optgroup>
-            </select>
+        {/* Size + Angle */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+              <Eye className="w-3 h-3" />Size
+            </label>
+            <DarkSelect<SelectOption>
+              instanceId={`size-${item.id}`}
+              options={SHOT_SIZE_OPTIONS}
+              value={findOption(SHOT_SIZE_OPTIONS, item.shotSize)}
+              onChange={(opt) => handleItemChange(item.id, 'shotSize', (opt as SelectOption)?.value ?? '')}
+              placeholder="Select Size..."
+              isClearable
+            />
           </div>
-          <div className="space-y-1">
-            <label className="flex items-center gap-1 text-xs font-medium text-gray-600 uppercase tracking-wide"><Edit3 className="w-3 h-3" />Angle</label>
-            <select value={item.angle} onChange={(e) => handleItemChange(item.id, 'angle', e.target.value)} className="text-gray-600 w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all">
-              <option value="">Select Angle...</option>
-              <optgroup label="Vertical Angles">
-                <option value="High Angle">High Angle</option>
-                <option value="Eye Level">Eye Level</option>
-                <option value="Low Angle">Low Angle</option>
-                <option value="Worm's Eye">Worm's Eye View</option>
-                <option value="Bird's Eye">Bird's Eye View</option>
-                <option value="Ground Level">Ground Level</option>
-              </optgroup>
-              <optgroup label="Horizontal Angles">
-                <option value="Front">Front Angle</option>
-                <option value="3/4 Front">3/4 Front</option>
-                <option value="Profile">Profile</option>
-                <option value="3/4 Back">3/4 Back</option>
-                <option value="Rear">Rear Angle</option>
-              </optgroup>
-              <optgroup label="Specialty">
-                <option value="Dutch/Canted">Dutch Angle / Canted</option>
-                <option value="OTS">Over-the-Shoulder (OTS)</option>
-                <option value="POV">Point of View (POV)</option>
-              </optgroup>            </select>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+              <Edit3 className="w-3 h-3" />Angle
+            </label>
+            <DarkSelect<SelectOption>
+              instanceId={`angle-${item.id}`}
+              options={ANGLE_OPTIONS}
+              value={findOption(ANGLE_OPTIONS, item.angle)}
+              onChange={(opt) => handleItemChange(item.id, 'angle', (opt as SelectOption)?.value ?? '')}
+              placeholder="Select Angle..."
+              isClearable
+            />
           </div>
-          <div className="space-y-1">
-            <label className="flex items-center gap-1 text-xs font-medium text-gray-600 uppercase tracking-wide"><Move3D className="w-3 h-3" />Movement</label>
-            <select value={item.movement} onChange={(e) => handleItemChange(item.id, 'movement', e.target.value)} className="text-gray-600 w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all">
-              <option value="">Select Movement...</option>
-              <optgroup label="Stationary Camera">
-                <option value="Static">Static / Still</option>
-                <option value="Pan Left">Pan Left</option>
-                <option value="Pan Right">Pan Right</option>
-                <option value="Whip Pan">Whip Pan Left</option>
-                <option value="Whip Pan">Whip Pan Right</option>
-                <option value="Tilt Up">Tilt Up</option>
-                <option value="Tilt Down">Tilt Down</option>
-                <option value="Pedestal Up">Pedestal Up</option>
-                <option value="Pedestal Down">Pedestal Down</option>
-              </optgroup>
-              <optgroup label="Camera on Wheels">
-                <option value="Dolly In">Dolly In</option>
-                <option value="Dolly Out">Dolly Out</option>
-                <option value="Truck Left">Truck Left</option>
-                <option value="Truck Right">Truck Right</option>
-                <option value="Arc Left">Arc Left</option>
-                <option value="Arc Right">Arc Right</option>
-                <option value="Creep In">Creep In</option>
-                <option value="Creep Out">Creep Out</option>
-              </optgroup>
-              <optgroup label="Camera in Motion">
-                <option value="Handheld">Handheld</option>
-                <option value="Steadicam">Steadicam</option>
-                <option value="Gimbal">Gimbal (e.g., Ronin)</option>
-                <option value="Follow">Follow</option>
-                <option value="Lead">Lead</option>
-              </optgroup>
-              <optgroup label="Lens Movement">
-                <option value="Zoom In">Zoom In</option>
-                <option value="Zoom Out">Zoom Out</option>
-                <option value="Dolly Zoom">Dolly Zoom (Vertigo)</option>
-              </optgroup>
-              <optgroup label="Crane / Jib">
-                <option value="Crane Up">Crane Up</option>
-                <option value="Crane Down">Crane Down</option>
-                <option value="Swing Left">Swing Left</option>
-                <option value="Swing Right">Swing Right</option>
-              </optgroup>
-              <optgroup label="Specialized">
-                <option value="Drone/Aerial">Drone / Aerial</option>
-                <option value="360 Rotation">360° Rotation</option>
-              </optgroup>            </select>
+        </div>
+
+        {/* Movement + Lens — same grid, same height */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+              <Move3D className="w-3 h-3" />Movement
+            </label>
+            <DarkSelect<SelectOption>
+              instanceId={`movement-${item.id}`}
+              options={MOVEMENT_OPTIONS}
+              value={findOption(MOVEMENT_OPTIONS, item.movement)}
+              onChange={(opt) => handleItemChange(item.id, 'movement', (opt as SelectOption)?.value ?? '')}
+              placeholder="Select Movement..."
+              isClearable
+            />
           </div>
-          <div className="space-y-1">
-            <label className="flex items-center gap-1 text-xs font-medium text-gray-600 uppercase tracking-wide"><Aperture className="w-3 h-3" />Lens</label>
-            <div className="flex items-center gap-1">
-              <input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', `${e.target.value}mm`)} className="text-gray-600 flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="50" />
-              <span className="text-sm text-gray-500 font-medium">mm</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+              <Aperture className="w-3 h-3" />Lens
+            </label>
+            {/* Lens is a plain number input — we match DarkSelect's control height (36px) manually */}
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <input
+                type="number"
+                value={item.lens ? item.lens.replace('mm', '').trim() : ''}
+                onChange={(e) => handleItemChange(item.id, 'lens', e.target.value ? `${e.target.value}mm` : '')}
+                placeholder="50"
+                className="no-style"
+                style={{
+                  width: '100%', height: '36px',
+                  padding: '0 32px 0 10px',
+                  background: 'var(--bg-input)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: '8px',
+                  color: 'var(--text-primary)',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  outline: 'none',
+                  transition: 'border-color 0.2s, box-shadow 0.2s',
+                }}
+                onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent-primary)'; e.currentTarget.style.boxShadow = '0 0 0 3px var(--accent-glow-sm)'; }}
+                onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.boxShadow = 'none'; }}
+              />
+              <span style={{ position: 'absolute', right: '10px', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', pointerEvents: 'none' }}>mm</span>
             </div>
           </div>
         </div>
-        <div className="space-y-1">
-          <label className="flex items-center gap-1 text-xs font-medium text-gray-600 uppercase tracking-wide"><FileText className="w-3 h-3" />Description</label>
-          <textarea value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="text-gray-600 w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 resize-none transition-all" placeholder="Describe the shot..." rows={2} />
+
+        {/* Description */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+            <FileText className="w-3 h-3" />Description
+          </label>
+          <textarea
+            value={item.description}
+            onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
+            placeholder="Describe the shot..."
+            rows={2}
+            className="no-style"
+            style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '8px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', transition: 'border-color 0.2s', fontFamily: 'inherit' }}
+            onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent-primary)'; }}
+            onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}
+          />
         </div>
-        <div className="space-y-1">
-          <label className="flex items-center gap-1 text-xs font-medium text-gray-600 uppercase tracking-wide"><StickyNote className="w-3 h-3" />Notes</label>
-          <textarea value={item.notes} onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)} className="text-gray-600 w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 resize-none transition-all" placeholder="Additional notes..." rows={2} />
+
+        {/* Notes */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+            <StickyNote className="w-3 h-3" />Notes
+          </label>
+          <textarea
+            value={item.notes}
+            onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)}
+            placeholder="Additional notes..."
+            rows={2}
+            className="no-style"
+            style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '8px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', transition: 'border-color 0.2s', fontFamily: 'inherit' }}
+            onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent-primary)'; }}
+            onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}
+          />
         </div>
       </div>
     </div>
   );
 }
 
-const SortableRow: React.FC<SortableItemProps> = ({ id, item, index, imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage }) => {
+const SortableRow: React.FC<SortableItemProps> = ({ id, item, index, imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, focusedItemId, setFocusedItemId }) => {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
   const style = { transform: CSS.Transform.toString(transform), transition };
   const isActiveForUpload = activeImageUploadId === item.id;
+  const isFocused = focusedItemId === item.id;
+
+  const isEvenRow = index % 2 !== 0;
+  const rowBg = isEvenRow
+    ? 'var(--bg-table-striped)'
+    : 'var(--bg-elevated)';
 
   return (
-    <tr ref={setNodeRef} style={style} className={`group ${isActiveForUpload ? 'bg-indigo-50' : (index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')} hover:bg-indigo-50/30 transition-colors`}>
-      <td className="px-2 py-4 whitespace-nowrap text-center"><button {...attributes} {...listeners} className="cursor-grab p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-all"><GripVertical size={16} /></button></td>
-      <td className="px-4 py-4"><input type="text" value={item.sceneNumber} onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)} className="text-gray-600 w-20 px-3 py-2 text-sm font-medium border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="1A" /></td>
-      <td className="px-4 py-4"><input type="text" value={item.shotNumber} onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)} className="text-gray-600 w-20 px-3 py-2 text-sm font-medium border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="001" /></td>
-      <td className="px-4 py-4"><select value={item.shotSize} onChange={(e) => handleItemChange(item.id, 'shotSize', e.target.value)} className="text-gray-600 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all min-w-[140px]">
-        <option value="">Select Size...</option>
-        <optgroup label="Wide Shots">
-          <option value="EWS">EWS - Extreme Wide Shot</option>
-          <option value="VWS">VWS - Very Wide Shot</option>
-          <option value="WS">WS - Wide Shot</option>
-          <option value="LS">LS - Long Shot</option>
-          <option value="FLS">FLS - Full Length Shot</option>
-        </optgroup>
-        <optgroup label="Medium Shots">
-          <option value="MS">MS - Medium Shot</option>
-          <option value="MCU">MCU - Medium Close-Up</option>
-          <option value="Cowboy">Cowboy Shot</option>
-        </optgroup>
-        <optgroup label="Close-Ups">
-          <option value="CU">CU - Close-Up</option>
-          <option value="ECU">ECU - Extreme Close-Up</option>
-          <option value="Insert">Insert Shot</option>
-        </optgroup>
-        <optgroup label="Multi-Subject">
-          <option value="2S">Two-Shot</option>
-          <option value="3S">Three-Shot</option>
-          <option value="Group">Group Shot</option>
-        </optgroup>
-        <optgroup label="Specialty">
-          <option value="POV">POV - Point of View</option>
-          <option value="OTS">OTS - Over the Shoulder</option>
-          <option value="Cutaway">Cutaway</option>
-          <option value="Establishing">Establishing Shot</option>
-        </optgroup></select></td>
-      <td className="px-4 py-4"><select value={item.angle} onChange={(e) => handleItemChange(item.id, 'angle', e.target.value)} className="text-gray-600 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all min-w-[130px]">
-        <option value="">Select Angle...</option>
-        <optgroup label="Vertical Angles">
-          <option value="High Angle">High Angle</option>
-          <option value="Eye Level">Eye Level</option>
-          <option value="Low Angle">Low Angle</option>
-          <option value="Worm's Eye">Worm's Eye View</option>
-          <option value="Bird's Eye">Bird's Eye View</option>
-          <option value="Ground Level">Ground Level</option>
-        </optgroup>
-        <optgroup label="Horizontal Angles">
-          <option value="Front">Front Angle</option>
-          <option value="3/4 Front">3/4 Front</option>
-          <option value="Profile">Profile</option>
-          <option value="3/4 Back">3/4 Back</option>
-          <option value="Rear">Rear Angle</option>
-        </optgroup>
-        <optgroup label="Specialty">
-          <option value="Dutch/Canted">Dutch Angle / Canted</option>
-          <option value="OTS">Over-the-Shoulder (OTS)</option>
-          <option value="POV">Point of View (POV)</option>
-        </optgroup></select></td>
-      <td className="px-4 py-4"><select value={item.movement} onChange={(e) => handleItemChange(item.id, 'movement', e.target.value)} className="text-gray-600 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all min-w-[130px]">
-        <option value="">Select Movement...</option>
-        <optgroup label="Stationary Camera">
-          <option value="Static">Static / Still</option>
-          <option value="Pan Left">Pan Left</option>
-          <option value="Pan Right">Pan Right</option>
-          <option value="Whip Pan">Whip Pan Left</option>
-          <option value="Whip Pan">Whip Pan Right</option>
-          <option value="Tilt Up">Tilt Up</option>
-          <option value="Tilt Down">Tilt Down</option>
-          <option value="Pedestal Up">Pedestal Up</option>
-          <option value="Pedestal Down">Pedestal Down</option>
-        </optgroup>
-        <optgroup label="Camera on Wheels">
-          <option value="Dolly In">Dolly In</option>
-          <option value="Dolly Out">Dolly Out</option>
-          <option value="Truck Left">Truck Left</option>
-          <option value="Truck Right">Truck Right</option>
-          <option value="Arc Left">Arc Left</option>
-          <option value="Arc Right">Arc Right</option>
-          <option value="Creep In">Creep In</option>
-          <option value="Creep Out">Creep Out</option>
-        </optgroup>
-        <optgroup label="Camera in Motion">
-          <option value="Handheld">Handheld</option>
-          <option value="Steadicam">Steadicam</option>
-          <option value="Gimbal">Gimbal (e.g., Ronin)</option>
-          <option value="Follow">Follow</option>
-          <option value="Lead">Lead</option>
-        </optgroup>
-        <optgroup label="Lens Movement">
-          <option value="Zoom In">Zoom In</option>
-          <option value="Zoom Out">Zoom Out</option>
-          <option value="Dolly Zoom">Dolly Zoom (Vertigo)</option>
-        </optgroup>
-        <optgroup label="Crane / Jib">
-          <option value="Crane Up">Crane Up</option>
-          <option value="Crane Down">Crane Down</option>
-          <option value="Swing Left">Swing Left</option>
-          <option value="Swing Right">Swing Right</option>
-        </optgroup>
-        <optgroup label="Specialized">
-          <option value="Drone/Aerial">Drone / Aerial</option>
-          <option value="360 Rotation">360° Rotation</option>
-        </optgroup></select></td>
-      <td className="px-4 py-4"><div className="flex items-center gap-2"><input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', `${e.target.value}mm`)} className="text-gray-600 w-20 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all" placeholder="50" /><span className="text-sm text-gray-500 font-medium">mm</span></div></td>
-      <td className="px-4 py-4"><textarea value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="text-gray-600 w-72 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 resize-none transition-all" placeholder="Shot description" rows={2} /></td>
-      <td className="px-4 py-4" onClick={() => setActiveImageUploadId(isActiveForUpload ? null : item.id)}>
-        <div className={`flex flex-col items-center gap-2 p-2 rounded-lg transition-colors cursor-pointer ${isActiveForUpload ? 'bg-indigo-100 ring-2 ring-indigo-300' : ''}`}>
+    <tr
+      ref={setNodeRef}
+      onFocusCapture={() => setFocusedItemId(item.id)}
+      onClickCapture={() => setFocusedItemId(item.id)}
+      style={{
+        ...style,
+        background: rowBg,
+      }}
+      className="group"
+    >
+      <td style={{ padding: '10px 8px', textAlign: 'center', whiteSpace: 'nowrap', borderLeft: isFocused ? '3px solid var(--accent-primary)' : '3px solid transparent' }}>
+        <button {...attributes} {...listeners} style={{ cursor: 'grab', padding: '6px', color: 'var(--text-muted)', background: 'transparent', border: 'none', borderRadius: '8px', display: 'flex', alignItems: 'center' }}>
+          <GripVertical size={16} />
+        </button>
+      </td>
+      <td style={{ padding: '10px 12px' }}>
+        <input type="text" value={item.sceneNumber} onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="1A" />
+      </td>
+      <td style={{ padding: '10px 12px' }}>
+        <input type="text" value={item.shotNumber} onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="001" />
+      </td>
+      <td style={{ padding: '10px 12px', minWidth: '150px' }}>
+        <DarkSelect<SelectOption>
+          instanceId={`row-size-${item.id}`}
+          options={SHOT_SIZE_OPTIONS}
+          value={findOption(SHOT_SIZE_OPTIONS, item.shotSize)}
+          onChange={(opt) => handleItemChange(item.id, 'shotSize', (opt as SelectOption)?.value ?? '')}
+          placeholder="Size..."
+          isClearable
+        />
+      </td>
+      <td style={{ padding: '10px 12px', minWidth: '150px' }}>
+        <DarkSelect<SelectOption>
+          instanceId={`row-angle-${item.id}`}
+          options={ANGLE_OPTIONS}
+          value={findOption(ANGLE_OPTIONS, item.angle)}
+          onChange={(opt) => handleItemChange(item.id, 'angle', (opt as SelectOption)?.value ?? '')}
+          placeholder="Angle..."
+          isClearable
+        />
+      </td>
+      <td style={{ padding: '10px 12px', minWidth: '150px' }}>
+        <DarkSelect<SelectOption>
+          instanceId={`row-movement-${item.id}`}
+          options={MOVEMENT_OPTIONS}
+          value={findOption(MOVEMENT_OPTIONS, item.movement)}
+          onChange={(opt) => handleItemChange(item.id, 'movement', (opt as SelectOption)?.value ?? '')}
+          placeholder="Movement..."
+          isClearable
+        />
+      </td>
+      <td style={{ padding: '10px 12px' }}>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', e.target.value ? `${e.target.value}mm` : '')} className="no-style" style={{ width: '72px', height: '36px', paddingLeft: '8px', paddingRight: '28px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="50" />
+          <span style={{ position: 'absolute', right: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', pointerEvents: 'none' }}>mm</span>
+        </div>
+      </td>
+      <td style={{ padding: '10px 12px' }}>
+        <textarea value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="no-style" style={{ width: '260px', padding: '7px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }} placeholder="Shot description" rows={2} />
+      </td>
+      <td style={{ padding: '10px 12px' }} onClick={() => setActiveImageUploadId(isActiveForUpload ? null : item.id)}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '6px', borderRadius: '8px', cursor: 'pointer', background: isActiveForUpload ? 'var(--accent-glow-sm)' : 'transparent', border: isActiveForUpload ? '1px solid var(--accent-primary)' : '1px solid transparent', transition: 'all 0.2s' }}>
           {imagePreviews[item.id] ? (
             <div className="relative group/img">
-              <img src={imagePreviews[item.id]} alt={`Ref for ${item.shotNumber}`} className="w-24 h-20 object-cover rounded-lg border-2 border-gray-200" />
-              <button onClick={(e) => { e.stopPropagation(); handleRemoveImage(item.id); }} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity shadow-lg"><X className="w-3 h-3" /></button>
+              <img src={imagePreviews[item.id]} alt={`Ref for ${item.shotNumber}`} style={{ width: '80px', height: '64px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-default)' }} />
+              <button onClick={(e) => { e.stopPropagation(); handleRemoveImage(item.id); }} className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity shadow-lg"><X className="w-3 h-3" /></button>
             </div>
           ) : (
-            <label htmlFor={`image-row-${item.id}`} className="w-24 h-20 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-indigo-400 transition-all">
-              <ImageIcon className="w-6 h-6 text-gray-400" />
+            <label htmlFor={`image-row-${item.id}`} style={{ width: '80px', height: '64px', background: 'var(--bg-input)', borderRadius: '6px', border: '2px dashed var(--border-default)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s' }}>
+              <ImageIcon style={{ width: '20px', height: '20px', color: 'var(--text-muted)' }} />
             </label>
           )}
           <input type="file" accept="image/*" id={`image-row-${item.id}`} onChange={(e) => handleImageUpload(item.id, e.target.files ? e.target.files[0] : null)} className="hidden" />
-          <label htmlFor={`image-row-${item.id}`} className="text-xs font-medium text-indigo-600 hover:text-indigo-700 cursor-pointer transition-colors" onClick={(e) => e.stopPropagation()}>
+          <label htmlFor={`image-row-${item.id}`} style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent-primary)', cursor: 'pointer' }} onClick={(e) => e.stopPropagation()}>
             {imagePreviews[item.id] ? 'Change' : 'Upload'}
           </label>
         </div>
       </td>
-      <td className="px-4 py-4"><textarea value={item.notes} onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)} className="w-56 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:border-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 resize-none transition-all" placeholder="Notes" rows={2} /></td>
-      <td className="px-4 py-4 whitespace-nowrap text-center"><button onClick={() => removeShotItem(item.id)} className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button></td>
+      <td style={{ padding: '10px 12px' }}>
+        <textarea value={item.notes} onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)} className="no-style" style={{ width: '200px', padding: '7px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }} placeholder="Notes" rows={2} />
+      </td>
+      <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', textAlign: 'center' }}>
+        <button onClick={() => removeShotItem(item.id)} className="opacity-0 group-hover:opacity-100" style={{ padding: '6px', color: 'var(--text-muted)', background: 'transparent', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.12)'; }} onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}>
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </td>
     </tr>
   );
 }
+
 
 
 //==============================================================================
@@ -480,15 +461,54 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
   onBack = () => { },
   onSave = () => { }
 }) => {
-  const [projectTitle, setProjectTitle] = useState<string>(() => project?.name || 'Untitled Project');
-  const [shotListItems, setShotListItems] = useState<ShotItem[]>(() => project?.data?.shotListData?.shotListItems || []);
-  const [imagePreviews, setImagePreviews] = useState<ImagePreviews>({});
+  const [docState, setDocState, { undo, redo, canUndo, canRedo }] = useUndoRedo(() => {
+    return {
+      projectTitle: project?.name || 'Untitled Project',
+      shotListItems: (project?.data?.shotListData?.shotListItems || []) as ShotItem[],
+      imagePreviews: {} as ImagePreviews
+    };
+  });
+
+  const projectTitle = docState.projectTitle;
+  const shotListItems = docState.shotListItems;
+  const imagePreviews = docState.imagePreviews;
+
+  const setProjectTitle = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
+    setDocState(prev => {
+      const projectTitleVal = typeof newValOrFn === 'function' ? newValOrFn(prev.projectTitle) : newValOrFn;
+      return {
+        ...prev,
+        projectTitle: projectTitleVal
+      };
+    }, options);
+  }, [setDocState]);
+
+  const setShotListItems = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
+    setDocState(prev => {
+      const shotListItemsVal = typeof newValOrFn === 'function' ? newValOrFn(prev.shotListItems) : newValOrFn;
+      return {
+        ...prev,
+        shotListItems: shotListItemsVal
+      };
+    }, options);
+  }, [setDocState]);
+
+  const setImagePreviews = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
+    setDocState(prev => {
+      const imagePreviewsVal = typeof newValOrFn === 'function' ? newValOrFn(prev.imagePreviews) : newValOrFn;
+      return {
+        ...prev,
+        imagePreviews: imagePreviewsVal
+      };
+    }, options);
+  }, [setDocState]);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [zoomLevel, setZoomLevel] = useState(1);
   const [showZoomControls, setShowZoomControls] = useState(true);
   const [activeImageUploadId, setActiveImageUploadId] = useState<string | null>(null);
   const [isExportingPDF, setIsExportingPDF] = useState(false); // New state for PDF export loading
+  const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
 
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isInitialMount = useRef(true);
@@ -500,13 +520,17 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
       const previews: ImagePreviews = {};
       for (const item of shotListItems) {
         if (item.imageUrl) {
-          try {
-            const imageFile = await getImage(item.id);
-            if (imageFile) {
-              previews[item.id] = URL.createObjectURL(imageFile);
+          if (item.imageUrl.startsWith('http')) {
+            previews[item.id] = item.imageUrl;
+          } else {
+            try {
+              const imageFile = await getImage(item.id);
+              if (imageFile) {
+                previews[item.id] = URL.createObjectURL(imageFile);
+              }
+            } catch (error) {
+              console.error(`Failed to load image for shot ${item.id}:`, error);
             }
-          } catch (error) {
-            console.error(`Failed to load image for shot ${item.id}:`, error);
           }
         }
       }
@@ -518,7 +542,11 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
     }
 
     return () => {
-      Object.values(imagePreviews).forEach(url => URL.revokeObjectURL(url));
+      Object.values(imagePreviews).forEach(url => {
+        if (!url.startsWith('http')) {
+          URL.revokeObjectURL(url);
+        }
+      });
     };
   }, []);
 
@@ -562,8 +590,12 @@ debounceTimeoutRef.current = setTimeout(() => {
 
 
   const handleItemChange = useCallback((itemId: string, field: keyof ShotItem, value: any) => {
-    setShotListItems(prevItems => prevItems.map(item => item.id === itemId ? { ...item, [field]: value } : item));
-  }, []);
+    const isTextField = ['sceneNumber', 'shotNumber', 'lens', 'description', 'notes'].includes(field as string);
+    setShotListItems(
+      prevItems => prevItems.map(item => item.id === itemId ? { ...item, [field]: value } : item),
+      { isContinuous: isTextField }
+    );
+  }, [setShotListItems]);
 
   const addShot = useCallback(() => {
     const newShot: ShotItem = { id: generateId(), sceneNumber: '', shotNumber: '', shotSize: '', angle: '', movement: '', lens: '', description: '', notes: '', imageUrl: '' };
@@ -586,21 +618,34 @@ debounceTimeoutRef.current = setTimeout(() => {
   const handleImageUpload = useCallback(async (itemId: string, file: File | null) => {
     if (!file || !file.type.startsWith('image/')) return;
     
+    // Always store in IndexedDB as a local fallback/copy
     await setImage(itemId, file);
 
+    let finalImageUrl = 'true';
+    if (isFirebaseEnabled) {
+      try {
+        finalImageUrl = await uploadImageToStorage(`projects/${project.id}/shots/${itemId}`, file);
+      } catch (err) {
+        console.error('Failed to upload image to Firebase Storage:', err);
+      }
+    }
+
     setShotListItems(prev => prev.map(item => 
-      item.id === itemId ? { ...item, imageUrl: 'true' } : item
+      item.id === itemId ? { ...item, imageUrl: finalImageUrl } : item
     ));
 
     setImagePreviews(prev => {
-      if (prev[itemId]) {
+      if (prev[itemId] && !prev[itemId].startsWith('http')) {
         URL.revokeObjectURL(prev[itemId]);
       }
-      return { ...prev, [itemId]: URL.createObjectURL(file) };
+      return { 
+        ...prev, 
+        [itemId]: finalImageUrl.startsWith('http') ? finalImageUrl : URL.createObjectURL(file) 
+      };
     });
     
     setActiveImageUploadId(null);
-  }, []);
+  }, [project?.id]);
 
   const handleRemoveImage = useCallback(async (itemId: string) => {
     await deleteImage(itemId);
@@ -612,7 +657,9 @@ debounceTimeoutRef.current = setTimeout(() => {
     setImagePreviews(prev => {
       const newPreviews = { ...prev };
       if (newPreviews[itemId]) {
-        URL.revokeObjectURL(newPreviews[itemId]);
+        if (!newPreviews[itemId].startsWith('http')) {
+          URL.revokeObjectURL(newPreviews[itemId]);
+        }
         delete newPreviews[itemId];
       }
       return newPreviews;
@@ -692,6 +739,89 @@ debounceTimeoutRef.current = setTimeout(() => {
     }
   };
 
+  const forceSave = useCallback(() => {
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+    const dataToSave = { 
+      name: projectTitle, 
+      shotListData: { 
+        shotListItems 
+      } 
+    };
+    setSaveStatus('saving');
+    const savePromise = Promise.resolve(onSaveRef.current(dataToSave));
+    const minDelayPromise = new Promise(resolve => setTimeout(resolve, 400));
+    Promise.all([savePromise, minDelayPromise])
+      .then(() => {
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 1500);
+      })
+      .catch(err => {
+        console.error("Save failed:", err);
+        setSaveStatus('dirty');
+      });
+  }, [projectTitle, shotListItems]);
+
+  const handleDeleteShortcut = useCallback(() => {
+    if (focusedItemId) {
+      removeShotItem(focusedItemId);
+      setFocusedItemId(null);
+    }
+  }, [focusedItemId, removeShotItem]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && !target.closest('.group') && !target.closest('.stat-card') && !target.closest('.btn-primary') && !target.closest('header')) {
+        setFocusedItemId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useKeyboardShortcuts([
+    {
+      key: 's',
+      ctrl: true,
+      action: forceSave,
+    },
+    {
+      key: 'p',
+      ctrl: true,
+      action: () => { handleExportPDF(); },
+    },
+    {
+      key: 'n',
+      ctrl: true,
+      action: addShot,
+    },
+    {
+      key: 'z',
+      ctrl: true,
+      action: undo,
+    },
+    {
+      key: 'z',
+      ctrl: true,
+      shift: true,
+      action: redo,
+    },
+    {
+      key: 'y',
+      ctrl: true,
+      action: redo,
+    },
+    {
+      key: 'Delete',
+      action: handleDeleteShortcut,
+    },
+    {
+      key: 'Escape',
+      action: onBack,
+      preventDefault: false,
+    }
+  ]);
+
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.05, 1.5));
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.05, 0.80));
 
@@ -714,95 +844,172 @@ debounceTimeoutRef.current = setTimeout(() => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 relative overflow-x-hidden flex flex-col" onPaste={(e) => handlePasteImage(e)}>
-      <div className="absolute inset-0 opacity-20" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='110' height='73.33' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3Cstyle%3E.pattern %7B width: 100%25; height: 100%25; --s: 110px; --c1: %23dedede; --c2: %23ededed; --c3: %23d6d6d6; --_g: var(--c1) 10%25,var(--c2) 10.5%25 19%25,%230000 19.5%25 80.5%25,var(--c2) 81%25 89.5%25,var(--c3) 90%25; --_c: from -90deg at 37.5%25 50%25,%230000 75%25; --_l1: linear-gradient(145deg,var(--_g)); --_l2: linear-gradient( 35deg,var(--_g)); background: var(--_l1), var(--_l1) calc(var(--s)/2) var(--s), var(--_l2), var(--_l2) calc(var(--s)/2) var(--s), conic-gradient(var(--_c),var(--c1) 0) calc(var(--s)/8) 0, conic-gradient(var(--_c),var(--c3) 0) calc(var(--s)/2) 0, linear-gradient(90deg,var(--c3) 38%25,var(--c1) 0 50%25,var(--c3) 0 62%25,var(--c1) 0); background-size: var(--s) calc(2*var(--s)/3); %7D%3C/style%3E%3C/defs%3E%3CforeignObject width='100%25' height='100%25'%3E%3Cdiv class='pattern' xmlns='http://www.w3.org/1999/xhtml'%3E%3C/div%3E%3C/foreignObject%3E%3C/svg%3E")` }}></div>
-      <div className="relative z-10 flex flex-col flex-grow">
-        <header className="w-full bg-white/80 backdrop-blur-sm shadow-sm border-b border-gray-100 fixed top-0 z-40">
-          <div className="px-6">
-            <div className="flex items-center justify-between h-16">
-              <div className="flex items-center gap-4">
-                <button onClick={onBack} className="p-2 rounded-lg hover:bg-gray-100 transition-colors"><ArrowLeft className="w-5 h-5 text-gray-700" /></button>
-                <div><h1 className="text-xl font-semibold text-gray-900">{projectTitle}</h1><p className="text-xs text-gray-500">Shot List Editor</p></div>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }} onPaste={(e) => handlePasteImage(e)}>
+      {/* Background glows */}
+      <div style={{ display: 'none' }} />
+      <div style={{ position: 'fixed', bottom: '-10%', left: '5%', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(245,158,11,0.05) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 0 }} />
+
+      <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+        {/* Header */}
+        <header style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50, height: '64px',
+          background: 'var(--bg-overlay)',
+          backdropFilter: 'blur(24px) saturate(1.4)',
+          WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex', alignItems: 'center',
+        }}>
+          <div style={{ width: '100%', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button onClick={onBack} style={{ padding: '8px', borderRadius: '8px', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: 'var(--text-secondary)', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-input)'; e.currentTarget.style.color = 'var(--text-primary)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}>
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div style={{ height: '28px', width: '1px', background: 'var(--border-subtle)' }} />
+              <div>
+                <h1 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em', lineHeight: 1.2 }}>{projectTitle}</h1>
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shot List Editor</p>
               </div>
-              <div className="flex items-center gap-3">
-                <SaveStatusIndicator status={saveStatus} />
-                <div className="h-6 w-px bg-gray-200"></div>
-                <button onClick={handleExportProject} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"><Save className="w-4 h-4" /><span className="hidden sm:inline">Save Project</span></button>
-                <button onClick={handleExportPDF} disabled={isExportingPDF} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:bg-indigo-400 disabled:cursor-not-allowed">
-                  {isExportingPDF ? <Loader2 className="w-4 h-4 animate-spin"/> : <Download className="w-4 h-4" />}
-                  <span className="hidden sm:inline">{isExportingPDF ? 'Exporting...' : 'Export PDF'}</span>
-                </button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginRight: '4px' }}>
+                <button onClick={undo} disabled={!canUndo} className="btn-ghost" style={{ padding: '6px', opacity: canUndo ? 1 : 0.4, cursor: canUndo ? 'pointer' : 'not-allowed', borderRadius: '6px', display: 'flex', alignItems: 'center' }} title="Undo (Ctrl+Z)"><Undo2 className="w-4 h-4" /></button>
+                <button onClick={redo} disabled={!canRedo} className="btn-ghost" style={{ padding: '6px', opacity: canRedo ? 1 : 0.4, cursor: canRedo ? 'pointer' : 'not-allowed', borderRadius: '6px', display: 'flex', alignItems: 'center' }} title="Redo (Ctrl+Shift+Z)"><Redo2 className="w-4 h-4" /></button>
               </div>
+              <div style={{ height: '20px', width: '1px', background: 'var(--border-subtle)' }} />
+              <SaveStatusIndicator status={saveStatus} />
+              <div style={{ height: '20px', width: '1px', background: 'var(--border-subtle)' }} />
+              <button onClick={handleExportProject} className="btn-ghost" style={{ fontSize: '13px', gap: '6px' }}><Save className="w-4 h-4" /><span className="hidden sm:inline">Save .mbd</span></button>
+              <button onClick={handleExportPDF} disabled={isExportingPDF} className="btn-primary" style={{ fontSize: '13px', gap: '6px', opacity: isExportingPDF ? 0.7 : 1, cursor: isExportingPDF ? 'not-allowed' : 'pointer' }}>
+                {isExportingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                <span className="hidden sm:inline">{isExportingPDF ? 'Exporting...' : 'Export PDF'}</span>
+              </button>
             </div>
           </div>
         </header>
 
-        <main className="flex-1 p-8 pt-24">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"><div className="flex items-center justify-between"><div><p className="text-sm font-medium text-gray-600">Total Shots</p><p className="text-3xl font-bold text-gray-900 mt-1">{stats.shotCount}</p></div><div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg"><Camera className="w-6 h-6 text-white" /></div></div></div>
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"><div className="flex items-center justify-between"><div><p className="text-sm font-medium text-gray-600">Completed</p><p className="text-3xl font-bold text-gray-900 mt-1">{stats.completedShots}</p></div><div className="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-lg"><Check className="w-6 h-6 text-white" /></div></div></div>
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"><div className="flex items-center justify-between"><div><p className="text-sm font-medium text-gray-600">With References</p><p className="text-3xl font-bold text-gray-900 mt-1">{stats.withReferences}</p></div><div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg"><ImageIcon className="w-6 h-6 text-white" /></div></div></div>
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"><div className="flex items-center justify-between"><div><p className="text-sm font-medium text-gray-600">Progress</p><p className="text-3xl font-bold text-gray-900 mt-1">{stats.shotCount > 0 ? Math.round((stats.completedShots / stats.shotCount) * 100) : 0}%</p></div><div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl flex items-center justify-center shadow-lg"><Hash className="w-6 h-6 text-white" /></div></div></div>
+        <main style={{ flex: 1, padding: '24px', paddingTop: '88px' }}>
+          {/* Stat Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+            {[
+              { label: 'Total Shots', value: stats.shotCount, icon: Camera, gradient: 'var(--text-accent)' },
+              { label: 'Completed', value: stats.completedShots, icon: Check, gradient: 'var(--accent-green)' },
+              { label: 'With References', value: stats.withReferences, icon: ImageIcon, gradient: 'var(--accent-primary)' },
+              { label: 'Progress', value: `${stats.shotCount > 0 ? Math.round((stats.completedShots / stats.shotCount) * 100) : 0}%`, icon: Hash, gradient: 'var(--accent-amber)' },
+            ].map(({ label, value, icon: Icon, gradient }) => (
+              <div key={label} className="stat-card">
+                <div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: '6px' }}>{label}</p>
+                  <p style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{value}</p>
+                </div>
+                <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon style={{ width: '18px', height: '18px', color: '#fff' }} />
+                </div>
+              </div>
+            ))}
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center mb-6">
-            <div className="flex gap-3"><button onClick={addShot} className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-medium rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all transform hover:scale-105 shadow-lg hover:shadow-xl"><Plus className="w-5 h-5" />Add Shot</button></div>
-            <div className="flex items-center gap-1 bg-white rounded-lg p-1 shadow-sm border border-gray-200">
-              <button onClick={() => setViewMode('cards')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'cards' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`}><LayoutGrid className="w-4 h-4" />Cards</button>
-              <button onClick={() => setViewMode('list')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'list' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`}><List className="w-4 h-4" />List</button>
+          {/* Toolbar */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={addShot} className="btn-primary" style={{ fontSize: '13px' }}><Plus className="w-4 h-4" />Add Shot</button>
+            </div>
+            {/* View Toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: '10px', padding: '4px' }}>
+              {(['cards', 'list'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '6px',
+                    padding: '7px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 600,
+                    cursor: 'pointer', border: 'none', transition: 'all 0.2s',
+                    background: viewMode === mode ? 'var(--accent-primary)' : 'transparent',
+                    color: viewMode === mode ? '#fff' : 'var(--text-muted)',
+                    boxShadow: viewMode === mode ? '0 2px 8px var(--accent-glow-sm)' : 'none',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {mode === 'cards' ? <LayoutGrid className="w-4 h-4" /> : <List className="w-4 h-4" />}
+                  {mode === 'cards' ? 'Cards' : 'List'}
+                </button>
+              ))}
             </div>
           </div>
 
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             {viewMode === 'cards' ? (
-              <div className="min-h-[400px]">
+              <div style={{ minHeight: '400px' }}>
                 <SortableContext items={shotListItems.map(item => item.id)} strategy={rectSortingStrategy}>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    {shotListItems.map((item, index) => (<SortableCard key={item.id} id={item.id} item={item} index={index} {...{ imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage }} />))}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                    {shotListItems.map((item, index) => (<SortableCard key={item.id} id={item.id} item={item} index={index} {...{ imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, focusedItemId, setFocusedItemId }} />))}
                   </div>
                 </SortableContext>
-                {shotListItems.length === 0 && (<div className="text-center py-20"><div className="w-24 h-24 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-6"><Camera className="w-12 h-12 text-indigo-500" /></div><h3 className="text-xl font-semibold text-gray-900 mb-2">No shots added yet</h3><p className="text-gray-500 mb-6 max-w-md mx-auto">Create your first shot to start building your shot list. Each shot can include technical details, reference images, and production notes.</p><button onClick={addShot} className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-medium rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all transform hover:scale-105 shadow-lg mx-auto"><Plus className="w-5 h-5" />Add Your First Shot</button></div>)}
+                {shotListItems.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '80px 24px' }}>
+                    <div className="empty-state-icon animate-float">
+                      <Camera style={{ width: '32px', height: '32px', color: 'var(--accent-primary)' }} />
+                    </div>
+                    <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>No shots added yet</h3>
+                    <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', maxWidth: '380px', margin: '0 auto 24px' }}>Create your first shot to start building your shot list with technical details, references, and notes.</p>
+                    <button onClick={addShot} className="btn-primary"><Plus className="w-4 h-4" />Add Your First Shot</button>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="overflow-x-auto" style={{ zoom: zoomLevel }}>
-                  <table className="w-full" style={{ minWidth: '1600px' }}>
-                    <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200 sticky top-0 z-20">
+              <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: '14px', overflow: 'hidden' }}>
+                <div style={{ overflowX: 'auto', zoom: zoomLevel }}>
+                  <table className="dark-table" style={{ minWidth: '1600px' }}>
+                    <thead>
                       <tr>
-                        <th className="px-2 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider"></th>
-                        <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Scene</th>
-                        <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Shot</th>
-                        <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Size</th>
-                        <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Angle</th>
-                        <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Movement</th>
-                        <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Lens</th>
-                        <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Description</th>
-                        <th className="px-4 py-4 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">Reference</th>
-                        <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Notes</th>
-                        <th className="px-4 py-4 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider"></th>
+                        <th></th>
+                        <th>Scene</th>
+                        <th>Shot</th>
+                        <th>Size</th>
+                        <th>Angle</th>
+                        <th>Movement</th>
+                        <th>Lens</th>
+                        <th>Description</th>
+                        <th style={{ textAlign: 'center' }}>Reference</th>
+                        <th>Notes</th>
+                        <th></th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody>
                       <SortableContext items={shotListItems.map(item => item.id)} strategy={verticalListSortingStrategy}>
-                        {shotListItems.map((item, index) => (<SortableRow key={item.id} id={item.id} item={item} index={index} {...{ imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage }} />))}
+                        {shotListItems.map((item, index) => (<SortableRow key={item.id} id={item.id} item={item} index={index} {...{ imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, focusedItemId, setFocusedItemId }} />))}
                       </SortableContext>
                     </tbody>
                   </table>
-                  {shotListItems.length === 0 && (<div className="text-center py-16"><div className="w-20 h-20 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center mx-auto mb-4"><List className="w-10 h-10 text-gray-400" /></div><h3 className="text-lg font-semibold text-gray-900 mb-2">No shots in your list</h3><p className="text-gray-500 mb-4">Click "Add Shot" to start building your shot list</p></div>)}
+                  {shotListItems.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+                      <div className="empty-state-icon" style={{ width: '56px', height: '56px', borderRadius: '14px', margin: '0 auto 14px' }}>
+                        <List style={{ width: '24px', height: '24px', color: 'var(--accent-primary)' }} />
+                      </div>
+                      <p style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>No shots in your list</p>
+                      <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '6px' }}>Click "Add Shot" to begin</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
           </DndContext>
         </main>
 
+        {/* Zoom controls (list mode only) */}
         {viewMode === 'list' && (
-          <div className="fixed bottom-10 right-2 z-50 flex items-center gap-1">
-            <div className={`flex flex-col items-center gap-2 transition-all duration-300 ease-in-out ${showZoomControls ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0 pointer-events-none'}`}>
-              <button onClick={handleZoomIn} className="w-8 h-8 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all" title="Zoom In"><Plus className="w-4 h-4 text-gray-700" /></button>
-              <span className="text-xs font-bold text-gray-600 bg-white/80 backdrop-blur-sm py-1 px-2 rounded-full border border-gray-200">{Math.round(zoomLevel * 100)}%</span>
-              <button onClick={handleZoomOut} className="w-8 h-8 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all" title="Zoom Out"><Minus className="w-4 h-4 text-gray-700" /></button>
+          <div style={{ position: 'fixed', bottom: '40px', right: '8px', zIndex: 50, display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', transition: 'all 0.3s', opacity: showZoomControls ? 1 : 0, transform: showZoomControls ? 'translateX(0)' : 'translateX(100%)', pointerEvents: showZoomControls ? 'auto' : 'none' }}>
+              <button onClick={handleZoomIn} title="Zoom In" style={{ width: '32px', height: '32px', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow-md)', color: 'var(--text-secondary)', transition: 'all 0.2s' }}>
+                <Plus style={{ width: '14px', height: '14px' }} />
+              </button>
+              <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', padding: '3px 8px', borderRadius: '99px' }}>{Math.round(zoomLevel * 100)}%</span>
+              <button onClick={handleZoomOut} title="Zoom Out" style={{ width: '32px', height: '32px', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow-md)', color: 'var(--text-secondary)', transition: 'all 0.2s' }}>
+                <Minus style={{ width: '14px', height: '14px' }} />
+              </button>
             </div>
-            <button onClick={() => setShowZoomControls(!showZoomControls)} className="w-8 h-8 bg-white/80 backdrop-blur-sm border border-gray-200 rounded-lg flex items-center justify-center shadow-lg hover:bg-gray-50 hover:border-gray-300 transition-all" title={showZoomControls ? 'Hide Controls' : 'Show Controls'}><ChevronsRight className={`w-5 h-5 text-gray-700 transition-transform duration-300 ${showZoomControls ? '' : 'rotate-180'}`} /></button>
+            <button onClick={() => setShowZoomControls(!showZoomControls)} title={showZoomControls ? 'Hide Controls' : 'Show Controls'} style={{ width: '32px', height: '32px', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: 'var(--shadow-md)', color: 'var(--text-secondary)', transition: 'all 0.2s' }}>
+              <ChevronsRight style={{ width: '16px', height: '16px', transform: showZoomControls ? 'rotate(0deg)' : 'rotate(180deg)', transition: 'transform 0.3s' }} />
+            </button>
           </div>
         )}
       </div>
@@ -810,4 +1017,4 @@ debounceTimeoutRef.current = setTimeout(() => {
   );
 }
 
-export default ShotListEditor;
+export default ShotListEditor;
