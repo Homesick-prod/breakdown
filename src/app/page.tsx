@@ -156,24 +156,43 @@ function App() {
   function sanitizeForFirestore(val: any): any {
     if (val === undefined) return null;
     if (val === null) return null;
-    if (typeof val === 'number') {
-      if (isNaN(val) || !isFinite(val)) return null;
-      return val;
+
+    // Perform JSON round-trip to strip any non-serializable properties, functions, classes
+    let plain: any;
+    try {
+      plain = JSON.parse(JSON.stringify(val));
+    } catch (err) {
+      console.error('Failed to stringify data for Firestore:', err);
+      return null;
     }
-    if (typeof val === 'boolean' || typeof val === 'string') return val;
-    if (val instanceof Date) return val.toISOString();
-    if (Array.isArray(val)) return val.map(sanitizeForFirestore);
-    if (typeof val === 'object') {
-      const cleanObj: Record<string, any> = {};
-      for (const key of Object.keys(val)) {
-        const cleaned = sanitizeForFirestore(val[key]);
-        if (cleaned !== undefined) {
-          cleanObj[key] = cleaned;
-        }
+
+    // Now recursively strip undefined, NaN, or oversized base64 strings if necessary
+    function clean(obj: any): any {
+      if (obj === null || obj === undefined) return null;
+      if (typeof obj === 'number') {
+        if (isNaN(obj) || !isFinite(obj)) return null;
+        return obj;
       }
-      return cleanObj;
+      if (typeof obj === 'string') {
+        // Strip extremely long strings (like large base64) to prevent Firestore size limit issues
+        if (obj.length > 800000) return '';
+        return obj;
+      }
+      if (typeof obj === 'boolean') return obj;
+      if (Array.isArray(obj)) {
+        return obj.map(clean);
+      }
+      if (typeof obj === 'object') {
+        const result: Record<string, any> = {};
+        for (const key of Object.keys(obj)) {
+          result[key] = clean(obj[key]);
+        }
+        return result;
+      }
+      return null;
     }
-    return null;
+
+    return clean(plain);
   }
 
   // Callback to save project data from an editor to Firestore (or LocalStorage fallback)
