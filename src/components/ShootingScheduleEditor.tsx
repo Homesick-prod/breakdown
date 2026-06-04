@@ -8,13 +8,14 @@ import {
   GripVertical, Clock, Film, Plus, Save, ChevronDown, Trash2, Download, Settings,
   FileDown, CloudRain, ListPlus, Search, Layers, Github, ArrowLeft, Users, MapPin, Sunrise, Sunset, Thermometer,
   CloudDrizzle, Coffee, Moon, Loader2, Check, CloudOff, Image as ImageIcon, X, Minus, ChevronsRight,
-  Undo2, Redo2
+  Undo2, Redo2, ClipboardList
 } from 'lucide-react';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import { generateId } from '../utils/id';
 import { calculateEndTime, calculateDuration } from '../utils/time';
 import { exportProject } from '../utils/file';
 import { exportToPDF } from '../utils/pdf';
+import { exportCallSheetToPDF } from '../utils/callsheetpdf';
 import Footer from './Footer';
 import { DarkSelect, findOption, SHOT_SIZE_OPTIONS, ANGLE_OPTIONS, MOVEMENT_OPTIONS, INT_EXT_OPTIONS, PERIOD_OPTIONS, SelectOption } from './DarkSelect';
 import { DarkDatePicker, DarkTimePicker } from './DarkDatePicker';
@@ -1013,6 +1014,252 @@ function ShotImportModal({ isOpen, onClose, shotList, imagePreviews, onImport })
   );
 }
 
+type CastCall = {
+  id: string;
+  role: string;
+  name: string;
+  callTime: string;
+  notes: string;
+};
+
+type CallSheetData = {
+  generalCall: string;
+  castCalls: CastCall[];
+  departmentNotes: string;
+  transportNotes: string;
+  safetyNotes: string;
+  lineRemarks: string;
+  lastGeneratedAt?: string;
+};
+
+const createDefaultCallSheetData = (headerInfo: any, timelineItems: any[]): CallSheetData => {
+  const castNames = Array.from(new Set(
+    timelineItems
+      .filter(item => item.type === 'shot' && item.cast)
+      .flatMap(item => String(item.cast).split(','))
+      .map(name => name.trim())
+      .filter(Boolean)
+  ));
+
+  return {
+    generalCall: headerInfo.callTime || '',
+    castCalls: castNames.map(name => ({
+      id: generateId(),
+      role: '',
+      name,
+      callTime: headerInfo.callTime || '',
+      notes: ''
+    })),
+    departmentNotes: '',
+    transportNotes: '',
+    safetyNotes: '',
+    lineRemarks: '',
+  };
+};
+
+const mergeCallSheetData = (base: CallSheetData, saved?: Partial<CallSheetData> | null): CallSheetData => ({
+  ...base,
+  ...(saved || {}),
+  castCalls: (saved?.castCalls && saved.castCalls.length > 0 ? saved.castCalls : base.castCalls).map(call => ({
+    id: call.id || generateId(),
+    role: call.role || '',
+    name: call.name || '',
+    callTime: call.callTime || '',
+    notes: call.notes || ''
+  }))
+});
+
+type CallSheetBuilderModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  headerInfo: any;
+  timelineItems: any[];
+  stats: any;
+  callSheetData: CallSheetData | null;
+  onChange: (data: CallSheetData) => void;
+  onExport: () => void;
+};
+
+function CallSheetBuilderModal({ isOpen, onClose, headerInfo, timelineItems, stats, callSheetData, onChange, onExport }: CallSheetBuilderModalProps) {
+  if (!isOpen || !callSheetData) return null;
+
+  const updateField = (field: keyof CallSheetData, value: any) => {
+    onChange({ ...callSheetData, [field]: value });
+  };
+
+  const updateCastCall = (id: string, field: keyof CastCall, value: string) => {
+    updateField('castCalls', callSheetData.castCalls.map(call => call.id === id ? { ...call, [field]: value } : call));
+  };
+
+  const addCastCall = () => {
+    updateField('castCalls', [
+      ...callSheetData.castCalls,
+      { id: generateId(), role: '', name: '', callTime: callSheetData.generalCall || headerInfo.callTime || '', notes: '' }
+    ]);
+  };
+
+  const removeCastCall = (id: string) => {
+    updateField('castCalls', callSheetData.castCalls.filter(call => call.id !== id));
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '8px 12px',
+    background: 'var(--bg-input)',
+    border: '1px solid var(--border-default)',
+    borderRadius: '6px',
+    color: 'var(--text-primary)',
+    fontSize: '13px',
+    outline: 'none',
+    fontFamily: 'inherit'
+  };
+
+  const textareaStyle: React.CSSProperties = {
+    ...inputStyle,
+    minHeight: '84px',
+    resize: 'vertical' as const,
+    lineHeight: 1.45
+  };
+
+  const labelStyle: React.CSSProperties = {
+    display: 'block',
+    fontSize: '12px',
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+    marginBottom: '6px'
+  };
+
+  const shotCount = timelineItems.filter(item => item.type === 'shot').length;
+  const breakCount = timelineItems.filter(item => item.type === 'break').length;
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      <div className="flex items-center justify-center min-h-screen px-4">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md" onClick={onClose}></div>
+        <div className="relative bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-xl shadow-xl max-w-5xl w-full my-8 animate-in fade-in zoom-in-95 duration-300 flex flex-col" style={{ color: 'var(--text-primary)', overflow: 'hidden', maxHeight: '88vh' }}>
+          <div className="p-6 border-b border-[var(--border-default)]" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+            <div>
+              <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)', letterSpacing: '-0.01em', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ClipboardList className="w-5 h-5" style={{ color: 'var(--accent-primary)' }} />
+                Call Sheet Builder
+              </h3>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>Review daily details, then export an A4 portrait call sheet for LINE or print.</p>
+            </div>
+            <button onClick={onClose} className="btn-ghost" style={{ padding: '8px', display: 'flex', alignItems: 'center' }} title="Close">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="p-6" style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+              {[
+                { label: 'Project', value: headerInfo.projectTitle || 'Untitled Project' },
+                { label: 'Shoot Day', value: `Q${headerInfo.shootingDay || '-'} / ${headerInfo.totalDays || '-'}` },
+                { label: 'Schedule', value: `${shotCount} shots, ${breakCount} breaks` },
+                { label: 'Duration', value: `${stats.totalHours}h ${stats.totalMinutes}m` },
+              ].map(item => (
+                <div key={item.label} className="stat-card" style={{ minHeight: '76px', padding: '14px' }}>
+                  <div>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: '6px' }}>{item.label}</p>
+                    <p style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>{item.value}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', borderRadius: '12px', padding: '18px' }}>
+              <h4 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Clock className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                Daily Details
+              </h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                <div>
+                  <label style={labelStyle}>General Crew Call</label>
+                  <DarkTimePicker value={callSheetData.generalCall} onChange={(val) => updateField('generalCall', val)} className="w-full px-3 py-2" />
+                </div>
+                <div>
+                  <label style={labelStyle}>Date</label>
+                  <input type="text" value={headerInfo.date || ''} readOnly style={{ ...inputStyle, color: 'var(--text-secondary)' }} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Location 1</label>
+                  <input type="text" value={headerInfo.location1 || ''} readOnly style={{ ...inputStyle, color: 'var(--text-secondary)' }} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Weather</label>
+                  <input type="text" value={headerInfo.weather || ''} readOnly style={{ ...inputStyle, color: 'var(--text-secondary)' }} />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', borderRadius: '12px', padding: '18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '14px' }}>
+                <h4 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Users className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                  Cast Call List
+                </h4>
+                <button onClick={addCastCall} className="btn-secondary" style={{ fontSize: '12px', padding: '7px 10px', gap: '6px' }}>
+                  <Plus className="w-4 h-4" /> Add Cast
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {callSheetData.castCalls.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '18px', color: 'var(--text-muted)', fontSize: '13px', border: '1px dashed var(--border-default)', borderRadius: '8px' }}>
+                    No cast calls yet.
+                  </div>
+                )}
+                {callSheetData.castCalls.map(call => (
+                  <div key={call.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr 110px 1.4fr 36px', gap: '10px', alignItems: 'center' }}>
+                    <input type="text" value={call.role} onChange={(e) => updateCastCall(call.id, 'role', e.target.value)} placeholder="Role" style={inputStyle} />
+                    <input type="text" value={call.name} onChange={(e) => updateCastCall(call.id, 'name', e.target.value)} placeholder="Name" style={inputStyle} />
+                    <DarkTimePicker value={call.callTime} onChange={(val) => updateCastCall(call.id, 'callTime', val)} style={{ width: '100%', padding: '8px 10px', fontSize: '13px' }} />
+                    <input type="text" value={call.notes} onChange={(e) => updateCastCall(call.id, 'notes', e.target.value)} placeholder="Notes" style={inputStyle} />
+                    <button onClick={() => removeCastCall(call.id)} className="btn-ghost" style={{ padding: '8px', display: 'flex', justifyContent: 'center', color: 'var(--accent-red)' }} title="Remove cast call">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', borderRadius: '12px', padding: '18px' }}>
+              <h4 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ListPlus className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                Production Notes
+              </h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+                <div>
+                  <label style={labelStyle}>Department Notes</label>
+                  <textarea value={callSheetData.departmentNotes} onChange={(e) => updateField('departmentNotes', e.target.value)} placeholder="Art, camera, wardrobe, makeup..." style={textareaStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Parking / Transport / Access</label>
+                  <textarea value={callSheetData.transportNotes} onChange={(e) => updateField('transportNotes', e.target.value)} placeholder="Parking gate, shuttle, route, access timing..." style={textareaStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Safety / Emergency</label>
+                  <textarea value={callSheetData.safetyNotes} onChange={(e) => updateField('safetyNotes', e.target.value)} placeholder="Emergency contact, hospital, safety reminders..." style={textareaStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>LINE Remarks</label>
+                  <textarea value={callSheetData.lineRemarks} onChange={(e) => updateField('lineRemarks', e.target.value)} placeholder="Short daily notes for crew group..." style={textareaStyle} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 p-6 border-t rounded-b-xl" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-default)' }}>
+            <button onClick={onClose} className="btn-ghost" style={{ fontSize: '13px' }}>Cancel</button>
+            <button onClick={onExport} className="btn-primary" style={{ fontSize: '13px', gap: '6px' }}>
+              <Download className="w-4 h-4" /> Export Call Sheet
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Main editor component
 export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   const [docState, setDocState, { undo, redo, canUndo, canRedo }] = useUndoRedo(() => {
@@ -1020,13 +1267,15 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     return {
       headerInfo: project?.data?.headerInfo ? { ...defaultHeader, ...project.data.headerInfo } : defaultHeader,
       timelineItems: project?.data?.timelineItems || [],
-      imagePreviews: project?.data?.imagePreviews || {}
+      imagePreviews: project?.data?.imagePreviews || {},
+      callSheetData: project?.data?.callSheetData || null
     };
   });
 
   const headerInfo = docState.headerInfo;
   const timelineItems = docState.timelineItems;
   const imagePreviews = docState.imagePreviews;
+  const callSheetData = docState.callSheetData;
 
   const setHeaderInfo = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
     const prevHeaderInfo = docState.headerInfo;
@@ -1065,8 +1314,18 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       };
     }, options);
   }, [setDocState]);
+  const setCallSheetData = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
+    setDocState(prev => {
+      const callSheetDataVal = typeof newValOrFn === 'function' ? newValOrFn(prev.callSheetData) : newValOrFn;
+      return {
+        ...prev,
+        callSheetData: callSheetDataVal
+      };
+    }, options);
+  }, [setDocState]);
   const [saveStatus, setSaveStatus] = useState('idle');
   const [showProductionDetails, setShowProductionDetails] = useState(false);
+  const [isCallSheetOpen, setIsCallSheetOpen] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [showZoomControls, setShowZoomControls] = useState(true);
   const [activeImageUploadId, setActiveImageUploadId] = useState(null);
@@ -1256,7 +1515,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   const shotList = useMemo(() => project?.data?.shotListData?.shotListItems || [], [project]);
   const shotListImagePreviews = useMemo(() => project?.data?.shotListData?.imagePreviews || {}, [project]);
 
-  const stringifiedData = useMemo(() => JSON.stringify({ headerInfo, timelineItems, imagePreviews }), [headerInfo, timelineItems, imagePreviews]);
+  const stringifiedData = useMemo(() => JSON.stringify({ headerInfo, timelineItems, imagePreviews, callSheetData }), [headerInfo, timelineItems, imagePreviews, callSheetData]);
   const onSaveRef = useRef(onSave);
   useEffect(() => { onSaveRef.current = onSave; });
 
@@ -1272,7 +1531,8 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       const dataToSave = {
         headerInfo,
         timelineItems,
-        imagePreviews
+        imagePreviews,
+        callSheetData
       };
 
       setSaveStatus('saving');
@@ -1572,6 +1832,27 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     return { totalHours: Math.floor(totalDuration / 60), totalMinutes: totalDuration % 60, shotCount, breakHours: Math.floor(breakTime / 60), breakMinutes: breakTime % 60 };
   }, [timelineItems]);
 
+  const ensureCallSheetData = useCallback(() => {
+    const base = createDefaultCallSheetData(headerInfo, timelineItems);
+    const merged = mergeCallSheetData(base, callSheetData);
+    setCallSheetData(merged);
+    return merged;
+  }, [headerInfo, timelineItems, callSheetData, setCallSheetData]);
+
+  const handleOpenCallSheet = useCallback(() => {
+    ensureCallSheetData();
+    setIsCallSheetOpen(true);
+  }, [ensureCallSheetData]);
+
+  const handleExportCallSheet = useCallback(() => {
+    const dataForExport = {
+      ...ensureCallSheetData(),
+      lastGeneratedAt: new Date().toISOString()
+    };
+    setCallSheetData(dataForExport);
+    exportCallSheetToPDF(headerInfo, timelineItems, dataForExport, stats);
+  }, [ensureCallSheetData, setCallSheetData, headerInfo, timelineItems, stats]);
+
   const handleExportProject = useCallback(() => {
     // Explicitly construct the project object to ensure the ID is always included.
     const fullProject = {
@@ -1581,18 +1862,20 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
         ...project.data,
         headerInfo,
         timelineItems,
-        imagePreviews
+        imagePreviews,
+        callSheetData
       }
     };
     exportProject(fullProject);
-  }, [project, headerInfo, timelineItems, imagePreviews]);
+  }, [project, headerInfo, timelineItems, imagePreviews, callSheetData]);
 
   const forceSave = useCallback(() => {
     if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
     const dataToSave = {
       headerInfo,
       timelineItems,
-      imagePreviews
+      imagePreviews,
+      callSheetData
     };
     setSaveStatus('saving');
     Promise.resolve()
@@ -1606,7 +1889,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
         console.error(err);
         setSaveStatus('dirty');
       });
-  }, [headerInfo, timelineItems, imagePreviews]);
+  }, [headerInfo, timelineItems, imagePreviews, callSheetData]);
 
   const handleDeleteShortcut = useCallback(() => {
     if (focusedItemId) {
@@ -1653,7 +1936,13 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     },
     {
       key: 'Escape',
-      action: onBack,
+      action: () => {
+        if (isCallSheetOpen) {
+          setIsCallSheetOpen(false);
+        } else {
+          onBack();
+        }
+      },
       preventDefault: false,
     }
   ]);
@@ -1712,6 +2001,17 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
         onImport={handleImportShots}
       />
 
+      <CallSheetBuilderModal
+        isOpen={isCallSheetOpen}
+        onClose={() => setIsCallSheetOpen(false)}
+        headerInfo={headerInfo}
+        timelineItems={timelineItems}
+        stats={stats}
+        callSheetData={callSheetData}
+        onChange={(nextData: CallSheetData) => setCallSheetData(nextData, { isContinuous: true })}
+        onExport={handleExportCallSheet}
+      />
+
       <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
         <header style={{
           position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50, height: '64px',
@@ -1741,6 +2041,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
               <SaveStatusIndicator status={saveStatus} />
               <div style={{ height: '20px', width: '1px', background: 'var(--border-subtle)' }} />
               <button onClick={handleExportProject} className="btn-ghost" style={{ fontSize: '13px', gap: '6px' }}><FileDown className="w-4 h-4" /><span className="hidden sm:inline">Save .mbd</span></button>
+              <button onClick={handleOpenCallSheet} className="btn-secondary" style={{ fontSize: '13px', gap: '6px' }}><ClipboardList className="w-4 h-4" /><span className="hidden sm:inline">Call Sheet</span></button>
               <button onClick={() => exportToPDF(headerInfo, timelineItems, stats, imagePreviews)} className="btn-primary" style={{ fontSize: '13px', gap: '6px' }}><Download className="w-4 h-4" /><span className="hidden sm:inline">Export PDF</span></button>
             </div>
           </div>

@@ -30,5 +30,4 @@
 
 ## Current State & Next Steps
 - **Phase 1 is officially DONE.** The app is stable, beautiful, and fully functional for standard manual data entry.
-- **Phase 2 Planning:** We were discussing adding a "Killer Feature" / Unique Selling Point. We debated a Heuristic "Auto-Scheduler" (Magic Sort) but realized it relies too heavily on perfect manual data entry and doesn't handle geographic route optimization. 
-- **Next up:** Deciding on and implementing the next major feature (e.g., Fountain Script parsing, Storyboard sketching, etc.).
+- **Phase 2 Planning:** We were discussing adding a "Killer Feature" / Unique Selling Point.
