@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { List, Video } from 'lucide-react';
+import { List, Video, FileText } from 'lucide-react';
 
 interface BottomNavProps {
   currentView: string;
@@ -21,6 +21,15 @@ export default function BottomNav({ currentView, onNavigate, projectName }: Bott
   return (
     <div className="bottom-nav-container">
       <nav className="bottom-nav">
+        <button
+          onClick={() => onNavigate('scriptBreakdown')}
+          className={`bottom-nav-item ${currentView === 'scriptBreakdown' ? 'active' : ''}`}
+          aria-label="Script Breakdown"
+        >
+          <FileText className="w-5 h-5 bottom-nav-icon" />
+          <span className="bottom-nav-label">Breakdown</span>
+        </button>
+
         <button
           onClick={() => onNavigate('shotListEditor')}
           className={`bottom-nav-item ${currentView === 'shotListEditor' ? 'active' : ''}`}

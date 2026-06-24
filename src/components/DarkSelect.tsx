@@ -2,34 +2,151 @@
 
 import React from 'react';
 import ReactSelect, { Props as ReactSelectProps, StylesConfig, GroupBase, components, MenuProps } from 'react-select';
+import ReactSelectCreatable from 'react-select/creatable';
 
 function CustomMenu<Option, IsMulti extends boolean, Group extends GroupBase<Option>>(
   props: MenuProps<Option, IsMulti, Group>
 ) {
   const [align, setAlign] = React.useState<'left' | 'right'>('left');
-  
-  React.useLayoutEffect(() => {
+  const [placement, setPlacement] = React.useState<'top' | 'bottom'>('bottom');
+  const [coords, setCoords] = React.useState<{ top: number; left: number; width: number } | null>(null);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+
+  const updatePosition = React.useCallback(() => {
     const instanceId = props.selectProps.instanceId;
     if (!instanceId) return;
-    
-    const control = document.getElementById(`react-select-${instanceId}-control`) || 
-                    document.querySelector(`[id$="-control"][id*="${instanceId}"]`);
-    
+
+    let control: HTMLElement | null = null;
+    const menuEl = menuRef.current;
+    if (menuEl) {
+      let parent = menuEl.parentElement;
+      while (parent && parent !== document.body) {
+        const found = parent.querySelector('.dark-select__control') || 
+                      parent.querySelector('[class$="__control"]') ||
+                      parent.querySelector('[id$="-control"]');
+        if (found) {
+          control = found as HTMLElement;
+          break;
+        }
+        parent = parent.parentElement;
+      }
+    }
+
+    if (!control) {
+      control = document.getElementById(`react-select-${instanceId}-control`);
+    }
+
+    if (!control) {
+      try {
+        const escapedId = instanceId.replace(/:/g, '\\:');
+        control = document.querySelector(`[id$="-control"][id*="${escapedId}"]`) as HTMLElement | null;
+      } catch (e) {
+        const controls = document.querySelectorAll('[id$="-control"]');
+        for (let i = 0; i < controls.length; i++) {
+          if (controls[i].id.includes(instanceId)) {
+            control = controls[i] as HTMLElement;
+            break;
+          }
+        }
+      }
+    }
+
     if (control) {
       const rect = control.getBoundingClientRect();
       const vw = window.innerWidth;
-      // Align to right side if control is on the right half of the screen
+      const vh = window.innerHeight;
+
+      // 1. Align to right side if control is on the right half of the screen
+      let currentAlign: 'left' | 'right' = 'left';
       if (rect.left + rect.width / 2 > vw / 2) {
-        setAlign('right');
-      } else {
-        setAlign('left');
+        currentAlign = 'right';
       }
+      setAlign(currentAlign);
+
+      // 2. Measure menu height and width
+      const menuHeight = menuEl ? menuEl.offsetHeight : 280; // fallback estimate
+      const menuWidth = menuEl ? menuEl.offsetWidth : rect.width;
+
+      // 3. Determine if there is space below
+      const spaceBelow = vh - rect.bottom;
+      const spaceAbove = rect.top;
+
+      let currentPlacement: 'top' | 'bottom' = 'bottom';
+      if (spaceBelow < menuHeight + 10 && spaceAbove > spaceBelow) {
+        currentPlacement = 'top';
+      }
+      setPlacement(currentPlacement);
+
+      // 4. Calculate fixed coords
+      const top = currentPlacement === 'bottom'
+        ? rect.bottom + 4
+        : rect.top - menuHeight - 4;
+
+      let left = rect.left;
+      if (currentAlign === 'right') {
+        left = rect.right - menuWidth;
+      }
+
+      // Keep it within screen bounds
+      if (left < 10) {
+        left = 10;
+      } else if (left + menuWidth > vw - 10) {
+        left = vw - menuWidth - 10;
+      }
+
+      setCoords({
+        top,
+        left,
+        width: rect.width
+      });
     }
   }, [props.selectProps.instanceId]);
 
+  React.useLayoutEffect(() => {
+    updatePosition();
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (menuRef.current && typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        updatePosition();
+      });
+      resizeObserver.observe(menuRef.current);
+    }
+
+    // Capture scrolls on any parent container, plus window resize
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition, true);
+
+    return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition, true);
+    };
+  }, [updatePosition]);
+
+  const style: React.CSSProperties = coords ? {
+    position: 'fixed',
+    top: `${coords.top}px`,
+    left: `${coords.left}px`,
+    minWidth: `${coords.width}px`,
+    zIndex: 99999,
+  } : {
+    position: 'fixed',
+    opacity: 0,
+    pointerEvents: 'none',
+  };
+
   return (
     <components.Menu {...props}>
-      <div className="dark-select-menu-card" data-align={align}>
+      <div 
+        ref={menuRef} 
+        className="dark-select-menu-card" 
+        data-align={align} 
+        data-placement={placement}
+        style={style}
+      >
         {props.children}
       </div>
     </components.Menu>
@@ -101,7 +218,7 @@ function buildDarkStyles<Option, IsMulti extends boolean = false, Group extends 
     }),
     menuList: (base, state) => {
       const options = state.selectProps.options || [];
-      const isGrouped = options.length > 0 && typeof options[0] === 'object' && 'options' in options[0];
+      const isGrouped = options.length > 0 && options[0] !== null && typeof options[0] === 'object' && 'options' in options[0];
       const groupCount = isGrouped ? options.length : 0;
       return {
         ...base,
@@ -138,7 +255,7 @@ function buildDarkStyles<Option, IsMulti extends boolean = false, Group extends 
     }),
     groupHeading: (base, state) => {
       const options = state.selectProps.options || [];
-      const isGrouped = options.length > 0 && typeof options[0] === 'object' && 'options' in options[0];
+      const isGrouped = options.length > 0 && options[0] !== null && typeof options[0] === 'object' && 'options' in options[0];
       const groupCount = isGrouped ? options.length : 0;
       const showHeaderStyles = groupCount > 1;
 
@@ -159,6 +276,35 @@ function buildDarkStyles<Option, IsMulti extends boolean = false, Group extends 
       ...base,
       color: 'var(--text-muted)',
       fontSize: '13px',
+    }),
+    multiValue: (base) => ({
+      ...base,
+      backgroundColor: 'var(--bg-elevated)',
+      border: '1px solid var(--border-default)',
+      borderRadius: '6px',
+      margin: '2px 4px 2px 0',
+      display: 'inline-flex',
+      alignItems: 'center',
+    }),
+    multiValueLabel: (base) => ({
+      ...base,
+      color: 'var(--text-primary)',
+      fontSize: '12px',
+      fontWeight: 500,
+      padding: '2px 6px',
+      paddingRight: '4px',
+    }),
+    multiValueRemove: (base) => ({
+      ...base,
+      color: 'var(--text-muted)',
+      borderRadius: '0 5px 5px 0',
+      padding: '0 4px',
+      cursor: 'pointer',
+      transition: 'background-color 0.15s, color 0.15s',
+      '&:hover': {
+        backgroundColor: 'rgba(239, 68, 68, 0.15)',
+        color: '#ef4444',
+      },
     }),
   };
 }
@@ -218,15 +364,20 @@ function getFullLabel(option: any): string {
 }
 
 type DarkSelectProps<Option, IsMulti extends boolean = false, Group extends GroupBase<Option> = GroupBase<Option>> =
-  ReactSelectProps<Option, IsMulti, Group> & {
+  Omit<ReactSelectProps<Option, IsMulti, Group>, 'value' | 'onChange'> & {
     instanceId?: string;
+    value?: any;
+    onChange?: (value: any, actionMeta: any) => void;
+    constrainOnePerGroup?: boolean;
+    isCreatable?: boolean;
+    useChips?: boolean;
   };
 
 export function DarkSelect<
   Option = unknown,
   IsMulti extends boolean = false,
   Group extends GroupBase<Option> = GroupBase<Option>
->({ instanceId, formatOptionLabel, components: customComponents, value, onChange, options, isMulti, ...props }: DarkSelectProps<Option, IsMulti, Group>) {
+>({ instanceId, formatOptionLabel, components: customComponents, value, onChange, options, isMulti, constrainOnePerGroup = false, isCreatable = false, useChips = false, ...props }: DarkSelectProps<Option, IsMulti, Group>) {
   const fallbackId = React.useId();
   const safeId = instanceId ?? `dark-select-${fallbackId}`;
 
@@ -243,20 +394,28 @@ export function DarkSelect<
     if (typeof value === 'object') return value;
 
     const strVal = String(value);
-    const selectOptions = options as any as SelectGroup[];
+    const selectOptions = (options as any as SelectGroup[]) || [];
 
     if (isMulti) {
       const values = strVal.split(',').map(s => s.trim()).filter(Boolean);
       const foundOptions: any[] = [];
       values.forEach(val => {
         const opt = findOption(selectOptions, val);
-        if (opt) foundOptions.push(opt);
+        if (opt) {
+          foundOptions.push(opt);
+        } else if (isCreatable) {
+          foundOptions.push({ value: val, label: val });
+        }
       });
       return foundOptions;
     }
 
-    return findOption(selectOptions, strVal);
-  }, [value, isMulti, options]);
+    const opt = findOption(selectOptions, strVal);
+    if (!opt && isCreatable) {
+      return { value: strVal, label: strVal };
+    }
+    return opt;
+  }, [value, isMulti, options, isCreatable]);
 
   // 2. Intercept onChange to format as comma-separated string & enforce 1-per-category constraint
   const handleOnChange = (newValue: any, actionMeta: any) => {
@@ -266,7 +425,7 @@ export function DarkSelect<
       let arr = Array.isArray(newValue) ? newValue : [];
 
       // Enforce the constraint: only 1 option per category (group)
-      if (actionMeta.action === 'select-option' && actionMeta.option) {
+      if (constrainOnePerGroup && actionMeta.action === 'select-option' && actionMeta.option) {
         const addedOpt = actionMeta.option;
         let targetGroupLabel = '';
         const selectOptions = options as any as SelectGroup[];
@@ -310,16 +469,25 @@ export function DarkSelect<
     );
   };
 
-  return (
-    <ReactSelect<Option, IsMulti, Group>
-      formatOptionLabel={formatOptionLabel || defaultFormatOptionLabel}
-      components={{
+  const SelectComponent = isCreatable ? ReactSelectCreatable : ReactSelect;
+
+  const defaultComponents = useChips
+    ? {
+        Menu: CustomMenu,
+        ...customComponents
+      }
+    : {
         Menu: CustomMenu,
         MultiValue: CustomMultiValue,
         MultiValueContainer: ({ children }) => <>{children}</>,
         MultiValueRemove: () => null,
         ...customComponents
-      }}
+      };
+
+  return (
+    <SelectComponent<Option, IsMulti, Group>
+      formatOptionLabel={formatOptionLabel || defaultFormatOptionLabel}
+      components={defaultComponents}
       value={resolvedValue as any}
       onChange={handleOnChange as any}
       options={options}

@@ -1,14 +1,14 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Film, Upload, Plus, Folder, MoreVertical, Edit2, Copy, FileDown, Trash2, Calendar, Clock, List, Video, Clapperboard, Share2, Sun, Moon } from 'lucide-react';
+import { Film, Upload, Plus, Folder, MoreVertical, Edit2, Copy, FileDown, Trash2, Calendar, Clock, List, Video, Clapperboard, Share2, Sun, Moon, FileText } from 'lucide-react';
 import { exportProject, importProject } from '../utils/file';
 import { generateId } from '../utils/id';
 import { deleteImage } from '../utils/db';
-import { db, logAnalyticsEvent, isFirebaseEnabled, auth, logOut } from '../lib/firebase';
+import { db, logAnalyticsEvent, logActivity, isFirebaseEnabled, auth, logOut } from '../lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import AuthModal from './AuthModal';
-import { collection, query, where, getDocs, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, deleteDoc, updateDoc, getDoc } from 'firebase/firestore';
 import Footer from './Footer';
 import { useTheme } from './ThemeProvider';
 
@@ -154,8 +154,12 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
 
   // Auth States
   const [user, setUser] = useState<User | null>(null);
+  const [authInitialized, setAuthInitialized] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [onboardingUser, setOnboardingUser] = useState<User | null>(null);
+  const [selectedRole, setSelectedRole] = useState<string>('');
+  const [selectedPreference, setSelectedPreference] = useState<string>('');
 
   useEffect(() => {
     setImageError(false);
@@ -180,11 +184,11 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
 
     if (!isFirebaseEnabled || !auth) {
       setLoading(false);
+      setAuthInitialized(true);
       return;
     }
 
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
       if (currentUser && db) {
         // Link any guest projects matching the visitorId to the signed-in user
         try {
@@ -208,7 +212,28 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
         } catch (err) {
           console.error('Error linking guest projects on login:', err);
         }
+
+        // Check if user profile already exists in users collection
+        try {
+          const userDocRef = doc(db, 'users', currentUser.uid);
+          const userDocSnap = await getDoc(userDocRef);
+          if (!userDocSnap.exists()) {
+            // New user, trigger onboarding modal
+            setOnboardingUser(currentUser);
+          } else {
+            // Existing user, update lastLoginAt
+            await setDoc(userDocRef, {
+              lastLoginAt: new Date().toISOString(),
+              displayName: currentUser.displayName || '',
+              photoURL: currentUser.photoURL || ''
+            }, { merge: true });
+          }
+        } catch (err) {
+          console.error('Failed to sync user profile:', err);
+        }
       }
+      setUser(currentUser);
+      setAuthInitialized(true);
     });
 
     return () => unsubscribe();
@@ -216,7 +241,9 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
 
   // 3. Load Projects based on Auth state
   useEffect(() => {
-    if (!visitorId) return;
+    if (!authInitialized || !visitorId) return;
+
+    let isActive = true;
 
     const loadProjects = async () => {
       setLoading(true);
@@ -270,6 +297,12 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
           try {
             const sharedIds = JSON.parse(localStorage.getItem('mb_shared_project_ids') || '[]');
             const foreignSharedIds = sharedIds.filter((id: string) => !projs.some(p => p.id === id));
+
+            // Clean up localStorage if some shared projects are actually owned now
+            if (sharedIds.length !== foreignSharedIds.length) {
+              localStorage.setItem('mb_shared_project_ids', JSON.stringify(foreignSharedIds));
+            }
+
             if (foreignSharedIds.length > 0) {
               const chunks: string[][] = [];
               for (let i = 0; i < foreignSharedIds.length; i += 10) {
@@ -290,24 +323,36 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
             console.error('Failed to load shared projects:', sharedErr);
           }
 
+          if (!isActive) return;
+
           projs.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
           setProjects(projs);
         } catch (err) {
           console.error('Failed to load/migrate projects from Firestore:', err);
-          const localProjs = JSON.parse(localStorage.getItem('shootingScheduleProjects') || '[]');
-          setProjects(localProjs);
+          if (isActive) {
+            const localProjs = JSON.parse(localStorage.getItem('shootingScheduleProjects') || '[]');
+            setProjects(localProjs);
+          }
         } finally {
-          setLoading(false);
+          if (isActive) {
+            setLoading(false);
+          }
         }
       } else {
-        const localProjs = JSON.parse(localStorage.getItem('shootingScheduleProjects') || '[]');
-        setProjects(localProjs);
-        setLoading(false);
+        if (isActive) {
+          const localProjs = JSON.parse(localStorage.getItem('shootingScheduleProjects') || '[]');
+          setProjects(localProjs);
+          setLoading(false);
+        }
       }
     };
 
     loadProjects();
-  }, [user, visitorId]);
+
+    return () => {
+      isActive = false;
+    };
+  }, [user, visitorId, authInitialized]);
 
   const handleOpenEditModal = (project) => {
     setEditingProject(project);
@@ -343,6 +388,30 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
     handleCloseEditModal();
   };
 
+  const handleCompleteOnboarding = async (role: string, preference: string) => {
+    if (!onboardingUser || !db) return;
+    try {
+      const userDocRef = doc(db, 'users', onboardingUser.uid);
+      const now = new Date().toISOString();
+      await setDoc(userDocRef, {
+        uid: onboardingUser.uid,
+        email: onboardingUser.email || '',
+        displayName: onboardingUser.displayName || '',
+        photoURL: onboardingUser.photoURL || '',
+        createdAt: now,
+        lastLoginAt: now,
+        role,
+        preferences: { primaryUsage: preference },
+        plan: 'beta_free'
+      });
+
+      await logActivity(onboardingUser.uid, 'onboarding_complete', { role, preference });
+      setOnboardingUser(null);
+    } catch (err) {
+      console.error('Failed to complete onboarding:', err);
+    }
+  };
+
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
     const newProjectId = generateId();
@@ -363,6 +432,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
       try {
         await setDoc(doc(db, 'projects', newProjectId), sanitizeForFirestore(newProject));
         logAnalyticsEvent('create_project', { name: newProjectName });
+        await logActivity(activeOwnerId, 'create_project', { projectId: newProjectId, projectName: newProjectName });
       } catch (err) {
         console.error('Failed to create project in Firestore:', err);
       }
@@ -408,6 +478,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
       if (isFirebaseEnabled && db) {
         await deleteDoc(doc(db, 'projects', projectId));
         logAnalyticsEvent('delete_project', { id: projectId });
+        await logActivity(user ? user.uid : visitorId, 'delete_project', { projectId });
       } else {
         localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
       }
@@ -437,6 +508,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
       try {
         await setDoc(doc(db, 'projects', newProjectId), sanitizeForFirestore(duplicatedProject));
         logAnalyticsEvent('duplicate_project', { name: project.name });
+        await logActivity(activeOwnerId, 'duplicate_project', { originalProjectId: project.id, newProjectId });
       } catch (err) {
         console.error('Failed to duplicate project:', err);
       }
@@ -466,6 +538,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
       await exportProject(project);
       if (isFirebaseEnabled) {
         logAnalyticsEvent('export_project', { name: project.name });
+        await logActivity(user ? user.uid : visitorId, 'export_project', { projectId: project.id });
       }
     }
     catch (error) { console.error('Export failed:', error); alert('Export failed.'); }
@@ -504,6 +577,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
         }));
 
         logAnalyticsEvent('import_project', { name: importedProject.name });
+        await logActivity(activeOwnerId, 'import_project', { projectId: importedProject.id });
       } else {
         localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
       }
@@ -725,62 +799,101 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
               </button>
 
               {/* Project cards */}
-              {projects.map((project, i) => (
-                <div
-                  key={project.id}
-                  onClick={() => setProjectToOpen(project)}
-                  className="project-card animate-fade-in-up"
-                  style={{ animationDelay: `${(i + 1) * 0.05}s` }}
-                >
-                  {/* Accent strip */}
-                  <div style={{
-                    height: '3px',
-                    background: `linear-gradient(90deg, var(--accent-primary), ${i % 2 === 0 ? '#5db29b' : 'var(--accent-amber)'})`,
-                  }} />
-                  <div style={S.cardBody}>
-                    <div style={S.cardHeaderRow}>
-                      <h3 style={{ ...S.cardTitle, paddingRight: '8px' }} className="line-clamp-2">
-                        {project.name}
-                      </h3>
-                      <div onClick={(e) => e.stopPropagation()}>
-                        <ProjectCardMenu
-                          project={project}
-                          onEdit={() => handleOpenEditModal(project)}
-                          onDuplicate={() => handleDuplicateProject(project)}
-                          onExport={() => handleExportProject(project)}
-                          onShare={() => handleShareProject(project)}
-                          onDelete={() => handleDeleteProject(project.id)}
-                        />
+              {projects.map((project, i) => {
+                const hasSchedule = !!(
+                  (project.data?.timelineItems && project.data.timelineItems.length > 0) ||
+                  (project.data?.scheduleData?.timelineItems && project.data.scheduleData.timelineItems.length > 0)
+                );
+                const hasShotList = !!(
+                  project.data?.shotListData?.shotListItems && project.data.shotListData.shotListItems.length > 0
+                );
+                const hasBreakdown = !!(
+                  project.data?.breakdownData?.scenes && project.data.breakdownData.scenes.length > 0
+                );
+
+                // Determine gradient based on features containing data
+                let gradient = 'linear-gradient(90deg, #444444, #555555)'; // Empty state (subtle gray)
+                const activeFeatures = [hasBreakdown && 'breakdown', hasSchedule && 'schedule', hasShotList && 'shotlist'].filter(Boolean);
+                if (activeFeatures.length === 3) {
+                  gradient = 'linear-gradient(90deg, var(--accent-primary), #8b5cf6, var(--accent-amber))';
+                } else if (activeFeatures.length === 2) {
+                  if (hasSchedule && hasShotList) {
+                    gradient = 'linear-gradient(90deg, var(--accent-primary), var(--accent-amber))';
+                  } else if (hasBreakdown && hasSchedule) {
+                    gradient = 'linear-gradient(90deg, var(--accent-primary), #3b82f6)';
+                  } else if (hasBreakdown && hasShotList) {
+                    gradient = 'linear-gradient(90deg, var(--accent-primary), var(--accent-amber))';
+                  }
+                } else if (activeFeatures.length === 1) {
+                  if (hasBreakdown) {
+                    gradient = 'linear-gradient(90deg, var(--accent-primary), #3b82f6)';
+                  } else if (hasSchedule) {
+                    gradient = 'linear-gradient(90deg, var(--accent-primary), #5db29b)';
+                  } else if (hasShotList) {
+                    gradient = 'linear-gradient(90deg, var(--accent-amber), #fbbf24)';
+                  }
+                }
+
+                return (
+                  <div
+                    key={project.id}
+                    onClick={() => setProjectToOpen(project)}
+                    className="project-card animate-fade-in-up"
+                    style={{ animationDelay: `${(i + 1) * 0.05}s` }}
+                  >
+                    {/* Accent strip */}
+                    <div style={{
+                      height: '3px',
+                      background: gradient,
+                    }} />
+                    <div style={S.cardBody}>
+                      <div style={S.cardHeaderRow}>
+                        <h3 style={{ ...S.cardTitle, paddingRight: '8px' }} className="line-clamp-2">
+                          {project.name}
+                        </h3>
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <ProjectCardMenu
+                            project={project}
+                            onEdit={() => handleOpenEditModal(project)}
+                            onDuplicate={() => handleDuplicateProject(project)}
+                            onExport={() => handleExportProject(project)}
+                            onShare={() => handleShareProject(project)}
+                            onDelete={() => handleDeleteProject(project.id)}
+                          />
+                        </div>
+                      </div>
+                      <p style={S.cardDesc} className="line-clamp-3">
+                        {project.description || 'No description'}
+                      </p>
+                      {/* Feature badges */}
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
+                        {project.isShared && (
+                          <span className="chip chip-green"><Share2 className="w-3 h-3" />Shared</span>
+                        )}
+                        {hasBreakdown && (
+                          <span className="chip chip-teal" style={{ background: 'rgba(76, 161, 138, 0.1)', color: 'var(--text-accent)', border: '1px solid rgba(76, 161, 138, 0.2)' }}><FileText className="w-3 h-3" />Breakdown</span>
+                        )}
+                        {hasSchedule && (
+                          <span className="chip chip-violet"><Video className="w-3 h-3" />Schedule</span>
+                        )}
+                        {hasShotList && (
+                          <span className="chip chip-amber"><List className="w-3 h-3" />Shot List</span>
+                        )}
                       </div>
                     </div>
-                    <p style={S.cardDesc} className="line-clamp-3">
-                      {project.description || 'No description'}
-                    </p>
-                    {/* Feature badges */}
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
-                      {project.isShared && (
-                        <span className="chip chip-green"><Share2 className="w-3 h-3" />Shared</span>
-                      )}
-                      {project.data?.scheduleData && (
-                        <span className="chip chip-violet"><Video className="w-3 h-3" />Schedule</span>
-                      )}
-                      {project.data?.shotListData && (
-                        <span className="chip chip-amber"><List className="w-3 h-3" />Shot List</span>
-                      )}
+                    <div style={S.cardFooter}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <Calendar className="w-3 h-3" />
+                        {new Date(project.updatedAt).toLocaleDateString()}
+                      </span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <Clock className="w-3 h-3" />
+                        {new Date(project.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
                     </div>
                   </div>
-                  <div style={S.cardFooter}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                      <Calendar className="w-3 h-3" />
-                      {new Date(project.updatedAt).toLocaleDateString()}
-                    </span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                      <Clock className="w-3 h-3" />
-                      {new Date(project.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -819,7 +932,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px', marginLeft: '2px' }}>
               Choose how to open <span style={{ color: 'var(--text-accent)', fontWeight: 600 }}>"{projectToOpen.name}"</span>
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '4px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '4px' }}>
               <button
                 onClick={() => { onSelectProject(projectToOpen, 'shotlist'); setProjectToOpen(null); }}
                 className="option-card shotlist"
@@ -837,6 +950,15 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
                   <Video className="w-5 h-5" />
                 </div>
                 <div className="option-card-title">Schedule</div>
+              </button>
+              <button
+                onClick={() => { onSelectProject(projectToOpen, 'breakdown'); setProjectToOpen(null); }}
+                className="option-card breakdown"
+              >
+                <div className="option-card-icon-wrap">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div className="option-card-title">Breakdown</div>
               </button>
             </div>
             <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
@@ -947,6 +1069,108 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
         onClose={() => setShowAuthModal(false)}
         onSuccess={(loggedInUser) => setUser(loggedInUser)}
       />
+
+      {/* ── Onboarding Modal ── */}
+      {onboardingUser && (
+        <div className="modal-overlay" style={{ zIndex: 70 }}>
+          <div
+            className="premium-modal animate-scale-in"
+            style={{ maxWidth: '520px', padding: '36px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+              <Clapperboard className="w-5 h-5" style={{ color: 'var(--accent-primary)' }} />
+              <h3 style={{ fontSize: '20px', fontWeight: 800, color: '#ffffff', margin: 0, letterSpacing: '-0.01em' }}>
+                Welcome to MentalBreakdown!
+              </h3>
+            </div>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '28px', lineHeight: '1.5' }}>
+              We are building a next-generation SaaS tool for film production. Help us tailor your experience with just 2 quick questions.
+            </p>
+
+            {/* Q1: Primary Role */}
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>
+                1. What is your primary role on set?
+              </label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                {['Director', 'Producer', '1st AD', 'DOP', 'PM / UPM', 'Other'].map(r => {
+                  const isSel = selectedRole === r;
+                  return (
+                    <button
+                      key={r}
+                      onClick={() => setSelectedRole(r)}
+                      style={{
+                        padding: '8px 14px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        borderRadius: '8px',
+                        border: isSel ? '1px solid var(--accent-primary)' : '1px solid var(--border-default)',
+                        background: isSel ? 'rgba(76, 161, 138, 0.12)' : 'var(--bg-input)',
+                        color: isSel ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      {r}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Q2: Primary Usage Preference */}
+            <div style={{ marginBottom: '32px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '10px' }}>
+                2. What do you plan to use this tool for?
+              </label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                {['Schedules', 'Shot Lists', 'Call Sheets', 'All of the above'].map(p => {
+                  const isSel = selectedPreference === p;
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => setSelectedPreference(p)}
+                      style={{
+                        padding: '8px 14px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        borderRadius: '8px',
+                        border: isSel ? '1px solid var(--accent-primary)' : '1px solid var(--border-default)',
+                        background: isSel ? 'rgba(76, 161, 138, 0.12)' : 'var(--bg-input)',
+                        color: isSel ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
+              <button
+                onClick={() => handleCompleteOnboarding(selectedRole, selectedPreference)}
+                disabled={!selectedRole || !selectedPreference}
+                className="btn-primary"
+                style={{
+                  height: '42px',
+                  padding: '0 24px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  opacity: (!selectedRole || !selectedPreference) ? 0.5 : 1,
+                  cursor: (!selectedRole || !selectedPreference) ? 'not-allowed' : 'pointer'
+                }}
+              >
+                Complete Setup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

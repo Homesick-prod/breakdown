@@ -431,47 +431,62 @@ textarea:not(.no-style):focus {
    ======================== */
 
 /* Sticky drag handle column */
-.dark-table thead tr th.col-drag {
-  position: sticky;
-  left: 0;
-  z-index: 3;
-  background: var(--bg-surface);
-}
-
+.dark-table thead tr th.col-drag,
 .dark-table tbody tr td.col-drag {
   position: sticky;
   left: 0;
   z-index: 3;
+  width: 48px !important;
+  min-width: 48px !important;
+  max-width: 48px !important;
+  box-sizing: border-box !important;
+}
+
+.dark-table thead tr th.col-drag {
+  background: var(--bg-surface);
+}
+
+.dark-table tbody tr td.col-drag {
   background: inherit;
 }
 
 /* Sticky Scene column — left offset = drag handle width (48px) */
-.dark-table thead tr th.col-scene {
-  position: sticky;
-  left: 48px;
-  z-index: 3;
-  background: var(--bg-surface);
-}
-
+.dark-table thead tr th.col-scene,
 .dark-table tbody tr td.col-scene {
   position: sticky;
   left: 48px;
   z-index: 3;
-  background: inherit;
+  width: 84px !important;
+  min-width: 84px !important;
+  max-width: 84px !important;
+  box-sizing: border-box !important;
 }
 
-/* Sticky Shot column — left offset = drag handle (48px) + scene col (~84px) */
-.dark-table thead tr th.col-shot {
-  position: sticky;
-  left: 132px;
-  z-index: 3;
+.dark-table thead tr th.col-scene {
   background: var(--bg-surface);
 }
 
+.dark-table tbody tr td.col-scene {
+  background: inherit;
+}
+
+/* Sticky Shot column — left offset = drag handle (48px) + scene col (84px) */
+.dark-table thead tr th.col-shot,
 .dark-table tbody tr td.col-shot {
   position: sticky;
   left: 132px;
   z-index: 3;
+  width: 84px !important;
+  min-width: 84px !important;
+  max-width: 84px !important;
+  box-sizing: border-box !important;
+}
+
+.dark-table thead tr th.col-shot {
+  background: var(--bg-surface);
+}
+
+.dark-table tbody tr td.col-shot {
   background: inherit;
 }
 
@@ -490,8 +505,6 @@ textarea:not(.no-style):focus {
   opacity: var(--freeze-opacity, 0);
   transition: none;
 }
-
-
 
 /* Also the drag handle gets a tiny separator shadow when scrolled */
 .dark-table thead tr th.col-drag::after,
@@ -894,10 +907,26 @@ textarea:not(.no-style):focus {
   animation: dropdownAppear 0.15s ease-out;
 }
 
+.dark-select-menu-card[data-placement="top"] {
+  animation: dropdownAppearTop 0.15s ease-out;
+}
+
 @keyframes dropdownAppear {
   from {
     opacity: 0;
     transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dropdownAppearTop {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
   }
 
   to {

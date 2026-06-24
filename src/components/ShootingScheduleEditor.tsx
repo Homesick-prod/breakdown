@@ -1,14 +1,14 @@
 `use client`;
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, TouchSensor, useSensor, useSensors, useDraggable, useDroppable } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
   GripVertical, Clock, Film, Plus, Save, ChevronDown, Trash2, Download, Settings,
   FileDown, CloudRain, ListPlus, Search, Layers, Github, ArrowLeft, Users, MapPin, Sunrise, Sunset, Thermometer,
   CloudDrizzle, Coffee, Moon, Loader2, Check, CloudOff, Image as ImageIcon, X, Minus, ChevronsRight,
-  Undo2, Redo2, ClipboardList
+  Undo2, Redo2, ClipboardList, FileText
 } from 'lucide-react';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import { generateId } from '../utils/id';
@@ -21,8 +21,46 @@ import { DarkSelect, findOption, SHOT_SIZE_OPTIONS, ANGLE_OPTIONS, MOVEMENT_OPTI
 import { DarkDatePicker, DarkTimePicker } from './DarkDatePicker';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { setImage, getImage, deleteImage } from '../utils/db';
-import { isFirebaseEnabled, uploadImageToStorage } from '../lib/firebase';
+import { isFirebaseEnabled, uploadImageToStorage, logActivity } from '../lib/firebase';
 
+interface TimelineItem {
+  id: string;
+  type: string;
+  start: string;
+  duration: number;
+  end: string;
+  sceneNumber?: string;
+  shotNumber?: string;
+  shotSize?: string;
+  angle?: string;
+  movement?: string;
+  lens?: string;
+  description?: string;
+  shotDescription?: string;
+  notes?: string;
+  linkedShotId?: string;
+  intExt?: string;
+  dayNight?: string;
+  location?: string;
+  cast?: string;
+  sceneCast?: string;
+  props?: string;
+  costume?: string;
+  imageUrl?: string;
+}
+
+interface BreakdownScene {
+  id: string;
+  sceneNumber: string;
+  intExt: string;
+  dayNight: string;
+  location: string;
+  description: string;
+  cast: string;
+  props: string;
+  wardrobe: string;
+  notes: string;
+}
 
 interface LocationAutocompleteProps {
   value: string;
@@ -197,13 +235,25 @@ function SaveStatusIndicator({ status }) {
 }
 
 // Sortable timeline item (table row) component
-function SortableItem({ id, item, index, imagePreviews, handleItemChange, handleImageUpload, removeTimelineItem, handleRemoveImage, activeImageUploadId, setActiveImageUploadId, focusedItemId, setFocusedItemId }) {
+function SortableItem({ id, item, index, imagePreviews, handleItemChange, handleImageUpload, removeTimelineItem, handleRemoveImage, activeImageUploadId, setActiveImageUploadId, focusedItemId, setFocusedItemId, viewMode, castOptions, getSceneCast }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
   const style = { transform: CSS.Transform.toString(transform), transition };
   const isBreak = item.type === 'break';
   const isFirstItem = index === 0;
   const isActiveForUpload = activeImageUploadId === item.id;
   const isFocused = focusedItemId === item.id;
+
+  const sceneCast = getSceneCast(item);
+  const shotCastOptions = useMemo(() => {
+    const names = sceneCast.split(',').map(s => s.trim()).filter(Boolean);
+    const options = names.map(name => ({ value: name, label: name }));
+    return [
+      {
+        label: 'Scene Cast',
+        options
+      }
+    ];
+  }, [sceneCast]);
 
   const handleImageAreaClick = () => {
     setActiveImageUploadId(isActiveForUpload ? null : item.id);
@@ -246,7 +296,7 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
         </div>
       </td>
       {isBreak ? (
-        <td colSpan={15} style={{ padding: '8px 12px' }}>
+        <td colSpan={viewMode === 'shot' ? 15 : 9} style={{ padding: '8px 12px' }}>
           <input type="text" value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="no-style" style={{ width: '100%', padding: '8px 12px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', color: 'var(--accent-amber)', fontWeight: 600, fontSize: '13px', outline: 'none' }} placeholder="Break description" />
         </td>
       ) : (
@@ -254,9 +304,11 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
           <td className="col-scene" style={{ padding: '8px 12px', width: '84px' }}>
             <input type="text" value={item.sceneNumber} onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="1A" />
           </td>
-          <td className="col-shot" style={{ padding: '8px 12px', width: '84px' }}>
-            <input type="text" value={item.shotNumber} onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="001" />
-          </td>
+          {viewMode === 'shot' && (
+            <td className="col-shot" style={{ padding: '8px 12px', width: '84px' }}>
+              <input type="text" value={item.shotNumber} onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="001" />
+            </td>
+          )}
           <td style={{ padding: '8px 12px', minWidth: '100px' }}>
             <DarkSelect<SelectOption> instanceId={`row-intExt-${item.id}`} options={INT_EXT_OPTIONS} value={findOption(INT_EXT_OPTIONS, item.intExt)} onChange={(opt) => handleItemChange(item.id, 'intExt', (opt as SelectOption)?.value ?? '')} placeholder="INT/EXT" isClearable={false} />
           </td>
@@ -264,71 +316,102 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
             <DarkSelect<SelectOption> instanceId={`row-period-${item.id}`} options={PERIOD_OPTIONS} value={findOption(PERIOD_OPTIONS, item.dayNight)} onChange={(opt) => handleItemChange(item.id, 'dayNight', (opt as SelectOption)?.value ?? '')} placeholder="DAY/NIGHT" isClearable={false} />
           </td>
           <td style={{ padding: '8px 12px' }}>
-            <input type="text" value={item.location} onChange={(e) => handleItemChange(item.id, 'location', e.target.value)} className="no-style" style={{ width: '140px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="Location" />
-          </td>
-          <td style={{ padding: '8px 12px', minWidth: '140px' }}>
-            <DarkSelect<SelectOption> instanceId={`row-size-${item.id}`} options={SHOT_SIZE_OPTIONS} value={findOption(SHOT_SIZE_OPTIONS, item.shotSize)} onChange={(opt) => handleItemChange(item.id, 'shotSize', (opt as SelectOption)?.value ?? '')} placeholder="Size..." isClearable />
-          </td>
-          <td style={{ padding: '8px 12px', minWidth: '140px' }}>
-            <DarkSelect<SelectOption>
-              instanceId={`row-angle-${item.id}`}
-              options={ANGLE_OPTIONS}
-              value={item.angle}
-              onChange={(val: any) => {
-                const valueStr = Array.isArray(val)
-                  ? val.map((opt: any) => opt.value).join(',')
-                  : (val?.value ?? '');
-                handleItemChange(item.id, 'angle', valueStr);
+            <input
+              type="text"
+              value={item.location}
+              onChange={(e) => handleItemChange(item.id, 'location', e.target.value)}
+              className="no-style"
+              style={{
+                width: '140px',
+                padding: viewMode === 'shot' ? '6px 0' : '6px 8px',
+                background: viewMode === 'shot' ? 'transparent' : 'var(--bg-input)',
+                border: viewMode === 'shot' ? '1px solid transparent' : '1px solid var(--border-default)',
+                borderRadius: '6px',
+                color: viewMode === 'shot' ? 'var(--text-secondary)' : 'var(--text-primary)',
+                fontSize: '13px',
+                outline: 'none',
+                cursor: viewMode === 'shot' ? 'default' : 'text',
               }}
-              placeholder="Angle..."
-              isMulti
+              placeholder={viewMode === 'shot' ? '-' : 'Location'}
+              disabled={viewMode === 'shot'}
             />
           </td>
-          <td style={{ padding: '8px 12px', minWidth: '140px' }}>
-            <DarkSelect<SelectOption>
-              instanceId={`row-movement-${item.id}`}
-              options={MOVEMENT_OPTIONS}
-              value={item.movement}
-              onChange={(val: any) => {
-                const valueStr = Array.isArray(val)
-                  ? val.map((opt: any) => opt.value).join(',')
-                  : (val?.value ?? '');
-                handleItemChange(item.id, 'movement', valueStr);
-              }}
-              placeholder="Movement..."
-              isMulti
-            />
-          </td>
-          <td style={{ padding: '8px 12px' }}>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', e.target.value ? `${e.target.value}mm` : '')} className="no-style" style={{ width: '72px', height: '36px', paddingLeft: '8px', paddingRight: '28px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="50" />
-              <span style={{ position: 'absolute', right: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', pointerEvents: 'none' }}>mm</span>
-            </div>
-          </td>
-          <td style={{ padding: '8px 12px' }}>
-            <textarea value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="no-style" style={{ width: '200px', padding: '7px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }} placeholder="Scene description" rows={2} />
-          </td>
-          <td style={{ padding: '8px 12px' }}>
-            <input type="text" value={item.cast} onChange={(e) => handleItemChange(item.id, 'cast', e.target.value)} className="no-style" style={{ width: '110px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="Cast" />
-          </td>
-          <td style={{ padding: '8px 12px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '4px', borderRadius: '8px', cursor: 'pointer', background: isActiveForUpload ? 'var(--accent-glow-sm)' : 'transparent', border: isActiveForUpload ? '1px solid var(--accent-primary)' : '1px solid transparent', transition: 'all 0.2s' }}>
-              {imagePreviews[item.id] ? (
-                <div className="relative group/img" onClick={handleImageAreaClick}>
-                  <img src={imagePreviews[item.id]} alt={`Ref for ${item.shotNumber}`} style={{ width: '72px', height: '56px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-default)' }} />
-                  <button onClick={(e) => { e.stopPropagation(); handleRemoveImage(item.id); }} className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity shadow-lg"><X className="w-3 h-3" /></button>
+          {viewMode === 'shot' && (
+            <>
+              <td style={{ padding: '8px 12px', minWidth: '140px' }}>
+                <DarkSelect<SelectOption> instanceId={`row-size-${item.id}`} options={SHOT_SIZE_OPTIONS} value={findOption(SHOT_SIZE_OPTIONS, item.shotSize)} onChange={(opt) => handleItemChange(item.id, 'shotSize', (opt as SelectOption)?.value ?? '')} placeholder="Size..." isClearable />
+              </td>
+              <td style={{ padding: '8px 12px', minWidth: '140px' }}>
+                <DarkSelect<SelectOption, true>
+                  instanceId={`row-angle-${item.id}`}
+                  options={ANGLE_OPTIONS}
+                  value={item.angle}
+                  onChange={(val: any) => handleItemChange(item.id, 'angle', val)}
+                  placeholder="Angle..."
+                  isMulti
+                  constrainOnePerGroup={true}
+                />
+              </td>
+              <td style={{ padding: '8px 12px', minWidth: '140px' }}>
+                <DarkSelect<SelectOption, true>
+                  instanceId={`row-movement-${item.id}`}
+                  options={MOVEMENT_OPTIONS}
+                  value={item.movement}
+                  onChange={(val: any) => handleItemChange(item.id, 'movement', val)}
+                  placeholder="Movement..."
+                  isMulti
+                />
+              </td>
+              <td style={{ padding: '8px 12px' }}>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', e.target.value ? `${e.target.value}mm` : '')} className="no-style" style={{ width: '72px', height: '36px', paddingLeft: '8px', paddingRight: '28px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="50" />
+                  <span style={{ position: 'absolute', right: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', pointerEvents: 'none' }}>mm</span>
                 </div>
-              ) : (
-                <label htmlFor={`image-${item.id}`} style={{ width: '72px', height: '56px', background: 'var(--bg-input)', borderRadius: '6px', border: '2px dashed var(--border-default)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s' }} onClick={(e) => { e.preventDefault(); handleImageAreaClick(); }}>
-                  <ImageIcon style={{ width: '15px', height: '15px', color: 'var(--text-muted)' }} />
-                </label>
-              )}
-              <input type="file" accept="image/*" id={`image-${item.id}`} onChange={(e) => handleImageUpload(item.id, e.target.files ? e.target.files[0] : null)} className="hidden" />
-              <label htmlFor={`image-${item.id}`} style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent-primary)', cursor: 'pointer' }} onClick={(e) => e.stopPropagation()}>
-                {imagePreviews[item.id] ? 'Change' : 'Upload'}
-              </label>
-            </div>
+              </td>
+            </>
+          )}
+          <td style={{ padding: '8px 12px' }}>
+            <textarea
+              value={viewMode === 'shot' ? (item.shotDescription || '') : (item.description || '')}
+              onChange={(e) => handleItemChange(item.id, viewMode === 'shot' ? 'shotDescription' : 'description', e.target.value)}
+              className="no-style"
+              style={{ width: '200px', padding: '7px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }}
+              placeholder={viewMode === 'shot' ? 'Shot description' : 'Scene description'}
+              rows={2}
+            />
           </td>
+          <td style={{ padding: '8px 12px', minWidth: '160px' }}>
+            <DarkSelect<SelectOption, true>
+              instanceId={`row-cast-${item.id}`}
+              options={viewMode === 'shot' ? shotCastOptions : castOptions}
+              value={viewMode === 'shot' ? (item.cast || '') : sceneCast}
+              onChange={(val: any) => handleItemChange(item.id, viewMode === 'shot' ? 'cast' : 'sceneCast', val)}
+              placeholder="Cast..."
+              isMulti
+              isCreatable={viewMode === 'scene'}
+              useChips={true}
+            />
+          </td>
+          {viewMode === 'shot' && (
+            <td style={{ padding: '8px 12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '4px', borderRadius: '8px', cursor: 'pointer', background: isActiveForUpload ? 'var(--accent-glow-sm)' : 'transparent', border: isActiveForUpload ? '1px solid var(--accent-primary)' : '1px solid transparent', transition: 'all 0.2s' }}>
+                {imagePreviews[item.id] ? (
+                  <div className="relative group/img" onClick={handleImageAreaClick}>
+                    <img src={imagePreviews[item.id]} alt={`Ref for ${item.shotNumber}`} style={{ width: '72px', height: '56px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-default)' }} />
+                    <button onClick={(e) => { e.stopPropagation(); handleRemoveImage(item.id); }} className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity shadow-lg"><X className="w-3 h-3" /></button>
+                  </div>
+                ) : (
+                  <label htmlFor={`image-${item.id}`} style={{ width: '72px', height: '56px', background: 'var(--bg-input)', borderRadius: '6px', border: '2px dashed var(--border-default)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s' }} onClick={(e) => { e.preventDefault(); handleImageAreaClick(); }}>
+                    <ImageIcon style={{ width: '15px', height: '15px', color: 'var(--text-muted)' }} />
+                  </label>
+                )}
+                <input type="file" accept="image/*" id={`image-${item.id}`} onChange={(e) => handleImageUpload(item.id, e.target.files ? e.target.files[0] : null)} className="hidden" />
+                <label htmlFor={`image-${item.id}`} style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent-primary)', cursor: 'pointer' }} onClick={(e) => e.stopPropagation()}>
+                  {imagePreviews[item.id] ? 'Change' : 'Upload'}
+                </label>
+              </div>
+            </td>
+          )}
           <td style={{ padding: '8px 12px' }}>
             <input type="text" value={item.props} onChange={(e) => handleItemChange(item.id, 'props', e.target.value)} className="no-style" style={{ width: '120px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="Props" />
           </td>
@@ -349,6 +432,67 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
   );
 }
 
+function DraggableSceneCard({ scene }: { scene: any }) {
+  // Drag and drop disabled for now
+  /*
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: scene.id,
+  });
+
+  const style = transform ? {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 9999 : 1,
+  } : undefined;
+  */
+
+  return (
+    <div
+      className="glass-card"
+      style={{
+        padding: '12px',
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--border-default)',
+        borderRadius: '8px',
+        cursor: 'default',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px',
+        userSelect: 'none',
+        transition: 'border-color 0.15s ease',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--text-muted)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+        <span style={{
+          padding: '2px 6px',
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: '4px',
+          fontWeight: 800,
+          fontSize: '11px',
+          color: 'var(--text-primary)'
+        }}>
+          SC. {scene.sceneNumber}
+        </span>
+        <span className="chip chip-violet" style={{ fontSize: '9px', padding: '1px 4px' }}>{scene.intExt}</span>
+        <span className="chip chip-amber" style={{ fontSize: '9px', padding: '1px 4px' }}>{scene.dayNight}</span>
+      </div>
+      {scene.location && (
+        <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {scene.location}
+        </div>
+      )}
+      {scene.description && (
+        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {scene.description}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SortableMobileCard({
   id,
   item,
@@ -359,7 +503,10 @@ function SortableMobileCard({
   removeTimelineItem,
   handleRemoveImage,
   activeImageUploadId,
-  setActiveImageUploadId
+  setActiveImageUploadId,
+  viewMode,
+  castOptions,
+  getSceneCast
 }: {
   id: string;
   item: any;
@@ -371,8 +518,24 @@ function SortableMobileCard({
   handleRemoveImage: (itemId: string) => void;
   activeImageUploadId: any;
   setActiveImageUploadId: any;
+  viewMode: 'scene' | 'shot';
+  castOptions: any;
+  getSceneCast: (item: any) => string;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  
+  const sceneCast = getSceneCast(item);
+  const shotCastOptions = useMemo(() => {
+    const names = sceneCast.split(',').map(s => s.trim()).filter(Boolean);
+    const options = names.map(name => ({ value: name, label: name }));
+    return [
+      {
+        label: 'Scene Cast',
+        options
+      }
+    ];
+  }, [sceneCast]);
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -465,7 +628,7 @@ function SortableMobileCard({
                 Sc. {item.sceneNumber}
               </span>
             )}
-            {item.shotNumber && (
+            {viewMode === 'shot' && item.shotNumber && (
               <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
                 Sh. {item.shotNumber}
               </span>
@@ -538,7 +701,28 @@ function SortableMobileCard({
           </div>
 
           {/* Row 2: Scene # & Shot # */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          {viewMode === 'shot' ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Scene Number</label>
+                <input
+                  type="text"
+                  value={item.sceneNumber || ''}
+                  onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Shot Number</label>
+                <input
+                  type="text"
+                  value={item.shotNumber || ''}
+                  onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                />
+              </div>
+            </div>
+          ) : (
             <div>
               <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Scene Number</label>
               <input
@@ -548,16 +732,7 @@ function SortableMobileCard({
                 style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
               />
             </div>
-            <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Shot Number</label>
-              <input
-                type="text"
-                value={item.shotNumber || ''}
-                onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
-              />
-            </div>
-          </div>
+          )}
 
           {/* Row 3: Duration & Location */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
@@ -580,82 +755,88 @@ function SortableMobileCard({
                 type="text"
                 value={item.location || ''}
                 onChange={(e) => handleItemChange(item.id, 'location', e.target.value)}
-                placeholder="e.g. Living Room"
-                style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                placeholder={viewMode === 'shot' ? '-' : 'e.g. Living Room'}
+                style={{
+                  width: '100%',
+                  padding: viewMode === 'shot' ? '8px 0' : '8px 12px',
+                  background: viewMode === 'shot' ? 'transparent' : 'var(--bg-input)',
+                  border: viewMode === 'shot' ? '1px solid transparent' : '1px solid var(--border-default)',
+                  borderRadius: '6px',
+                  color: viewMode === 'shot' ? 'var(--text-secondary)' : 'var(--text-primary)',
+                  fontSize: '13px',
+                  outline: 'none',
+                  cursor: viewMode === 'shot' ? 'default' : 'text',
+                }}
+                disabled={viewMode === 'shot'}
               />
             </div>
           </div>
 
           {/* Size, Angle, Movement */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Shot Size</label>
-              <DarkSelect<SelectOption>
-                instanceId={`mobile-size-${item.id}`}
-                options={SHOT_SIZE_OPTIONS}
-                value={findOption(SHOT_SIZE_OPTIONS, item.shotSize)}
-                onChange={(opt) => handleItemChange(item.id, 'shotSize', (opt as SelectOption)?.value ?? '')}
-                placeholder="Size..."
-                isClearable
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Lens</label>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <input
-                  type="number"
-                  value={item.lens ? item.lens.replace('mm', '').trim() : ''}
-                  onChange={(e) => handleItemChange(item.id, 'lens', e.target.value ? `${e.target.value}mm` : '')}
-                  placeholder="50"
-                  style={{ width: '100%', padding: '8px 30px 8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
-                />
-                <span style={{ position: 'absolute', right: '8px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', pointerEvents: 'none' }}>mm</span>
+          {viewMode === 'shot' && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Shot Size</label>
+                  <DarkSelect<SelectOption>
+                    instanceId={`mobile-size-${item.id}`}
+                    options={SHOT_SIZE_OPTIONS}
+                    value={findOption(SHOT_SIZE_OPTIONS, item.shotSize)}
+                    onChange={(opt) => handleItemChange(item.id, 'shotSize', (opt as SelectOption)?.value ?? '')}
+                    placeholder="Size..."
+                    isClearable
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Lens</label>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type="number"
+                      value={item.lens ? item.lens.replace('mm', '').trim() : ''}
+                      onChange={(e) => handleItemChange(item.id, 'lens', e.target.value ? `${e.target.value}mm` : '')}
+                      placeholder="50"
+                      style={{ width: '100%', padding: '8px 30px 8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                    />
+                    <span style={{ position: 'absolute', right: '8px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', pointerEvents: 'none' }}>mm</span>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Angle</label>
-              <DarkSelect<SelectOption>
-                instanceId={`mobile-angle-${item.id}`}
-                options={ANGLE_OPTIONS}
-                value={item.angle}
-                onChange={(val: any) => {
-                  const valueStr = Array.isArray(val)
-                    ? val.map((opt: any) => opt.value).join(',')
-                    : (val?.value ?? '');
-                  handleItemChange(item.id, 'angle', valueStr);
-                }}
-                placeholder="Angle..."
-                isMulti
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Movement</label>
-              <DarkSelect<SelectOption>
-                instanceId={`mobile-movement-${item.id}`}
-                options={MOVEMENT_OPTIONS}
-                value={item.movement}
-                onChange={(val: any) => {
-                  const valueStr = Array.isArray(val)
-                    ? val.map((opt: any) => opt.value).join(',')
-                    : (val?.value ?? '');
-                  handleItemChange(item.id, 'movement', valueStr);
-                }}
-                placeholder="Movement..."
-                isMulti
-              />
-            </div>
-          </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Angle</label>
+                  <DarkSelect<SelectOption, true>
+                    instanceId={`mobile-angle-${item.id}`}
+                    options={ANGLE_OPTIONS}
+                    value={item.angle}
+                    onChange={(val: any) => handleItemChange(item.id, 'angle', val)}
+                    placeholder="Angle..."
+                    isMulti
+                    constrainOnePerGroup={true}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Movement</label>
+                  <DarkSelect<SelectOption, true>
+                    instanceId={`mobile-movement-${item.id}`}
+                    options={MOVEMENT_OPTIONS}
+                    value={item.movement}
+                    onChange={(val: any) => handleItemChange(item.id, 'movement', val)}
+                    placeholder="Movement..."
+                    isMulti
+                  />
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Row 4: Description */}
           <div>
             <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Description</label>
             <textarea
-              value={item.description || ''}
-              onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
-              placeholder="e.g. John enters and sits down"
+              value={viewMode === 'shot' ? (item.shotDescription || '') : (item.description || '')}
+              onChange={(e) => handleItemChange(item.id, viewMode === 'shot' ? 'shotDescription' : 'description', e.target.value)}
+              placeholder={viewMode === 'shot' ? 'Shot description' : 'Scene description'}
               rows={2}
               style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }}
             />
@@ -664,52 +845,57 @@ function SortableMobileCard({
           {/* Row 5: Cast */}
           <div>
             <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Cast / Characters</label>
-            <input
-              type="text"
-              value={item.cast || ''}
-              onChange={(e) => handleItemChange(item.id, 'cast', e.target.value)}
-              placeholder="e.g. John, Sarah"
-              style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+            <DarkSelect<SelectOption, true>
+              instanceId={`mobile-cast-${item.id}`}
+              options={viewMode === 'shot' ? shotCastOptions : castOptions}
+              value={viewMode === 'shot' ? (item.cast || '') : sceneCast}
+              onChange={(val: any) => handleItemChange(item.id, viewMode === 'shot' ? 'cast' : 'sceneCast', val)}
+              placeholder="Cast..."
+              isMulti
+              isCreatable={viewMode === 'scene'}
+              useChips={true}
             />
           </div>
 
           {/* Image Upload/Reference */}
-          <div>
-            <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Reference Image</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {imagePreviews[item.id] ? (
-                <div style={{ position: 'relative', width: '100%', height: '140px', borderRadius: '8px', overflow: 'hidden' }}>
-                  <img src={imagePreviews[item.id]} alt="Reference" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  <button 
-                    onClick={() => handleRemoveImage(item.id)} 
-                    style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: '50%', padding: '4px', border: 'none', cursor: 'pointer' }}
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleImageUpload(item.id, file);
-                    }}
-                    id={`file-upload-mobile-${item.id}`}
-                    style={{ display: 'none' }}
-                  />
-                  <label
-                    htmlFor={`file-upload-mobile-${item.id}`}
-                    className="btn-secondary"
-                    style={{ flex: 1, justifyContent: 'center', fontSize: '12px', padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-                  >
-                    <ImageIcon className="w-4 h-4" /> Upload Image
-                  </label>
-                </div>
-              )}
+          {viewMode === 'shot' && (
+            <div>
+              <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Reference Image</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {imagePreviews[item.id] ? (
+                  <div style={{ position: 'relative', width: '100%', height: '140px', borderRadius: '8px', overflow: 'hidden' }}>
+                    <img src={imagePreviews[item.id]} alt="Reference" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <button 
+                      onClick={() => handleRemoveImage(item.id)} 
+                      style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: '50%', padding: '4px', border: 'none', cursor: 'pointer' }}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleImageUpload(item.id, file);
+                      }}
+                      id={`file-upload-mobile-${item.id}`}
+                      style={{ display: 'none' }}
+                    />
+                    <label
+                      htmlFor={`file-upload-mobile-${item.id}`}
+                      className="btn-secondary"
+                      style={{ flex: 1, justifyContent: 'center', fontSize: '12px', padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <ImageIcon className="w-4 h-4" /> Upload Image
+                    </label>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Row 6: Notes */}
           <div>
@@ -1263,12 +1449,20 @@ function CallSheetBuilderModal({ isOpen, onClose, headerInfo, timelineItems, sta
 // Main editor component
 export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   const [docState, setDocState, { undo, redo, canUndo, canRedo }] = useUndoRedo(() => {
-    const defaultHeader = { projectTitle: project?.name || '', episodeNumber: '', shootingDay: '', totalDays: '', date: new Date().toISOString().split('T')[0], callTime: '', sunrise: '06:30', sunset: '18:30', weather: '', location1: '', location2: '', director: '', producer: '', dop: '', firstAD: '', secondAD: '', pd: '', artTime: '', lunchTime: '', dinnerTime: '', precipProb: '', temp: '', realFeel: '', firstmealTime: '', secondmealTime: '', wrapTime: '' };
+    const defaultHeader = { projectTitle: project?.name || '', episodeNumber: '', shootingDay: '', totalDays: '', date: new Date().toISOString().split('T')[0], callTime: '', sunrise: '06:30', sunset: '18:30', weather: '', location1: '', location2: '', location3: '', director: '', producer: '', dop: '', firstAD: '', secondAD: '', pd: '', artTime: '', lunchTime: '', dinnerTime: '', precipProb: '', temp: '', realFeel: '', firstShotTime: '', firstmealTime: '', secondmealTime: '', thirdmealTime: '', wrapTime: '' };
+    
+    // Legacy compatibility check
+    const legacySchedule = project?.data?.scheduleData || {};
+    const headerInfo = project?.data?.headerInfo || legacySchedule.headerInfo;
+    const timelineItems = project?.data?.timelineItems || legacySchedule.timelineItems || [];
+    const imagePreviews = project?.data?.imagePreviews || legacySchedule.imagePreviews || {};
+    const callSheetData = project?.data?.callSheetData || legacySchedule.callSheetData || null;
+
     return {
-      headerInfo: project?.data?.headerInfo ? { ...defaultHeader, ...project.data.headerInfo } : defaultHeader,
-      timelineItems: project?.data?.timelineItems || [],
-      imagePreviews: project?.data?.imagePreviews || {},
-      callSheetData: project?.data?.callSheetData || null
+      headerInfo: headerInfo ? { ...defaultHeader, ...headerInfo } : defaultHeader,
+      timelineItems,
+      imagePreviews,
+      callSheetData
     };
   });
 
@@ -1284,7 +1478,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     let isContinuous = options?.isContinuous;
     if (isContinuous === undefined) {
       const changedKeys = Object.keys(headerInfoVal).filter(k => headerInfoVal[k] !== prevHeaderInfo[k]);
-      const discreteKeys = ['date', 'callTime', 'wrapTime', 'firstmealTime', 'secondmealTime', 'sunrise', 'sunset', 'location1', 'location2'];
+      const discreteKeys = ['date', 'callTime', 'firstShotTime', 'wrapTime', 'firstmealTime', 'secondmealTime', 'thirdmealTime', 'sunrise', 'sunset', 'location1', 'location2', 'location3'];
       const hasDiscreteChange = changedKeys.some(k => discreteKeys.includes(k));
       isContinuous = changedKeys.length > 0 && !hasDiscreteChange;
     }
@@ -1323,6 +1517,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       };
     }, options);
   }, [setDocState]);
+  const [viewMode, setViewMode] = useState<'scene' | 'shot'>('scene');
   const [saveStatus, setSaveStatus] = useState('idle');
   const [showProductionDetails, setShowProductionDetails] = useState(false);
   const [isCallSheetOpen, setIsCallSheetOpen] = useState(false);
@@ -1340,6 +1535,180 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   const isSyncingScroll = useRef(false);
   const tableRef = useRef(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
+  
+  const unscheduledScenes = useMemo(() => {
+    const breakdownScenes = project?.data?.breakdownData?.scenes || [];
+    const scheduledSceneNumbers = new Set(
+      timelineItems
+        .filter((item: any) => item.type === 'shot' && item.sceneNumber)
+        .map((item: any) => item.sceneNumber.trim().toLowerCase())
+    );
+    return breakdownScenes.filter((scene: any) => 
+      scene.sceneNumber && !scheduledSceneNumbers.has(scene.sceneNumber.trim().toLowerCase())
+    );
+  }, [project?.data?.breakdownData?.scenes, timelineItems]);
+
+  const getSceneCast = useCallback((item: any) => {
+    const sceneNum = (item.sceneNumber || '').trim().toLowerCase();
+    if (!sceneNum) return '';
+
+    const firstWithSceneCast = timelineItems.find((t: any) => 
+      t.type === 'shot' && 
+      (t.sceneNumber || '').trim().toLowerCase() === sceneNum && 
+      t.sceneCast
+    );
+    if (firstWithSceneCast?.sceneCast) {
+      return firstWithSceneCast.sceneCast;
+    }
+
+    // Fallback to union of all shot casts in this scene
+    const unionSet = new Set<string>();
+    timelineItems.forEach((t: any) => {
+      if (t.type === 'shot' && (t.sceneNumber || '').trim().toLowerCase() === sceneNum && t.cast) {
+        String(t.cast).split(',').map(s => s.trim()).filter(Boolean).forEach(c => unionSet.add(c));
+      }
+    });
+    return Array.from(unionSet).join(', ');
+  }, [timelineItems]);
+
+  const castOptions = useMemo(() => {
+    const uniqueCast = new Set<string>();
+
+    const breakdownScenes = project?.data?.breakdownData?.scenes || [];
+    breakdownScenes.forEach((scene: any) => {
+      if (scene.cast) {
+        String(scene.cast)
+          .split(',')
+          .map(s => s.trim())
+          .filter(Boolean)
+          .forEach(c => uniqueCast.add(c));
+      }
+    });
+
+    timelineItems.forEach((item: any) => {
+      if (item.cast) {
+        String(item.cast)
+          .split(',')
+          .map(s => s.trim())
+          .filter(Boolean)
+          .forEach(c => uniqueCast.add(c));
+      }
+      if (item.sceneCast) {
+        String(item.sceneCast)
+          .split(',')
+          .map(s => s.trim())
+          .filter(Boolean)
+          .forEach(c => uniqueCast.add(c));
+      }
+    });
+
+    const options = Array.from(uniqueCast)
+      .sort((a, b) => a.localeCompare(b))
+      .map(c => ({ value: c, label: c }));
+
+    return [
+      {
+        label: 'Cast / Characters',
+        options
+      }
+    ];
+  }, [project?.data?.breakdownData?.scenes, timelineItems]);
+
+  const groupedTimelineItems = useMemo(() => {
+    const result: any[] = [];
+    let currentGroup: any = null;
+
+    timelineItems.forEach((item: any) => {
+      if (item.type === 'break') {
+        if (currentGroup) {
+          result.push(currentGroup);
+          currentGroup = null;
+        }
+        result.push(item);
+      } else {
+        const sceneNum = (item.sceneNumber || '').trim();
+        if (!sceneNum) {
+          if (currentGroup) {
+            result.push(currentGroup);
+            currentGroup = null;
+          }
+          result.push({
+            ...item,
+            underlyingItems: [item]
+          });
+        } else {
+          if (currentGroup && currentGroup.sceneNumber === sceneNum) {
+            currentGroup.underlyingItems.push(item);
+            currentGroup.duration += Number(item.duration || 0);
+            currentGroup.end = item.end;
+            
+            const shotNumbers = currentGroup.underlyingItems.map((ui: any) => ui.shotNumber).filter(Boolean);
+            currentGroup.shotNumber = shotNumbers.length > 0 ? shotNumbers.join(', ') : '';
+
+            const unionCSV = (a: string, b: string) => {
+              const set = new Set([...(a || '').split(',').map(s => s.trim()), ...(b || '').split(',').map(s => s.trim())].filter(Boolean));
+              return Array.from(set).join(', ');
+            };
+             currentGroup.cast = unionCSV(currentGroup.cast, item.cast);
+            if (!currentGroup.sceneCast && item.sceneCast) {
+              currentGroup.sceneCast = item.sceneCast;
+            }
+            currentGroup.props = unionCSV(currentGroup.props, item.props);
+            currentGroup.costume = unionCSV(currentGroup.costume, item.costume);
+            
+            if (item.description && !currentGroup.description.includes(item.description)) {
+              currentGroup.description = currentGroup.description 
+                ? `${currentGroup.description} | ${item.description}` 
+                : item.description;
+            }
+            if (item.notes && !currentGroup.notes.includes(item.notes)) {
+              currentGroup.notes = currentGroup.notes 
+                ? `${currentGroup.notes} | ${item.notes}` 
+                : item.notes;
+            }
+          } else {
+            if (currentGroup) {
+              result.push(currentGroup);
+            }
+            currentGroup = {
+              id: `scene-group-${sceneNum}-${item.id}`,
+              type: 'scene-group',
+              start: item.start,
+              duration: Number(item.duration || 0),
+              end: item.end,
+              sceneNumber: sceneNum,
+              shotNumber: item.shotNumber || '',
+              intExt: item.intExt || 'INT',
+              dayNight: item.dayNight || 'DAY',
+              location: item.location || '',
+              description: item.description || '',
+              cast: item.cast || '',
+              sceneCast: item.sceneCast || '',
+              props: item.props || '',
+              costume: item.costume || '',
+              notes: item.notes || '',
+              underlyingItems: [item]
+            };
+          }
+        }
+      }
+    });
+
+    if (currentGroup) {
+      result.push(currentGroup);
+    }
+    return result;
+  }, [timelineItems]);
+
+  const itemsToRender = useMemo(() => {
+    return viewMode === 'scene' ? groupedTimelineItems : timelineItems;
+  }, [viewMode, groupedTimelineItems, timelineItems]);
+
+  const { setNodeRef: setTimelineDroppableRef } = useDroppable({
+    id: 'schedule-timeline-empty',
+  });
+
   const [loadingWeather, setLoadingWeather] = useState(false);
   const [weatherToast, setWeatherToast] = useState<{ visible: boolean; locationName: string }>({ visible: false, locationName: '' });
   const [resolvedCoords, setResolvedCoords] = useState<{
@@ -1600,8 +1969,37 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   }, []);
   // --- END: UI BEHAVIOR HOOKS ---
 
+  const addHours = useCallback((timeStr: string, hoursOffset: number): string => {
+    if (!timeStr) return '';
+    const [h, m] = timeStr.split(':').map(Number);
+    if (isNaN(h) || isNaN(m)) return '';
+    const d = new Date();
+    d.setHours(h + hoursOffset, m, 0, 0);
+    const resH = String(d.getHours()).padStart(2, '0');
+    const resM = String(d.getMinutes()).padStart(2, '0');
+    return `${resH}:${resM}`;
+  }, []);
+
+  const handleFirstShotChange = useCallback((val: string) => {
+    setHeaderInfo(prev => ({
+      ...prev,
+      firstShotTime: val,
+      callTime: addHours(val, -1)
+    }));
+  }, [setHeaderInfo, addHours]);
+
+  const handleCallTimeChange = useCallback((val: string) => {
+    setHeaderInfo(prev => {
+      const firstShot = prev.firstShotTime || '09:00';
+      if (val > firstShot) {
+        return { ...prev, callTime: firstShot };
+      }
+      return { ...prev, callTime: val };
+    });
+  }, [setHeaderInfo]);
+
   const recalculateAndUpdateTimes = useCallback((items) => {
-    let lastEndTime = headerInfo.callTime || '06:00';
+    let lastEndTime = headerInfo.firstShotTime || '09:00';
     const updatedItems = items.map(item => {
       const newStart = lastEndTime;
       const newEnd = calculateEndTime(newStart, item.duration);
@@ -1609,66 +2007,202 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       return { ...item, start: newStart, end: newEnd };
     });
     setTimelineItems(updatedItems);
-  }, [headerInfo.callTime]);
+  }, [headerInfo.firstShotTime]);
 
   const handleItemChange = useCallback((itemId, field, value) => {
-    const itemIndex = timelineItems.findIndex(item => item.id === itemId);
-    if (itemIndex === -1) return;
-
-    if (field === 'start' && itemIndex === 0) { setHeaderInfo(prev => ({ ...prev, callTime: value })); return; }
-
     let newItems = [...timelineItems];
-    const itemToChange = { ...newItems[itemIndex] };
-    let requiresRecalculation = false;
+    let itemsToUpdate: string[] = [];
 
-    if (field === 'end') {
-      itemToChange.end = value < itemToChange.start ? itemToChange.start : value;
-      itemToChange.duration = calculateDuration(itemToChange.start, itemToChange.end);
-      requiresRecalculation = true;
-    } else if (field === 'duration') {
-      itemToChange.duration = parseInt(value, 10) >= 0 ? parseInt(value, 10) : 0;
-      itemToChange.end = calculateEndTime(itemToChange.start, itemToChange.duration);
-      requiresRecalculation = true;
-    } else if (field !== 'start') {
-      itemToChange[field] = value;
+    if (String(itemId).startsWith('scene-group-')) {
+      const group = groupedTimelineItems.find(g => g.id === itemId);
+      if (!group) return;
+      itemsToUpdate = group.underlyingItems.map((ui: any) => ui.id);
+    } else {
+      itemsToUpdate = [itemId];
     }
-    newItems[itemIndex] = itemToChange;
 
-    if (requiresRecalculation) {
-      let lastEndTime = newItems[itemIndex].end;
-      for (let i = itemIndex + 1; i < newItems.length; i++) {
+    if (itemsToUpdate.length === 0) return;
+
+    let requiresRecalculation = false;
+    let firstUpdatedIndex = -1;
+
+    // Find the scene number of the item(s) being changed (before update)
+    let sourceSceneNumber = '';
+    const firstItemToUpdate = newItems.find(item => item.id === itemsToUpdate[0]);
+    if (firstItemToUpdate && firstItemToUpdate.type !== 'break') {
+      sourceSceneNumber = (firstItemToUpdate.sceneNumber || '').trim().toLowerCase();
+    }
+
+    // If we are updating a scene-level linked field and the source scene number is not empty,
+    // update ALL items in the timeline with that same scene number.
+    if (['location', 'props', 'costume', 'sceneCast'].includes(field) && sourceSceneNumber) {
+      newItems = newItems.map(item => {
+        if (item.type !== 'break' && (item.sceneNumber || '').trim().toLowerCase() === sourceSceneNumber) {
+          const updatedItem = { ...item, [field]: value };
+          if (field === 'sceneCast') {
+            const newSceneCastSet = new Set(String(value).split(',').map(s => s.trim()).filter(Boolean));
+            const currentShotCast = String(item.cast || '').split(',').map(s => s.trim()).filter(Boolean);
+            updatedItem.cast = currentShotCast.filter(c => newSceneCastSet.has(c)).join(', ');
+          }
+          return updatedItem;
+        }
+        return item;
+      });
+    } else {
+      itemsToUpdate.forEach((id, idx) => {
+        const itemIndex = newItems.findIndex(item => item.id === id);
+        if (itemIndex === -1) return;
+
+        if (firstUpdatedIndex === -1 || itemIndex < firstUpdatedIndex) {
+          firstUpdatedIndex = itemIndex;
+        }
+
+        const itemToChange = { ...newItems[itemIndex] };
+
+        if (field === 'start' && itemIndex === 0) {
+          handleFirstShotChange(value);
+          return;
+        }
+
+        if (field === 'end') {
+          itemToChange.end = value < itemToChange.start ? itemToChange.start : value;
+          itemToChange.duration = calculateDuration(itemToChange.start, itemToChange.end);
+          requiresRecalculation = true;
+        } else if (field === 'duration') {
+          if (idx === 0) {
+            itemToChange.duration = parseInt(value, 10) >= 0 ? parseInt(value, 10) : 0;
+            itemToChange.end = calculateEndTime(itemToChange.start, itemToChange.duration);
+            requiresRecalculation = true;
+          } else {
+            return;
+          }
+        } else if (field === 'sceneCast') {
+          itemToChange.sceneCast = value;
+          const newSceneCastSet = new Set(String(value).split(',').map(s => s.trim()).filter(Boolean));
+          const currentShotCast = String(itemToChange.cast || '').split(',').map(s => s.trim()).filter(Boolean);
+          const updatedShotCast = currentShotCast.filter(c => newSceneCastSet.has(c)).join(', ');
+          itemToChange.cast = updatedShotCast;
+        } else if (field === 'sceneNumber') {
+          itemToChange.sceneNumber = value;
+          const cleanNewScene = String(value).trim().toLowerCase();
+          if (cleanNewScene) {
+            // Find another shot with the new scene number to inherit scene-level properties
+            const matchingShot = newItems.find(item => 
+              item.type === 'shot' && 
+              item.id !== itemToChange.id && 
+              (item.sceneNumber || '').trim().toLowerCase() === cleanNewScene
+            );
+            if (matchingShot) {
+              itemToChange.location = matchingShot.location || '';
+              itemToChange.props = matchingShot.props || '';
+              itemToChange.costume = matchingShot.costume || '';
+              itemToChange.sceneCast = matchingShot.sceneCast || '';
+              
+              // Also filter shot cast based on the matching scene's sceneCast
+              const newSceneCastSet = new Set(String(matchingShot.sceneCast || '').split(',').map(s => s.trim()).filter(Boolean));
+              const currentShotCast = String(itemToChange.cast || '').split(',').map(s => s.trim()).filter(Boolean);
+              itemToChange.cast = currentShotCast.filter(c => newSceneCastSet.has(c)).join(', ');
+            }
+          }
+        } else if (field !== 'start') {
+          itemToChange[field] = value;
+        }
+        newItems[itemIndex] = itemToChange;
+      });
+    }
+
+    if (requiresRecalculation && firstUpdatedIndex !== -1) {
+      let lastEndTime = newItems[firstUpdatedIndex].end;
+      for (let i = firstUpdatedIndex + 1; i < newItems.length; i++) {
         newItems[i].start = lastEndTime;
         newItems[i].end = calculateEndTime(lastEndTime, newItems[i].duration);
+        lastEndTime = newItems[i].end;
       }
     }
-    const isTextField = ['sceneNumber', 'shotNumber', 'location', 'description', 'lens', 'cast', 'props', 'costume', 'notes'].includes(field);
+
+    const isTextField = ['sceneNumber', 'shotNumber', 'location', 'description', 'shotDescription', 'lens', 'cast', 'sceneCast', 'props', 'costume', 'notes'].includes(field);
     setTimelineItems(newItems, { isContinuous: isTextField });
-  }, [timelineItems]);
+  }, [timelineItems, groupedTimelineItems, handleFirstShotChange]);
 
   const addShot = useCallback(() => {
     const lastItem = timelineItems[timelineItems.length - 1];
-    const newStartTime = lastItem ? lastItem.end : (headerInfo.callTime || '06:00');
+    let newStartTime = '';
+    
+    if (lastItem) {
+      newStartTime = lastItem.end;
+    } else {
+      if (headerInfo.callTime) {
+        newStartTime = addHours(headerInfo.callTime, 1);
+        setHeaderInfo(prev => ({
+          ...prev,
+          firstShotTime: newStartTime
+        }));
+      } else {
+        newStartTime = headerInfo.firstShotTime || '09:00';
+        setHeaderInfo(prev => ({
+          ...prev,
+          firstShotTime: newStartTime,
+          callTime: addHours(newStartTime, -1)
+        }));
+      }
+    }
+
     const newShot = { id: generateId(), type: 'shot', start: newStartTime, duration: 10, end: '', sceneNumber: '', shotNumber: '', intExt: 'INT', dayNight: 'DAY', location: '', description: '', cast: '', shotSize: '', angle: '', movement: '', lens: '', props: '', costume: '', notes: '', imageUrl: '' };
     newShot.end = calculateEndTime(newShot.start, newShot.duration);
     setTimelineItems(prev => [...prev, newShot]);
-  }, [timelineItems, headerInfo.callTime]);
+  }, [timelineItems, headerInfo.callTime, headerInfo.firstShotTime, setHeaderInfo, addHours]);
 
   const addBreak = useCallback(() => {
     const lastItem = timelineItems[timelineItems.length - 1];
-    const newStartTime = lastItem ? lastItem.end : (headerInfo.callTime || '06:00');
+    let newStartTime = '';
+    
+    if (lastItem) {
+      newStartTime = lastItem.end;
+    } else {
+      if (headerInfo.callTime) {
+        newStartTime = addHours(headerInfo.callTime, 1);
+        setHeaderInfo(prev => ({
+          ...prev,
+          firstShotTime: newStartTime
+        }));
+      } else {
+        newStartTime = headerInfo.firstShotTime || '09:00';
+        setHeaderInfo(prev => ({
+          ...prev,
+          firstShotTime: newStartTime,
+          callTime: addHours(newStartTime, -1)
+        }));
+      }
+    }
+
     const newBreak = { id: generateId(), type: 'break', start: newStartTime, duration: 30, end: '', description: 'Meal Break' };
     newBreak.end = calculateEndTime(newBreak.start, newBreak.duration);
     setTimelineItems(prev => [...prev, newBreak]);
-  }, [timelineItems, headerInfo.callTime]);
+  }, [timelineItems, headerInfo.callTime, headerInfo.firstShotTime, setHeaderInfo, addHours]);
 
   const removeTimelineItem = useCallback((itemId) => {
-    if (imagePreviews[itemId]) {
-      const newPreviews = { ...imagePreviews };
-      delete newPreviews[itemId];
+    let idsToRemove = [itemId];
+    if (String(itemId).startsWith('scene-group-')) {
+      const group = groupedTimelineItems.find(g => g.id === itemId);
+      if (group) {
+        idsToRemove = group.underlyingItems.map((ui: any) => ui.id);
+      }
+    }
+
+    const newPreviews = { ...imagePreviews };
+    let hasPreviewDeleted = false;
+    idsToRemove.forEach(id => {
+      if (newPreviews[id]) {
+        delete newPreviews[id];
+        hasPreviewDeleted = true;
+      }
+    });
+    if (hasPreviewDeleted) {
       setImagePreviews(newPreviews);
     }
-    recalculateAndUpdateTimes(timelineItems.filter(item => item.id !== itemId));
-  }, [timelineItems, recalculateAndUpdateTimes, imagePreviews]);
+    
+    recalculateAndUpdateTimes(timelineItems.filter(item => !idsToRemove.includes(item.id)));
+  }, [timelineItems, recalculateAndUpdateTimes, imagePreviews, groupedTimelineItems]);
 
   const handleImageUpload = useCallback(async (itemId, file) => {
     if (!file || !file.type.startsWith('image/')) return;
@@ -1800,7 +2334,13 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       .map(shotId => shotList.find(s => s.id === shotId))
       .filter(Boolean);
 
+    const breakdownScenes = project?.data?.breakdownData?.scenes || [];
+
     const newTimelineItems = shotsToAdd.map(shot => {
+      const correspondingScene = breakdownScenes.find(
+        (s: any) => s.sceneNumber && s.sceneNumber.trim().toLowerCase() === shot.sceneNumber.trim().toLowerCase()
+      );
+
       const newShot: TimelineItem = {
         id: generateId(),
         type: 'shot',
@@ -1813,17 +2353,23 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
         angle: shot.angle,
         movement: shot.movement,
         lens: shot.lens,
-        description: shot.description,
-        notes: shot.notes,
+        description: correspondingScene?.description || shot.description || '',
+        notes: correspondingScene?.notes || shot.notes || '',
         linkedShotId: shot.id,
-        intExt: 'INT', dayNight: 'DAY', location: '', cast: '', props: '', costume: '',
+        intExt: correspondingScene?.intExt || 'INT',
+        dayNight: correspondingScene?.dayNight || 'DAY',
+        location: correspondingScene?.location || '',
+        sceneCast: correspondingScene?.cast || '',
+        cast: '',
+        props: correspondingScene?.props || '',
+        costume: correspondingScene?.wardrobe || '',
       };
       return newShot;
     });
 
     recalculateAndUpdateTimes([...timelineItems, ...newTimelineItems]);
 
-  }, [shotList, timelineItems, recalculateAndUpdateTimes]);
+  }, [shotList, timelineItems, recalculateAndUpdateTimes, project]);
 
   const stats = useMemo(() => {
     const totalDuration = timelineItems.reduce((sum, item) => sum + (item.duration || 0), 0);
@@ -1851,7 +2397,10 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     };
     setCallSheetData(dataForExport);
     exportCallSheetToPDF(headerInfo, timelineItems, dataForExport, stats);
-  }, [ensureCallSheetData, setCallSheetData, headerInfo, timelineItems, stats]);
+    if (project.ownerId) {
+      logActivity(project.ownerId, 'export_callsheet_pdf', { projectId: project.id });
+    }
+  }, [ensureCallSheetData, setCallSheetData, headerInfo, timelineItems, stats, project]);
 
   const handleExportProject = useCallback(() => {
     // Explicitly construct the project object to ensure the ID is always included.
@@ -1907,7 +2456,27 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     {
       key: 'p',
       ctrl: true,
-      action: () => exportToPDF(headerInfo, timelineItems, stats, imagePreviews),
+      action: () => {
+        const preparedItems = itemsToRender.map(item => {
+          if (viewMode === 'shot') {
+            return {
+              ...item,
+              description: item.shotDescription || item.description || '',
+              cast: item.cast || ''
+            };
+          } else {
+            return {
+              ...item,
+              description: item.description || '',
+              cast: item.sceneCast || item.cast || ''
+            };
+          }
+        });
+        exportToPDF(headerInfo, preparedItems, stats, imagePreviews);
+        if (project.ownerId) {
+          logActivity(project.ownerId, 'export_schedule_pdf', { projectId: project.id });
+        }
+      },
     },
     {
       key: 'n',
@@ -1973,22 +2542,66 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   );
 
   function handleDragEnd({ active, over }) {
-    if (active && over && active.id !== over.id) {
-      const oldIndex = timelineItems.findIndex(item => item.id === active.id);
-      const newIndex = timelineItems.findIndex(item => item.id === over.id);
-      recalculateAndUpdateTimes(arrayMove(timelineItems, oldIndex, newIndex));
+    if (!active || !over) return;
+
+    const isSidebarDrag = !itemsToRender.some(item => item.id === active.id);
+    const isOverEmpty = over.id === 'schedule-timeline-empty';
+
+    if (isSidebarDrag) {
+      // Sidebar drag disabled for now
+    } else {
+      if (active.id !== over.id) {
+        if (viewMode === 'scene') {
+          const oldGroupIndex = groupedTimelineItems.findIndex(g => g.id === active.id);
+          const newGroupIndex = groupedTimelineItems.findIndex(g => g.id === over.id);
+          if (oldGroupIndex !== -1 && newGroupIndex !== -1) {
+            const reorderedGroups = arrayMove([...groupedTimelineItems], oldGroupIndex, newGroupIndex);
+            const flatItems: any[] = [];
+            reorderedGroups.forEach(g => {
+              if (g.type === 'scene-group') {
+                flatItems.push(...g.underlyingItems);
+              } else {
+                flatItems.push(g);
+              }
+            });
+            recalculateAndUpdateTimes(flatItems);
+          }
+        } else {
+          const oldIndex = timelineItems.findIndex(item => item.id === active.id);
+          const newIndex = timelineItems.findIndex(item => item.id === over.id);
+          if (oldIndex !== -1 && newIndex !== -1) {
+            recalculateAndUpdateTimes(arrayMove(timelineItems, oldIndex, newIndex));
+          }
+        }
+      }
     }
   }
 
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.05, 1.5));
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.05, 0.60));
 
-  useEffect(() => { recalculateAndUpdateTimes(timelineItems); }, [headerInfo.callTime, recalculateAndUpdateTimes]);
+  useEffect(() => { recalculateAndUpdateTimes(timelineItems); }, [headerInfo.firstShotTime, recalculateAndUpdateTimes]);
+
+  useEffect(() => {
+    if (timelineItems.length > 0) {
+      const lastItemEnd = timelineItems[timelineItems.length - 1].end;
+      setHeaderInfo(prev => {
+        if (prev.wrapTime === lastItemEnd) return prev;
+        return { ...prev, wrapTime: lastItemEnd };
+      });
+    }
+  }, [timelineItems, setHeaderInfo]);
 
   const dragModifiers = [({ transform }) => ({ ...transform, x: transform.x / zoomLevel, y: transform.y / zoomLevel })];
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={handleDragEnd}
+      modifiers={dragModifiers}
+    >
+      <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
       {/* Background glows */}
       <div style={{ display: 'none' }} />
       <div style={{ position: 'fixed', bottom: '-10%', right: '5%', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(245,158,11,0.05) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 0 }} />
@@ -2033,6 +2646,48 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }} className="desktop-only-header">
+              {/* View Mode Toggle */}
+              <div style={{
+                display: 'flex',
+                background: 'var(--bg-input)',
+                border: '1px solid var(--border-default)',
+                borderRadius: '8px',
+                padding: '2px',
+                marginRight: '8px'
+              }}>
+                <button
+                  onClick={() => setViewMode('scene')}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    background: viewMode === 'scene' ? 'var(--accent-primary)' : 'transparent',
+                    color: viewMode === 'scene' ? '#fff' : 'var(--text-secondary)',
+                    border: 'none',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  Scene View
+                </button>
+                <button
+                  onClick={() => setViewMode('shot')}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    background: viewMode === 'shot' ? 'var(--accent-primary)' : 'transparent',
+                    color: viewMode === 'shot' ? '#fff' : 'var(--text-secondary)',
+                    border: 'none',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  Shot View
+                </button>
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginRight: '4px' }}>
                 <button onClick={undo} disabled={!canUndo} className="btn-ghost" style={{ padding: '6px', opacity: canUndo ? 1 : 0.4, cursor: canUndo ? 'pointer' : 'not-allowed', borderRadius: '6px', display: 'flex', alignItems: 'center' }} title="Undo (Ctrl+Z)"><Undo2 className="w-4 h-4" /></button>
                 <button onClick={redo} disabled={!canRedo} className="btn-ghost" style={{ padding: '6px', opacity: canRedo ? 1 : 0.4, cursor: canRedo ? 'pointer' : 'not-allowed', borderRadius: '6px', display: 'flex', alignItems: 'center' }} title="Redo (Ctrl+Shift+Z)"><Redo2 className="w-4 h-4" /></button>
@@ -2042,7 +2697,27 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
               <div style={{ height: '20px', width: '1px', background: 'var(--border-subtle)' }} />
               <button onClick={handleExportProject} className="btn-ghost" style={{ fontSize: '13px', gap: '6px' }}><FileDown className="w-4 h-4" /><span className="hidden sm:inline">Save .mbd</span></button>
               <button onClick={handleOpenCallSheet} className="btn-secondary" style={{ fontSize: '13px', gap: '6px' }}><ClipboardList className="w-4 h-4" /><span className="hidden sm:inline">Call Sheet</span></button>
-              <button onClick={() => exportToPDF(headerInfo, timelineItems, stats, imagePreviews)} className="btn-primary" style={{ fontSize: '13px', gap: '6px' }}><Download className="w-4 h-4" /><span className="hidden sm:inline">Export PDF</span></button>
+              <button onClick={() => {
+                const preparedItems = itemsToRender.map(item => {
+                  if (viewMode === 'shot') {
+                    return {
+                      ...item,
+                      description: item.shotDescription || item.description || '',
+                      cast: item.cast || ''
+                    };
+                  } else {
+                    return {
+                      ...item,
+                      description: item.description || '',
+                      cast: item.sceneCast || item.cast || ''
+                    };
+                  }
+                });
+                exportToPDF(headerInfo, preparedItems, stats, imagePreviews);
+                if (project.ownerId) {
+                  logActivity(project.ownerId, 'export_schedule_pdf', { projectId: project.id });
+                }
+              }} className="btn-primary" style={{ fontSize: '13px', gap: '6px' }}><Download className="w-4 h-4" /><span className="hidden sm:inline">Export PDF</span></button>
             </div>
           </div>
         </header>
@@ -2084,34 +2759,71 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
 
                   <div className="space-y-4">
                     <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><MapPin className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />Time, Location & Meals</h3>
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Call Time</label><DarkTimePicker value={headerInfo.callTime} onChange={(val) => setHeaderInfo({ ...headerInfo, callTime: val })} className="w-full px-3 py-2" /></div>
-                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Wrap Time</label><DarkTimePicker value={headerInfo.wrapTime} onChange={(val) => setHeaderInfo({ ...headerInfo, wrapTime: val })} className="w-full px-3 py-2" /></div>
+                    <div className="space-y-4">
+                      {/* Times Row */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Call Time</label>
+                          <DarkTimePicker value={headerInfo.callTime} onChange={handleCallTimeChange} className="w-full px-3 py-2" isClearable={false} />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>First Shot</label>
+                          <DarkTimePicker value={headerInfo.firstShotTime} onChange={handleFirstShotChange} className="w-full px-3 py-2" isClearable={false} />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Wrap Time</label>
+                          <DarkTimePicker value={headerInfo.wrapTime} onChange={() => {}} className="w-full px-3 py-2" disabled={true} />
+                        </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Coffee className="w-3 h-3 inline mr-1" />First Meal</label><DarkTimePicker value={headerInfo.firstmealTime} onChange={(val) => setHeaderInfo({ ...headerInfo, firstmealTime: val })} className="w-full px-3 py-2" /></div>
-                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Moon className="w-3 h-3 inline mr-1" />Second Meal</label><DarkTimePicker value={headerInfo.secondmealTime} onChange={(val) => setHeaderInfo({ ...headerInfo, secondmealTime: val })} className="w-full px-3 py-2" /></div>
+
+                      {/* Meals Row */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Coffee className="w-3 h-3 inline mr-1" />1st Meal</label>
+                          <DarkTimePicker value={headerInfo.firstmealTime} onChange={(val) => setHeaderInfo({ ...headerInfo, firstmealTime: val })} className="w-full px-3 py-2" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Moon className="w-3 h-3 inline mr-1" />2nd Meal</label>
+                          <DarkTimePicker value={headerInfo.secondmealTime} onChange={(val) => setHeaderInfo({ ...headerInfo, secondmealTime: val })} className="w-full px-3 py-2" />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Moon className="w-3 h-3 inline mr-1" />3rd Meal</label>
+                          <DarkTimePicker value={headerInfo.thirdmealTime} onChange={(val) => setHeaderInfo({ ...headerInfo, thirdmealTime: val })} className="w-full px-3 py-2" />
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Location 1</label>
-                        <LocationAutocomplete
-                          value={headerInfo.location1}
-                          onChange={(val) => setHeaderInfo({ ...headerInfo, location1: val })}
-                          onSelectLocation={(loc) => setResolvedCoords(prev => ({ ...prev, location1: loc }))}
-                          placeholder="Main location"
-                          className="w-full px-3 py-2"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Location 2</label>
-                        <LocationAutocomplete
-                          value={headerInfo.location2}
-                          onChange={(val) => setHeaderInfo({ ...headerInfo, location2: val })}
-                          onSelectLocation={(loc) => setResolvedCoords(prev => ({ ...prev, location2: loc }))}
-                          placeholder="Secondary location (optional)"
-                          className="w-full px-3 py-2"
-                        />
+
+                      {/* Locations (Stacked in 3 rows) */}
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Location 1</label>
+                          <LocationAutocomplete
+                            value={headerInfo.location1}
+                            onChange={(val) => setHeaderInfo({ ...headerInfo, location1: val })}
+                            onSelectLocation={(loc) => setResolvedCoords(prev => ({ ...prev, location1: loc }))}
+                            placeholder="Main location"
+                            className="w-full px-3 py-2"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Location 2</label>
+                          <LocationAutocomplete
+                            value={headerInfo.location2}
+                            onChange={(val) => setHeaderInfo({ ...headerInfo, location2: val })}
+                            onSelectLocation={(loc) => setResolvedCoords(prev => ({ ...prev, location2: loc }))}
+                            placeholder="Secondary location"
+                            className="w-full px-3 py-2"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Location 3</label>
+                          <LocationAutocomplete
+                            value={headerInfo.location3}
+                            onChange={(val) => setHeaderInfo({ ...headerInfo, location3: val })}
+                            onSelectLocation={(loc) => setResolvedCoords(prev => ({ ...prev, location3: loc }))}
+                            placeholder="Location 3"
+                            className="w-full px-3 py-2"
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2180,106 +2892,203 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
           </div>
 
           {/* Action buttons */}
-          <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
             <button onClick={addShot} className="btn-primary" style={{ fontSize: '13px' }}><Plus className="w-4 h-4" />Add Shot</button>
             <button onClick={addBreak} className="btn-secondary" style={{ color: 'var(--accent-amber)', borderColor: 'var(--accent-amber)' }}><Coffee className="w-4 h-4" />Add Break</button>
             <div style={{ width: '1px', background: 'var(--border-subtle)', margin: '0 4px' }} />
             <button onClick={() => setIsImportModalOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '10px 16px', background: 'rgba(20,184,166,0.15)', color: '#2dd4bf', fontWeight: 600, fontSize: '13px', border: '1px solid rgba(20,184,166,0.3)', borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s', fontFamily: 'inherit' }}><ListPlus className="w-4 h-4" />Import from Shot List</button>
+            
+            <button 
+              onClick={() => setShowSidebar(!showSidebar)} 
+              className="btn-secondary" 
+              style={{ 
+                marginLeft: 'auto', 
+                fontSize: '13px', 
+                gap: '6px',
+                borderColor: showSidebar ? 'var(--accent-primary)' : 'var(--border-default)',
+                color: showSidebar ? 'var(--text-accent)' : 'var(--text-primary)'
+              }}
+            >
+              <FileText className="w-4 h-4" />
+              <span>{showSidebar ? 'Hide Holding Pen' : 'Show Holding Pen'}</span>
+              {unscheduledScenes.length > 0 && (
+                <span style={{
+                  background: 'var(--accent-primary)',
+                  color: '#fff',
+                  borderRadius: '99px',
+                  padding: '1px 6px',
+                  fontSize: '10px',
+                  fontWeight: 700
+                }}>
+                  {unscheduledScenes.length}
+                </span>
+              )}
+            </button>
           </div>
 
           {/* Schedule list container */}
-          {isMobile ? (
-            <div style={{ padding: '4px' }}>
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-                modifiers={dragModifiers}
-              >
-                <SortableContext items={timelineItems.map((item: any) => item.id)} strategy={verticalListSortingStrategy}>
-                  {timelineItems.map((item: any, index: number) => (
-                    <SortableMobileCard
-                      key={item.id}
-                      id={item.id}
-                      item={item}
-                      index={index}
-                      imagePreviews={imagePreviews}
-                      handleItemChange={handleItemChange}
-                      handleImageUpload={handleImageUpload}
-                      removeTimelineItem={removeTimelineItem}
-                      handleRemoveImage={handleRemoveImage}
-                      activeImageUploadId={activeImageUploadId}
-                      setActiveImageUploadId={setActiveImageUploadId}
-                    />
-                  ))}
-                </SortableContext>
-              </DndContext>
-              {timelineItems.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '48px 16px' }}>
-                  <div className="empty-state-icon" style={{ width: '48px', height: '48px', borderRadius: '12px', margin: '0 auto 16px' }}>
-                    <Film style={{ width: '20px', height: '20px', color: 'var(--accent-primary)' }} />
+          <div style={{ display: 'flex', overflow: 'hidden', alignItems: 'flex-start', width: '100%' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {isMobile ? (
+                <div style={{ padding: '4px' }}>
+                  <SortableContext items={itemsToRender.map((item: any) => item.id)} strategy={verticalListSortingStrategy}>
+                    {itemsToRender.map((item: any, index: number) => (
+                      <SortableMobileCard
+                        key={item.id}
+                        id={item.id}
+                        item={item}
+                        index={index}
+                        imagePreviews={imagePreviews}
+                        handleItemChange={handleItemChange}
+                        handleImageUpload={handleImageUpload}
+                        removeTimelineItem={removeTimelineItem}
+                        handleRemoveImage={handleRemoveImage}
+                        activeImageUploadId={activeImageUploadId}
+                        setActiveImageUploadId={setActiveImageUploadId}
+                        viewMode={viewMode}
+                        castOptions={castOptions}
+                        getSceneCast={getSceneCast}
+                      />
+                    ))}
+                  </SortableContext>
+                  {itemsToRender.length === 0 && (
+                    <div ref={setTimelineDroppableRef} style={{ textAlign: 'center', padding: '48px 16px' }}>
+                      <div className="empty-state-icon" style={{ width: '48px', height: '48px', borderRadius: '12px', margin: '0 auto 16px' }}>
+                        <Film style={{ width: '20px', height: '20px', color: 'var(--accent-primary)' }} />
+                      </div>
+                      <p style={{ color: 'var(--text-secondary)', fontWeight: 600, fontSize: '14px' }}>No shots added yet</p>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>Click "Add Shot" to start building your schedule</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: '14px', overflow: 'hidden' }}>
+                  <div
+                    ref={tableContainerRef}
+                    className={`table-scroll-hidden ${isTableScrolled ? 'table-scrolled' : ''}`}
+                    style={{ overflowX: 'auto', zoom: zoomLevel }}
+                  >
+                    <table className="dark-table" style={{ minWidth: viewMode === 'shot' ? '2400px' : '1500px' }} ref={tableRef}>
+                      <thead>
+                        <tr>
+                          <th className="col-drag" style={{ width: '48px' }}></th>
+                          <th>Time</th>
+                          <th>Dur.</th>
+                          <th className="col-scene" style={{ width: '84px' }}>Scene</th>
+                          {viewMode === 'shot' && <th className="col-shot" style={{ width: '84px' }}>Shot</th>}
+                          <th>INT/EXT</th>
+                          <th>Period</th>
+                          <th>Location</th>
+                          {viewMode === 'shot' && (
+                            <>
+                              <th>Size</th>
+                              <th>Angle</th>
+                              <th>Movement</th>
+                              <th>Lens</th>
+                            </>
+                          )}
+                          <th>Description</th>
+                          <th>Cast</th>
+                          {viewMode === 'shot' && <th style={{ textAlign: 'center' }}>Reference</th>}
+                          <th>Props</th>
+                          <th>Costume</th>
+                          <th>Notes</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <SortableContext items={itemsToRender.map(item => item.id)} strategy={verticalListSortingStrategy}>
+                          {itemsToRender.map((item, index) => <SortableItem key={item.id} id={item.id} item={item} index={index} imagePreviews={imagePreviews} handleItemChange={handleItemChange} handleImageUpload={handleImageUpload} removeTimelineItem={removeTimelineItem} handleRemoveImage={handleRemoveImage} activeImageUploadId={activeImageUploadId} setActiveImageUploadId={setActiveImageUploadId} focusedItemId={focusedItemId} setFocusedItemId={setFocusedItemId} viewMode={viewMode} castOptions={castOptions} getSceneCast={getSceneCast} />)}
+                        </SortableContext>
+                      </tbody>
+                    </table>
+                    {itemsToRender.length === 0 && (
+                      <div ref={setTimelineDroppableRef} style={{ textAlign: 'center', padding: '64px 24px' }}>
+                        <div className="empty-state-icon" style={{ width: '64px', height: '64px', borderRadius: '16px', margin: '0 auto 16px' }}>
+                          <Film style={{ width: '28px', height: '28px', color: 'var(--accent-primary)' }} />
+                        </div>
+                        <p style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>No shots added yet</p>
+                        <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '6px' }}>Click "Add Shot" to start building your schedule</p>
+                      </div>
+                    )}
                   </div>
-                  <p style={{ color: 'var(--text-secondary)', fontWeight: 600, fontSize: '14px' }}>No shots added yet</p>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>Click "Add Shot" to start building your schedule</p>
                 </div>
               )}
             </div>
-          ) : (
-            <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: '14px', overflow: 'hidden' }}>
-              <div
-                ref={tableContainerRef}
-                className={`table-scroll-hidden ${isTableScrolled ? 'table-scrolled' : ''}`}
-                style={{ overflowX: 'auto', zoom: zoomLevel }}
-              >
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                  modifiers={dragModifiers}
-                >
-                  <table className="dark-table" style={{ minWidth: '2400px' }} ref={tableRef}>
-                    <thead>
-                      <tr>
-                        <th className="col-drag" style={{ width: '48px' }}></th>
-                        <th>Time</th>
-                        <th>Dur.</th>
-                        <th className="col-scene" style={{ width: '84px' }}>Scene</th>
-                        <th className="col-shot" style={{ width: '84px' }}>Shot</th>
-                        <th>INT/EXT</th>
-                        <th>Period</th>
-                        <th>Location</th>
-                        <th>Size</th>
-                        <th>Angle</th>
-                        <th>Movement</th>
-                        <th>Lens</th>
-                        <th>Description</th>
-                        <th>Cast</th>
-                        <th style={{ textAlign: 'center' }}>Reference</th>
-                        <th>Props</th>
-                        <th>Costume</th>
-                        <th>Notes</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <SortableContext items={timelineItems.map(item => item.id)} strategy={verticalListSortingStrategy}>
-                        {timelineItems.map((item, index) => <SortableItem key={item.id} id={item.id} item={item} index={index} imagePreviews={imagePreviews} handleItemChange={handleItemChange} handleImageUpload={handleImageUpload} removeTimelineItem={removeTimelineItem} handleRemoveImage={handleRemoveImage} activeImageUploadId={activeImageUploadId} setActiveImageUploadId={setActiveImageUploadId} focusedItemId={focusedItemId} setFocusedItemId={setFocusedItemId} />)}
-                      </SortableContext>
-                    </tbody>
-                  </table>
-                </DndContext>
-                {timelineItems.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '64px 24px' }}>
-                    <div className="empty-state-icon" style={{ width: '64px', height: '64px', borderRadius: '16px', margin: '0 auto 16px' }}>
-                      <Film style={{ width: '28px', height: '28px', color: 'var(--accent-primary)' }} />
+
+            {/* Sidebar Holding Pen */}
+            {!isMobile && showSidebar && (
+              <div style={{
+                width: '320px',
+                borderLeft: '1px solid var(--border-default)',
+                background: 'var(--bg-surface)',
+                display: 'flex',
+                flexDirection: 'column',
+                flexShrink: 0,
+                marginLeft: '20px',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                boxShadow: 'var(--shadow-lg)'
+              }} className="animate-fade-in-up">
+                <div style={{
+                  padding: '16px',
+                  borderBottom: '1px solid var(--border-default)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  background: 'var(--bg-elevated)',
+                  flexShrink: 0
+                }}>
+                  <h3 style={{ fontSize: '14px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <FileText className="w-4 h-4" style={{ color: 'var(--accent-primary)' }} />
+                    Unscheduled Scenes
+                  </h3>
+                  <button 
+                    onClick={() => setShowSidebar(false)} 
+                    className="btn-ghost" 
+                    style={{ padding: '4px' }}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  padding: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px'
+                }}>
+                  {unscheduledScenes.length === 0 ? (
+                    <div style={{
+                      textAlign: 'center',
+                      padding: '32px 16px',
+                      color: 'var(--text-muted)',
+                      fontSize: '12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: '150px'
+                    }}>
+                      <Check className="w-8 h-8 text-emerald-400 mb-2" />
+                      <p style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>All scenes scheduled!</p>
+                      <p style={{ fontSize: '11px', marginTop: '4px' }}>Or no scene breakdown exists.</p>
                     </div>
-                    <p style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>No shots added yet</p>
-                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '6px' }}>Click "Add Shot" to start building your schedule</p>
-                  </div>
-                )}
+                  ) : (
+                    <>
+                      <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '0 0 4px 0', lineHeight: 1.4 }}>
+                        Drag these scenes directly into the timeline table on the left.
+                      </p>
+                      {unscheduledScenes.map((scene: BreakdownScene) => (
+                        <DraggableSceneCard key={scene.id} scene={scene} />
+                      ))}
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </main>
 
         {/* Floating scrollbar */}
@@ -2383,5 +3192,6 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
 
       </div>
     </div>
+  </DndContext>
   );
 }

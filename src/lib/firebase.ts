@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getFirestore, Firestore, initializeFirestore } from 'firebase/firestore';
+import { getFirestore, Firestore, initializeFirestore, collection, addDoc } from 'firebase/firestore';
 import { getAnalytics, isSupported, Analytics } from 'firebase/analytics';
 import { getStorage, FirebaseStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getAuth, Auth, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut, User } from 'firebase/auth';
@@ -79,6 +79,27 @@ export function logAnalyticsEvent(eventName: string, params?: Record<string, any
     } catch (err) {
       console.error('Failed to log analytics event:', err);
     }
+  }
+}
+
+export async function logActivity(userId: string, eventType: string, extraParams?: Record<string, any>) {
+  if (!db) return;
+  try {
+    const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown';
+    const platform = typeof navigator !== 'undefined' ? navigator.platform : 'unknown';
+    
+    await addDoc(collection(db, 'activity_logs'), {
+      userId,
+      timestamp: new Date().toISOString(),
+      eventType,
+      device: {
+        platform,
+        userAgent
+      },
+      ...extraParams
+    });
+  } catch (err) {
+    console.error('Failed to write activity log:', err);
   }
 }
 

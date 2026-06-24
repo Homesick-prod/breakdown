@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Folder, List, Video } from 'lucide-react';
+import { Folder, List, Video, FileText } from 'lucide-react';
 import ProjectDashboard from '@/components/ProjectDashboard';
 import ShootingScheduleEditor from '@/components/ShootingScheduleEditor';
 import ShotListEditor from '@/components/ShotlistEditor';
+import ScriptBreakdown from '@/components/ScriptBreakdown';
 import BottomNav from '@/components/BottomNav';
 import { db, isFirebaseEnabled } from '@/lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -149,6 +150,8 @@ function App() {
       setCurrentView('scheduleEditor');
     } else if (editorType === 'shotlist') {
       setCurrentView('shotListEditor');
+    } else if (editorType === 'breakdown') {
+      setCurrentView('scriptBreakdown');
     }
   }, []);
 
@@ -326,7 +329,7 @@ function App() {
               Choose how to open <span style={{ color: 'var(--text-accent)', fontWeight: 600 }}>"{sharedProjectChoice.name}"</span>
             </p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '4px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '4px' }}>
               <button
                 onClick={() => {
                   setSelectedProject(sharedProjectChoice);
@@ -355,6 +358,21 @@ function App() {
                 </div>
                 <div className="option-card-title">Schedule</div>
                 <div className="option-card-sub">Plan your shooting days</div>
+              </button>
+
+              <button
+                onClick={() => {
+                  setSelectedProject(sharedProjectChoice);
+                  setCurrentView('scriptBreakdown');
+                  setSharedProjectChoice(null);
+                }}
+                className="option-card breakdown"
+              >
+                <div className="option-card-icon-wrap">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div className="option-card-title">Breakdown</div>
+                <div className="option-card-sub">Extract scenes from PDF</div>
               </button>
             </div>
 
@@ -391,6 +409,14 @@ function App() {
 
       {currentView === 'shotListEditor' && selectedProject && (
         <ShotListEditor
+          project={selectedProject}
+          onBack={handleBackToDashboard}
+          onSave={handleSaveProject}
+        />
+      )}
+
+      {currentView === 'scriptBreakdown' && selectedProject && (
+        <ScriptBreakdown
           project={selectedProject}
           onBack={handleBackToDashboard}
           onSave={handleSaveProject}

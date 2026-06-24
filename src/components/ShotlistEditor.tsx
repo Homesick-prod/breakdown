@@ -31,7 +31,7 @@ import { DarkSelect, findOption, SHOT_SIZE_OPTIONS, ANGLE_OPTIONS, MOVEMENT_OPTI
 // --- Important: Make sure the path to your db helper and pdf utility is correct ---
 import { exportShotListToPDF } from '../utils/shotpdf'; 
 import { setImage, getImage, deleteImage } from '../utils/db'; 
-import { isFirebaseEnabled, uploadImageToStorage } from '../lib/firebase';
+import { isFirebaseEnabled, uploadImageToStorage, logActivity } from '../lib/firebase';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 //==============================================================================
@@ -253,13 +253,14 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
             <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
               <Edit3 className="w-3 h-3" />Angle
             </label>
-            <DarkSelect<SelectOption>
+            <DarkSelect<SelectOption, true>
               instanceId={`angle-${item.id}`}
               options={ANGLE_OPTIONS}
-              value={findOption(ANGLE_OPTIONS, item.angle)}
-              onChange={(opt) => handleItemChange(item.id, 'angle', (opt as SelectOption)?.value ?? '')}
+              value={item.angle}
+              onChange={(val: any) => handleItemChange(item.id, 'angle', val)}
               placeholder="Select Angle..."
-              isClearable
+              isMulti
+              constrainOnePerGroup={true}
             />
           </div>
         </div>
@@ -270,13 +271,13 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
             <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
               <Move3D className="w-3 h-3" />Movement
             </label>
-            <DarkSelect<SelectOption>
+            <DarkSelect<SelectOption, true>
               instanceId={`movement-${item.id}`}
               options={MOVEMENT_OPTIONS}
-              value={findOption(MOVEMENT_OPTIONS, item.movement)}
-              onChange={(opt) => handleItemChange(item.id, 'movement', (opt as SelectOption)?.value ?? '')}
+              value={item.movement}
+              onChange={(val: any) => handleItemChange(item.id, 'movement', val)}
               placeholder="Select Movement..."
-              isClearable
+              isMulti
             />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
@@ -393,23 +394,24 @@ const SortableRow: React.FC<SortableItemProps> = ({ id, item, index, imagePrevie
         />
       </td>
       <td style={{ padding: '10px 12px', minWidth: '150px' }}>
-        <DarkSelect<SelectOption>
+        <DarkSelect<SelectOption, true>
           instanceId={`row-angle-${item.id}`}
           options={ANGLE_OPTIONS}
-          value={findOption(ANGLE_OPTIONS, item.angle)}
-          onChange={(opt) => handleItemChange(item.id, 'angle', (opt as SelectOption)?.value ?? '')}
+          value={item.angle}
+          onChange={(val: any) => handleItemChange(item.id, 'angle', val)}
           placeholder="Angle..."
-          isClearable
+          isMulti
+          constrainOnePerGroup={true}
         />
       </td>
       <td style={{ padding: '10px 12px', minWidth: '150px' }}>
-        <DarkSelect<SelectOption>
+        <DarkSelect<SelectOption, true>
           instanceId={`row-movement-${item.id}`}
           options={MOVEMENT_OPTIONS}
-          value={findOption(MOVEMENT_OPTIONS, item.movement)}
-          onChange={(opt) => handleItemChange(item.id, 'movement', (opt as SelectOption)?.value ?? '')}
+          value={item.movement}
+          onChange={(val: any) => handleItemChange(item.id, 'movement', val)}
           placeholder="Movement..."
-          isClearable
+          isMulti
         />
       </td>
       <td style={{ padding: '10px 12px' }}>
@@ -731,6 +733,9 @@ debounceTimeoutRef.current = setTimeout(() => {
       }
 
       await exportShotListToPDF(projectTitle, shotListItems, imagePreviewsForPDF);
+      if (project.ownerId) {
+        logActivity(project.ownerId, 'export_shotlist_pdf', { projectId: project.id });
+      }
       console.log("PDF export finished.");
     } catch (error) {
       console.error("PDF export failed:", error);

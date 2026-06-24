@@ -89,38 +89,90 @@ interface DarkTimePickerProps {
   className?: string;
   style?: React.CSSProperties;
   disabled?: boolean;
+  isClearable?: boolean;
+}
+
+interface TimeTriggerProps {
+  value?: string;
+  onClick?: () => void;
+  placeholder?: string;
+  disabled?: boolean;
+  onClear?: () => void;
 }
 
 // eslint-disable-next-line react/display-name
-const TimeTrigger = forwardRef<HTMLButtonElement, { value?: string; onClick?: () => void; placeholder?: string; disabled?: boolean }>(
-  ({ value, onClick, placeholder, disabled }, ref) => (
-    <button
-      ref={ref}
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        ...triggerBase,
-        background: disabled ? 'rgb(255, 255, 255, 0.02)' : 'var(--bg-input)',
-        border: disabled ? '1px solid transparent' : '1px solid var(--border-default)',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        color: disabled ? 'var(--text-muted)' : 'var(--text-primary)',
-      }}
-    >
-      <span style={{
-        flex: 1,
-        color: value ? (disabled ? 'var(--text-muted)' : 'var(--text-primary)') : 'var(--text-muted)',
-        fontVariantNumeric: 'tabular-nums',
-        fontWeight: value ? 600 : 400,
-        letterSpacing: '0.02em',
-      }}>
-        {value || placeholder || '--:--'}
-      </span>
-    </button>
-  )
+const TimeTrigger = forwardRef<HTMLButtonElement, TimeTriggerProps>(
+  ({ value, onClick, placeholder, disabled, onClear }, ref) => {
+    const handleClear = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (onClear) onClear();
+    };
+
+    return (
+      <button
+        ref={ref}
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        style={{
+          ...triggerBase,
+          background: disabled ? 'rgb(255, 255, 255, 0.02)' : 'var(--bg-input)',
+          border: disabled ? '1px solid transparent' : '1px solid var(--border-default)',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          color: disabled ? 'var(--text-muted)' : 'var(--text-primary)',
+          position: 'relative',
+          paddingRight: onClear && value && !disabled ? '28px' : '12px',
+        }}
+      >
+        <span style={{
+          flex: 1,
+          color: value ? (disabled ? 'var(--text-muted)' : 'var(--text-primary)') : 'var(--text-muted)',
+          fontVariantNumeric: 'tabular-nums',
+          fontWeight: value ? 600 : 400,
+          letterSpacing: '0.02em',
+        }}>
+          {value || placeholder || '--:--'}
+        </span>
+        {onClear && value && !disabled && (
+          <span
+            onClick={handleClear}
+            style={{
+              position: 'absolute',
+              right: '8px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              width: '16px',
+              height: '16px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--text-muted)',
+              fontSize: '10px',
+              lineHeight: 1,
+              cursor: 'pointer',
+              zIndex: 2,
+              background: 'transparent',
+              transition: 'background-color 0.15s, color 0.15s',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.backgroundColor = 'var(--border-subtle)';
+              e.currentTarget.style.color = 'var(--text-primary)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = 'var(--text-muted)';
+            }}
+          >
+            ✕
+          </span>
+        )}
+      </button>
+    );
+  }
 );
 
-export function DarkTimePicker({ value, onChange, placeholder, style, disabled }: DarkTimePickerProps) {
+export function DarkTimePicker({ value, onChange, placeholder, style, disabled, isClearable = true }: DarkTimePickerProps) {
   // Parse "HH:MM" into a Date object for react-datepicker
   const selected = (() => {
     if (!value) return null;
@@ -131,6 +183,8 @@ export function DarkTimePicker({ value, onChange, placeholder, style, disabled }
     return d;
   })();
 
+  const showClear = isClearable && value && !disabled;
+
   return (
     <div style={{ width: '100%', ...style }}>
       <DatePicker
@@ -140,6 +194,8 @@ export function DarkTimePicker({ value, onChange, placeholder, style, disabled }
             const h = String(date.getHours()).padStart(2, '0');
             const m = String(date.getMinutes()).padStart(2, '0');
             onChange(`${h}:${m}`);
+          } else {
+            onChange('');
           }
         }}
         showTimeSelect
@@ -149,7 +205,13 @@ export function DarkTimePicker({ value, onChange, placeholder, style, disabled }
         dateFormat="HH:mm"
         timeFormat="HH:mm"
         placeholderText={placeholder || '--:--'}
-        customInput={<TimeTrigger placeholder={placeholder || '--:--'} disabled={disabled} />}
+        customInput={
+          <TimeTrigger 
+            placeholder={placeholder || '--:--'} 
+            disabled={disabled} 
+            onClear={showClear ? () => onChange('') : undefined} 
+          />
+        }
         popperPlacement="right-start"
         popperClassName="dark-picker-popper"
         calendarClassName="dark-picker-calendar dark-picker-time-only"

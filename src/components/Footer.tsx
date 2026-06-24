@@ -20,7 +20,7 @@ export default function Footer() {
                 MentalBreakdown
               </span>
               <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '8px' }}>
-                ©{new Date().getFullYear()} &middot; V.2.3.5.1 (Beta) &middot; by Tawich P.
+                ©{new Date().getFullYear()} &middot; V.3.2.0 (LTS) &middot; by Tawich P.
               </span>
             </div>
           </div>

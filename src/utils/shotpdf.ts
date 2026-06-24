@@ -46,7 +46,7 @@ const createBackgroundPattern = (doc: jsPDF): void => {
   const dotRadius = 0.2;
 
   doc.setFillColor(COLORS.border);
-  doc.setGState(new doc.GState({ opacity: 0.5 }));
+  doc.setGState(new (doc as any).GState({ opacity: 0.5 }));
 
   for (let x = spacing; x < pageWidth; x += spacing) {
     for (let y = spacing; y < pageHeight; y += spacing) {
@@ -54,7 +54,7 @@ const createBackgroundPattern = (doc: jsPDF): void => {
     }
   }
 
-  doc.setGState(new doc.GState({ opacity: 1 }));
+  doc.setGState(new (doc as any).GState({ opacity: 1 }));
 };
 
 /**
@@ -66,9 +66,9 @@ const createCardBackground = (doc: jsPDF, x: number, y: number, width: number, h
     doc.roundedRect(x, y, width, height, 2, 2, 'F');
   } else {
     doc.setFillColor('#000000');
-    doc.setGState(new doc.GState({ opacity: 0.03 }));
+    doc.setGState(new (doc as any).GState({ opacity: 0.03 }));
     doc.roundedRect(x + 0.3, y + 0.3, width, height, 2, 2, 'F');
-    doc.setGState(new doc.GState({ opacity: 1 }));
+    doc.setGState(new (doc as any).GState({ opacity: 1 }));
     
     doc.setFillColor(COLORS.white);
     doc.roundedRect(x, y, width, height, 2, 2, 'F');
@@ -198,17 +198,17 @@ const createCleanHeader = (doc: jsPDF, projectTitle: string): void => {
   doc.setFont('IBMPlexSansThai', 'normal');
   doc.setFontSize(11);
   doc.setTextColor(COLORS.white);
-  doc.setGState(new doc.GState({ opacity: 0.9 }));
+  doc.setGState(new (doc as any).GState({ opacity: 0.9 }));
   doc.text('Shot List', 25, 40);
-  doc.setGState(new doc.GState({ opacity: 1 }));
+  doc.setGState(new (doc as any).GState({ opacity: 1 }));
   
   const dateText = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   doc.setFont('IBMPlexSansThai', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(COLORS.white);
-  doc.setGState(new doc.GState({ opacity: 0.8 }));
+  doc.setGState(new (doc as any).GState({ opacity: 0.8 }));
   doc.text(dateText, pageWidth - 25, 40, { align: 'right' });
-  doc.setGState(new doc.GState({ opacity: 1 }));
+  doc.setGState(new (doc as any).GState({ opacity: 1 }));
 };
 
 /**
