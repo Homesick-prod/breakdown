@@ -2596,7 +2596,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       setSaveStatus('saving');
       Promise.resolve()
         .then(() => new Promise(resolve => setTimeout(resolve, 500)))
-        .then(() => onSaveRef.current(latestSaveDataRef.current))
+        .then(() => onSaveRef.current(latestSaveDataRef.current, project))
         .then(() => {
           hasPendingSaveRef.current = false;
           setSaveStatus('saved');
@@ -2611,7 +2611,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     return () => {
       if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
       if (hasPendingSaveRef.current) {
-        Promise.resolve(onSaveRef.current(latestSaveDataRef.current)).catch((err) => {
+        Promise.resolve(onSaveRef.current(latestSaveDataRef.current, project)).catch((err) => {
           console.error('Failed to flush schedule changes on exit:', err);
         });
       }

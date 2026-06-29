@@ -55,9 +55,6 @@ describe("MentalBreakdown Film Production Suite E2E Flow", () => {
       .type("Lunch Break", { force: true })
       .blur();
 
-    // Wait for the autosave debounce and flush to complete
-    cy.wait(2000);
-
     // Return to dashboard
     cy.get("svg.lucide-arrow-left").parent().click();
 

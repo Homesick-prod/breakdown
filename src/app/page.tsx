@@ -673,20 +673,21 @@ function App() {
   }
 
   // Callback to save project data from an editor to Firestore (or LocalStorage fallback)
-  const handleSaveProject = useCallback(async (data: any) => {
-    if (!selectedProject) return;
+  const handleSaveProject = useCallback(async (data: any, projectObj?: any) => {
+    const activeProject = projectObj || selectedProject;
+    if (!activeProject) return;
 
     const mergedData = normalizeProjectData({
-      ...selectedProject.data,
+      ...activeProject.data,
       ...data
     });
     const updatedData = syncLinkedShotData(mergedData, data);
 
-    const projectName = data.headerInfo?.projectTitle || data.scheduleData?.headerInfo?.projectTitle || selectedProject.name;
+    const projectName = data.headerInfo?.projectTitle || data.scheduleData?.headerInfo?.projectTitle || activeProject.name;
     const updatedAt = new Date().toISOString();
 
     const updatedSelectedProject = {
-      ...selectedProject,
+      ...activeProject,
       data: updatedData,
       name: projectName,
       updatedAt
@@ -697,13 +698,13 @@ function App() {
       const cleanData = sanitizeForFirestore(updatedData);
       const { sessionId, clientId } = ensureLockIdentity();
       try {
-        await saveProjectWithLock(firestore, selectedProject.id, sessionId, clientId, {
+        await saveProjectWithLock(firestore, activeProject.id, sessionId, clientId, {
           name: projectName,
           updatedAt,
           data: cleanData
         });
         setSelectedProject((prev: any) => (
-          prev?.id === selectedProject.id ? updatedSelectedProject : prev
+          prev?.id === activeProject.id ? updatedSelectedProject : prev
         ));
       } catch (err) {
         console.error('Failed to save project to Firestore. CleanData:', cleanData, 'Error:', err);
@@ -715,14 +716,16 @@ function App() {
         throw err;
       }
     } else {
-      setSelectedProject(updatedSelectedProject);
+      if (selectedProject?.id === activeProject.id) {
+        setSelectedProject(updatedSelectedProject);
+      }
       // LocalStorage fallback
       const projects = JSON.parse(localStorage.getItem('shootingScheduleProjects') || '[]');
       // If it's a new unsaved project in local storage, add it
-      const projectExists = projects.some((p: any) => p.id === selectedProject.id);
+      const projectExists = projects.some((p: any) => p.id === activeProject.id);
       let updatedProjects;
       if (projectExists) {
-        updatedProjects = projects.map((p: any) => p.id === selectedProject.id ? updatedSelectedProject : p);
+        updatedProjects = projects.map((p: any) => p.id === activeProject.id ? updatedSelectedProject : p);
       } else {
         updatedProjects = [updatedSelectedProject, ...projects];
       }

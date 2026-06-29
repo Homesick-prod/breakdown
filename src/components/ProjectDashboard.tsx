@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Film, Upload, Plus, Folder, MoreVertical, Edit2, Copy, FileDown, Trash2, Calendar, Clock, List, Video, Clapperboard, Share2, Sun, Moon, FileText } from 'lucide-react';
+import { Film, Upload, Plus, Folder, MoreVertical, Edit2, Copy, FileDown, Trash2, Calendar, Clock, List, Video, Clapperboard, Share2, Sun, Moon, FileText, Search, Users, Settings, Bell, MessageSquare, Home } from 'lucide-react';
 import { exportProject, importProject } from '../utils/file';
 import { generateId } from '../utils/id';
 import { deleteImage } from '../utils/db';
@@ -179,6 +179,8 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
   const [onboardingUser, setOnboardingUser] = useState<User | null>(null);
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [selectedPreference, setSelectedPreference] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [userRole, setUserRole] = useState<string>('Producer');
 
   useEffect(() => {
     setImageError(false);
@@ -204,6 +206,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
     if (!isFirebaseEnabled || !auth) {
       setLoading(false);
       setAuthInitialized(true);
+      setUserRole('Guest');
       return;
     }
 
@@ -239,8 +242,15 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
           if (!userDocSnap.exists()) {
             // New user, trigger onboarding modal
             setOnboardingUser(currentUser);
+            setUserRole('Producer');
           } else {
             // Existing user, update lastLoginAt
+            const data = userDocSnap.data();
+            if (data?.role) {
+              setUserRole(data.role);
+            } else {
+              setUserRole('Producer');
+            }
             await setDoc(userDocRef, {
               lastLoginAt: new Date().toISOString(),
               displayName: currentUser.displayName || '',
@@ -250,6 +260,8 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
         } catch (err) {
           console.error('Failed to sync user profile:', err);
         }
+      } else {
+        setUserRole('Guest');
       }
       setUser(currentUser);
       setAuthInitialized(true);
@@ -619,6 +631,38 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
     if (e.target) e.target.value = null;
   };
 
+  // Helper to extract timeline items
+  const getTimelineItems = (project: any) => {
+    return project.data?.timelineItems || project.data?.scheduleData?.timelineItems || [];
+  };
+
+  // Helper to calculate project progress based on completed items
+  const getProjectProgress = (project: any) => {
+    const shotList = project.data?.shotListData?.shotListItems || [];
+    const timeline = getTimelineItems(project);
+    
+    if (shotList.length > 0) {
+      const completed = shotList.filter((shot: any) => shot.status === 'completed' || shot.completed === true).length;
+      return Math.round((completed / shotList.length) * 100);
+    }
+    
+    if (timeline.length > 0) {
+      const completed = timeline.filter((item: any) => item.status === 'completed' || item.completed === true).length;
+      return Math.round((completed / timeline.length) * 100);
+    }
+    
+    return 0;
+  };
+
+  // Filter projects by search query
+  const filteredProjects = projects.filter((project: any) => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    const nameMatch = project.name?.toLowerCase().includes(query);
+    const descMatch = project.description?.toLowerCase().includes(query);
+    return nameMatch || descMatch;
+  });
+
   // ── Inline styles ──
   const S = {
     page: {
@@ -713,82 +757,101 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
   };
 
   return (
-    <div style={S.page}>
-      {/* Background glows */}
-      <div style={S.bgGlow1} />
-      <div style={S.bgGlow2} />
-
-      {/* Nav */}
-      <nav style={S.nav} className="dashboard-nav">
-        <div style={S.navInner} className="dashboard-nav-inner">
-          <div style={S.logoRow}>
-            <div>
-              <div style={S.logoTitle}>MentalBreakdown</div>
-              <div style={S.logoSub} className="dashboard-logo-sub">Film Production Suite</div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <button
-              onClick={toggleTheme}
-              className="btn-ghost"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '34px',
-                height: '34px',
-                borderRadius: '8px',
-                padding: 0,
-                color: 'var(--text-primary)',
-                cursor: 'pointer',
-              }}
-              title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-            >
-              {theme === 'dark' ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
-            </button>
-            {isFirebaseEnabled && (
-              user ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {user.photoURL && !imageError ? (
-                    <img
-                      src={user.photoURL}
-                      alt={user.displayName || 'Profile'}
-                      onError={() => setImageError(true)}
-                      style={{ width: '32px', height: '32px', borderRadius: '50%', border: '1px solid var(--border-default)', objectFit: 'cover' }}
-                    />
-                  ) : (
-                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 600, color: '#fff' }}>
-                      {user.displayName?.charAt(0) || user.email?.charAt(0) || 'U'}
-                    </div>
-                  )}
-                  <button
-                    onClick={logOut}
-                    className="btn-ghost"
-                    style={{ fontSize: '13px', padding: '6px 12px' }}
-                  >
-                    Sign Out
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowAuthModal(true)}
-                  className="btn-primary"
-                  style={{ height: '36px', padding: '0 16px', fontSize: '13px' }}
-                >
-                  Sign In
-                </button>
-              )
-            )}
-          </div>
-          <input ref={fileInputRef} type="file" accept=".mbd,.json" onChange={handleImportProject} className="hidden" style={{ display: 'none' }} />
+    <div className="redesign-layout">
+      {/* 1. Left Sidebar Navigation */}
+      <aside className="redesign-sidebar">
+        <div className="redesign-sidebar-logo">
+          MB
         </div>
-      </nav>
+        <nav className="redesign-sidebar-menu">
+          <button className="redesign-sidebar-item active" title="Dashboard">
+            <Home className="w-5 h-5" />
+          </button>
+          <button className="redesign-sidebar-item" onClick={() => setShowNewProjectModal(true)} title="New Project">
+            <Plus className="w-5 h-5" />
+          </button>
+          <button className="redesign-sidebar-item" onClick={() => fileInputRef.current?.click()} title="Import Project">
+            <Upload className="w-5 h-5" />
+          </button>
+          <button
+            onClick={toggleTheme}
+            className="redesign-sidebar-item"
+            title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          </button>
+        </nav>
+        <div className="redesign-sidebar-footer">
+          {isFirebaseEnabled && user && (
+            <button className="redesign-sidebar-item" onClick={logOut} title="Sign Out">
+              <Trash2 className="w-5 h-5 text-red-500" />
+            </button>
+          )}
+        </div>
+      </aside>
 
-      {/* Main */}
-      <main style={S.main} className="dashboard-main">
-        <div style={S.contentWrap} className="dashboard-content-wrap">
+      {/* 2. Top Header Bar */}
+      <header className="redesign-topbar">
+        <div className="redesign-search-box">
+          <Search className="w-4 h-4" />
+          <input
+            type="text"
+            placeholder="Search projects, scenes..."
+            className="redesign-search-input"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          <button className="btn-ghost" style={{ padding: '8px', borderRadius: '10px', color: 'var(--text-secondary)' }}><Bell className="w-[18px] h-[18px]" /></button>
+          <button className="btn-ghost" style={{ padding: '8px', borderRadius: '10px', color: 'var(--text-secondary)' }}><MessageSquare className="w-[18px] h-[18px]" /></button>
+          
+          {isFirebaseEnabled && (
+            user ? (
+              <div className="redesign-user-badge">
+                {user.photoURL && !imageError ? (
+                  <img
+                    src={user.photoURL}
+                    alt={user.displayName || 'Profile'}
+                    onError={() => setImageError(true)}
+                    style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 600, color: '#fff' }}>
+                    {user.displayName?.charAt(0) || user.email?.charAt(0) || 'U'}
+                  </div>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.2 }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>{user.displayName || 'User'}</span>
+                  <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontWeight: 500 }}>{userRole}</span>
+                </div>
+                <button
+                  onClick={logOut}
+                  className="btn-ghost"
+                  style={{ fontSize: '10px', padding: '3px 8px', marginLeft: '6px', borderRadius: '6px', backgroundColor: 'rgba(0,0,0,0.1)' }}
+                >
+                  Sign Out
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="btn-primary"
+                style={{ height: '36px', padding: '0 16px', fontSize: '13px', borderRadius: '10px' }}
+              >
+                Sign In
+              </button>
+            )
+          )}
+        </div>
+        <input ref={fileInputRef} type="file" accept=".mbd,.json" onChange={handleImportProject} className="hidden" style={{ display: 'none' }} />
+      </header>
+
+      {/* 3. Main Dashboard Content */}
+      <main className="redesign-main">
+        <div className="redesign-content-inner">
           {/* Hero */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '40px', flexWrap: 'wrap', gap: '16px' }} className="dashboard-hero animate-fade-in-up">
+          <div style={{ display: 'flex', alignItems: 'center', justifycontent: 'space-between', marginBottom: '40px', flexWrap: 'wrap', gap: '16px' }} className="dashboard-hero animate-fade-in-up">
             <div>
               <h2 style={S.heroTitle}>Your Projects</h2>
               <p style={S.heroSub}>Manage your shooting schedules and production timelines</p>
@@ -820,6 +883,10 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px' }}>
               <div className="animate-spin" style={{ width: '28px', height: '28px', border: '3px solid var(--border-default)', borderTopColor: 'var(--accent-primary)', borderRadius: '50%' }} />
             </div>
+          ) : filteredProjects.length === 0 && searchQuery.trim() !== '' ? (
+            <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-secondary)' }}>
+              No projects match "{searchQuery}"
+            </div>
           ) : projects.length === 0 ? (
             <EmptyState
               onCreateProject={() => setShowNewProjectModal(true)}
@@ -845,7 +912,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
               </button>
 
               {/* Project cards */}
-              {projects.map((project, i) => {
+              {filteredProjects.map((project, i) => {
                 const hasSchedule = !!(
                   (project.data?.timelineItems && project.data.timelineItems.length > 0) ||
                   (project.data?.scheduleData?.timelineItems && project.data.scheduleData.timelineItems.length > 0)
@@ -854,20 +921,18 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
                   project.data?.shotListData?.shotListItems && project.data.shotListData.shotListItems.length > 0
                 );
 
+                const progress = getProjectProgress(project);
+
                 // Determine gradient based on features containing data
                 let gradient = 'linear-gradient(90deg, #444444, #555555)'; // Empty state (subtle gray)
                 const activeFeatures = [hasSchedule && 'schedule', hasShotList && 'shotlist'].filter(Boolean);
                 if (activeFeatures.length === 2) {
-                  // Both: Schedule (Yellow-orange) to Shot List (Green)
-                  gradient = 'gradient-schedule-shotlist'; // We can write a custom gradient or CSS var or use hex
-                  gradient = 'linear-gradient(90deg, var(--accent-amber), #3fb950)';
+                  gradient = 'linear-gradient(90deg, var(--accent-amber), var(--accent-primary))';
                 } else if (activeFeatures.length === 1) {
                   if (hasSchedule) {
-                    // Schedule only: Yellow-orange
                     gradient = 'linear-gradient(90deg, var(--accent-amber), #fbbf24)';
                   } else if (hasShotList) {
-                    // Shot list only: Green
-                    gradient = 'linear-gradient(90deg, #2ea44f, #3fb950)';
+                    gradient = 'linear-gradient(90deg, var(--accent-primary), #3fb950)';
                   }
                 }
 
@@ -875,12 +940,12 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
                   <div
                     key={project.id}
                     onClick={() => setProjectToOpen(project)}
-                    className="project-card animate-fade-in-up"
+                    className="redesign-card animate-fade-in-up"
                     style={{ animationDelay: `${(i + 1) * 0.05}s` }}
                   >
                     {/* Accent strip */}
                     <div style={{
-                      height: '3px',
+                      height: '4px',
                       background: gradient,
                     }} />
                     <div style={S.cardBody}>
@@ -902,6 +967,21 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
                       <p style={S.cardDesc} className="line-clamp-3">
                         {project.description || 'No description'}
                       </p>
+                      
+                      {/* Dynamic Progress Bar */}
+                      <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                          <span>Completion</span>
+                          <span>{progress}%</span>
+                        </div>
+                        <div className="redesign-card-progress-bar">
+                          <div 
+                            className="redesign-card-progress-fill" 
+                            style={{ width: `${progress}%`, background: gradient }}
+                          />
+                        </div>
+                      </div>
+
                       {/* Feature badges */}
                       <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
                         {project.isShared && (
@@ -928,6 +1008,60 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* 4. Shooting Schedule Timeline Widget */}
+          {!loading && projects.length > 0 && (
+            <div className="timeline-widget">
+              <div className="timeline-widget-header">
+                <div className="timeline-widget-title">Shooting Schedule Timeline</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Active schedules across all projects</div>
+              </div>
+              <div className="timeline-track-container">
+                {projects.filter((p: any) => getTimelineItems(p).length > 0).length === 0 ? (
+                  <div style={{ color: 'var(--text-muted)', fontSize: '13px', padding: '16px 8px', textAlign: 'center' }}>
+                    No active timeline tracks. Open a project and build a shooting schedule to visualize it here.
+                  </div>
+                ) : (
+                  projects.filter((p: any) => getTimelineItems(p).length > 0).map((project: any) => {
+                    const items = getTimelineItems(project).filter((item: any) => item.type === 'shot' || !item.type);
+                    return (
+                      <div key={project.id} className="timeline-track-row">
+                        <div className="timeline-track-label" title={project.name}>
+                          {project.name}
+                        </div>
+                        <div className="timeline-track-lane">
+                          {items.slice(0, 3).map((item: any, idx: number) => {
+                            const positions = [
+                              { left: '8%', width: '30%', bg: 'rgba(79, 181, 155, 0.14)', border: '1px solid var(--accent-primary)', labelColor: 'var(--text-accent)' },
+                              { left: '44%', width: '28%', bg: 'rgba(245, 158, 11, 0.12)', border: '1px solid var(--accent-amber)', labelColor: 'var(--accent-amber)' },
+                              { left: '76%', width: '18%', bg: 'rgba(168, 85, 247, 0.12)', border: '1px solid #a855f7', labelColor: '#b794f4' }
+                            ];
+                            const pos = positions[idx] || { left: '8%', width: '25%', bg: 'rgba(79, 181, 155, 0.14)', border: '1px solid var(--accent-primary)', labelColor: 'var(--text-accent)' };
+                            const label = item.sceneNumber ? `Sc. ${item.sceneNumber}` : `Row ${idx + 1}`;
+                            return (
+                              <div
+                                key={idx}
+                                className="timeline-track-block"
+                                style={{
+                                  left: pos.left,
+                                  width: pos.width,
+                                  backgroundColor: pos.bg,
+                                  border: pos.border,
+                                }}
+                              >
+                                <span style={{ color: pos.labelColor, fontWeight: 700, marginRight: '6px' }}>{label}</span>
+                                <span style={{ opacity: 0.85, fontSize: '10px' }}>{item.sceneDescription || item.description || ''}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
           )}
         </div>

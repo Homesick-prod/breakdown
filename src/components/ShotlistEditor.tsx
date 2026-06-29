@@ -106,7 +106,7 @@ type ViewMode = 'cards' | 'list';
 type ShotListEditorProps = {
   project?: Partial<Project>;
   onBack?: () => void;
-  onSave?: (data: ProjectSaveData) => void | Promise<void>;
+  onSave?: (data: ProjectSaveData, projectObj?: any) => void | Promise<void>;
 };
 
 type SortableItemProps = {
@@ -1088,7 +1088,7 @@ debounceTimeoutRef.current = setTimeout(() => {
 
       setSaveStatus('saving');
 
-      const savePromise = Promise.resolve(onSaveRef.current(dataToSave));
+      const savePromise = Promise.resolve(onSaveRef.current(dataToSave, project));
       const minDelayPromise = new Promise(resolve => setTimeout(resolve, 400));
 
       Promise.all([savePromise, minDelayPromise])
@@ -1110,7 +1110,7 @@ debounceTimeoutRef.current = setTimeout(() => {
     return () => {
       if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
       if (hasPendingSaveRef.current) {
-        Promise.resolve(onSaveRef.current(latestSaveDataRef.current)).catch((err) => {
+        Promise.resolve(onSaveRef.current(latestSaveDataRef.current, project)).catch((err) => {
           console.error('Failed to flush shotlist changes on exit:', err);
         });
       }
@@ -1315,7 +1315,7 @@ debounceTimeoutRef.current = setTimeout(() => {
       } 
     };
     setSaveStatus('saving');
-    const savePromise = Promise.resolve(onSaveRef.current(dataToSave));
+    const savePromise = Promise.resolve(onSaveRef.current(dataToSave, project));
     const minDelayPromise = new Promise(resolve => setTimeout(resolve, 400));
     Promise.all([savePromise, minDelayPromise])
       .then(() => {

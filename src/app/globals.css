@@ -1967,3 +1967,297 @@ body {
   z-index: 9999 !important;
   opacity: 1 !important;
 }
+
+/* ==========================================================================
+   PREMIUM REDESIGN SYSTEM (NLE/SAAS AESTHETIC)
+   ========================================================================== */
+
+/* Shell Layout */
+.redesign-layout {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--bg-base);
+}
+
+/* Sidebar styling */
+.redesign-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 80px;
+  background-color: var(--bg-surface);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 0;
+  z-index: 100;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.redesign-sidebar-logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent-primary) 0%, #a855f7 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 48px;
+  box-shadow: 0 4px 12px var(--accent-glow-sm);
+  font-weight: 800;
+  font-size: 18px;
+  color: #fff;
+}
+
+.redesign-sidebar-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+}
+
+.redesign-sidebar-item {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  position: relative;
+}
+
+.redesign-sidebar-item:hover,
+.redesign-sidebar-item.active {
+  color: var(--text-primary);
+  background-color: var(--bg-elevated);
+}
+
+.redesign-sidebar-item.active::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 14px;
+  bottom: 14px;
+  width: 4px;
+  border-radius: 4px;
+  background-color: var(--accent-primary);
+  box-shadow: 0 0 8px var(--accent-primary);
+}
+
+.redesign-sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Topbar styling */
+.redesign-topbar {
+  position: fixed;
+  top: 0;
+  left: 80px;
+  right: 0;
+  height: 72px;
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  z-index: 90;
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.redesign-search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 8px 14px;
+  width: 320px;
+  max-width: 100%;
+  color: var(--text-muted);
+  transition: all 0.2s;
+}
+
+.redesign-search-box:focus-within {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-primary), 0 0 8px var(--accent-glow-sm);
+  color: var(--text-primary);
+}
+
+.redesign-search-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  width: 100%;
+  color: var(--text-primary);
+}
+
+.redesign-user-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 12px;
+  border-radius: 30px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+}
+
+/* Main Content styling */
+.redesign-main {
+  flex: 1;
+  margin-left: 80px;
+  padding-top: 72px;
+  padding-bottom: 48px;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.redesign-content-inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 32px;
+}
+
+/* Premium Project Cards */
+.redesign-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+.redesign-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--border-default);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24), var(--shadow-glow);
+}
+
+.redesign-card-progress-bar {
+  height: 4px;
+  background-color: var(--bg-elevated);
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.redesign-card-progress-fill {
+  height: 100%;
+  border-radius: 0 2px 2px 0;
+  transition: width 0.4s ease-out;
+}
+
+/* Timeline Widget styling */
+.timeline-widget {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  margin-top: 40px;
+  padding: 24px;
+  box-shadow: var(--shadow-md);
+}
+
+.timeline-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.timeline-widget-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.timeline-track-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.timeline-track-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 780px;
+}
+
+.timeline-track-label {
+  width: 140px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timeline-track-lane {
+  flex: 1;
+  height: 38px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.timeline-track-block {
+  position: absolute;
+  height: 26px;
+  top: 5px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Responsiveness overrides */
+@media (max-width: 768px) {
+  .redesign-sidebar {
+    display: none !important;
+  }
+  .redesign-topbar {
+    left: 0 !important;
+    padding: 0 16px !important;
+  }
+  .redesign-main {
+    margin-left: 0 !important;
+    padding-top: 72px !important;
+    padding-bottom: 80px !important;
+  }
+  .redesign-content-inner {
+    padding: 16px !important;
+  }
+  .redesign-search-box {
+    display: none !important;
+  }
+}
