@@ -35,7 +35,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
         const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
         setError(
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <strong style={{ fontSize: '13px', color: '#ef4444' }}>โดเมนนี้ยังไม่ได้รับอนุญาต (Unauthorized Domain)</strong>
+            <strong style={{ fontSize: '13px', color: 'var(--accent-red)' }}>โดเมนนี้ยังไม่ได้รับอนุญาต (Unauthorized Domain)</strong>
             <span>
               กรุณาเพิ่ม IP / โดเมนนี้ในหน้าตั้งค่า Firebase Console:
             </span>
@@ -92,7 +92,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
           <div style={{
             background: 'rgba(239, 68, 68, 0.1)',
             border: '1px solid rgba(239, 68, 68, 0.2)',
-            color: '#ef4444',
+            color: 'var(--accent-red)',
             borderRadius: '8px',
             padding: '12px',
             fontSize: '12px',

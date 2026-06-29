@@ -173,7 +173,7 @@ export default function InstallPrompt() {
           padding: '30px',
           maxWidth: '460px',
           width: '100%',
-          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(76, 161, 138, 0.1)',
+          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.5), 0 0 20px var(--accent-glow-sm)',
           position: 'relative',
           color: 'var(--text-primary)',
           textAlign: 'center',
@@ -189,18 +189,18 @@ export default function InstallPrompt() {
             right: '16px',
             background: 'none',
             border: 'none',
-            color: '#8a8a8a',
+            color: 'var(--text-secondary)',
             cursor: 'pointer',
             padding: '4px',
             borderRadius: '50%',
             transition: 'all 0.2s',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.color = '#d5d5d5';
+            e.currentTarget.style.color = 'var(--text-primary)';
             e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.color = '#8a8a8a';
+            e.currentTarget.style.color = 'var(--text-secondary)';
             e.currentTarget.style.backgroundColor = 'transparent';
           }}
         >
@@ -212,13 +212,13 @@ export default function InstallPrompt() {
           width: '72px',
           height: '72px',
           borderRadius: '20px',
-          background: 'linear-gradient(135deg, rgba(76, 161, 138, 0.2) 0%, rgba(138, 76, 161, 0.2) 100%)',
-          border: '1px solid rgba(76, 161, 138, 0.4)',
+          background: 'linear-gradient(135deg, var(--accent-glow) 0%, rgba(138, 76, 161, 0.2) 100%)',
+          border: '1px solid var(--border-accent)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           margin: '0 auto 20px',
-          color: '#4CA18A',
+          color: 'var(--accent-primary)',
         }}>
           <Smartphone size={36} />
         </div>
@@ -236,7 +236,7 @@ export default function InstallPrompt() {
         <p style={{
           fontSize: '14px',
           lineHeight: '1.6',
-          color: '#8a8a8a',
+          color: 'var(--text-secondary)',
           marginBottom: '24px',
           padding: '0 10px',
         }}>
@@ -257,7 +257,7 @@ export default function InstallPrompt() {
             <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '10px' }}>
               To install on your iOS device:
             </p>
-            <ol style={{ margin: 0, paddingLeft: '20px', color: '#8a8a8a', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <ol style={{ margin: 0, paddingLeft: '20px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <li style={{ listStyleType: 'decimal' }}>
                 Tap the <strong>Share</strong> button <Share size={14} style={{ display: 'inline', verticalAlign: 'middle', margin: '0 2px' }} /> in Safari.
               </li>
@@ -278,7 +278,7 @@ export default function InstallPrompt() {
             <button
               onClick={handleInstall}
               style={{
-                backgroundColor: '#4CA18A',
+                backgroundColor: 'var(--accent-primary)',
                 color: '#111111',
                 border: 'none',
                 borderRadius: '8px',
@@ -291,15 +291,15 @@ export default function InstallPrompt() {
                 justifyContent: 'center',
                 gap: '8px',
                 transition: 'all 0.2s',
-                boxShadow: '0 4px 12px rgba(76, 161, 138, 0.3)',
+                boxShadow: '0 4px 12px var(--accent-glow-sm)',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#5eb69e';
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(76, 161, 138, 0.4)';
+                e.currentTarget.style.backgroundColor = 'var(--accent-primary-h)';
+                e.currentTarget.style.boxShadow = '0 6px 16px var(--accent-glow)';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#4CA18A';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(76, 161, 138, 0.3)';
+                e.currentTarget.style.backgroundColor = 'var(--accent-primary)';
+                e.currentTarget.style.boxShadow = '0 4px 12px var(--accent-glow-sm)';
               }}
             >
               <Download size={18} />
@@ -310,9 +310,9 @@ export default function InstallPrompt() {
           <button
             onClick={handleDeny}
             style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              color: '#d5d5d5',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
+              backgroundColor: 'var(--bg-elevated)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-default)',
               borderRadius: '8px',
               padding: '12px 24px',
               fontSize: '14px',

@@ -98,7 +98,7 @@ function buildDarkStyles<Option, IsMulti extends boolean = false, Group extends 
       ...base,
       color: 'var(--text-muted)',
       padding: '0 4px',
-      '&:hover': { color: '#ef4444' },
+      '&:hover': { color: 'var(--accent-red)' },
     }),
     menu: (base) => ({
       ...base,
@@ -238,7 +238,7 @@ function buildDarkStyles<Option, IsMulti extends boolean = false, Group extends 
       transition: 'background-color 0.15s, color 0.15s',
       '&:hover': {
         backgroundColor: 'rgba(239, 68, 68, 0.15)',
-        color: '#ef4444',
+        color: 'var(--accent-red)',
       },
     }),
   };
