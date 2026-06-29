@@ -1,155 +1,49 @@
 'use client';
 
 import React from 'react';
-import ReactSelect, { Props as ReactSelectProps, StylesConfig, GroupBase, components, MenuProps } from 'react-select';
+import ReactSelect, { Props as ReactSelectProps, StylesConfig, GroupBase } from 'react-select';
 import ReactSelectCreatable from 'react-select/creatable';
+import { normalizeLegacySelectValue } from '../utils/selectValueFormat';
 
-function CustomMenu<Option, IsMulti extends boolean, Group extends GroupBase<Option>>(
-  props: MenuProps<Option, IsMulti, Group>
-) {
-  const [align, setAlign] = React.useState<'left' | 'right'>('left');
-  const [placement, setPlacement] = React.useState<'top' | 'bottom'>('bottom');
-  const [coords, setCoords] = React.useState<{ top: number; left: number; width: number } | null>(null);
-  const menuRef = React.useRef<HTMLDivElement>(null);
+const MENU_PORTAL_Z_INDEX = 40;
+const DEFAULT_MAX_MENU_HEIGHT = 360;
+const REACT_SELECT_MIN_MENU_HEIGHT = 120;
+const MENU_VIEWPORT_MARGIN = 12;
+const MENU_CHROME_HEIGHT = 16;
+const DEFAULT_MENU_HEIGHT = DEFAULT_MAX_MENU_HEIGHT + MENU_CHROME_HEIGHT;
+const GROUP_MENU_COLUMN_WIDTH = 150;
+const GROUP_MENU_HORIZONTAL_PADDING = 48;
 
-  const updatePosition = React.useCallback(() => {
-    const instanceId = props.selectProps.instanceId;
-    if (!instanceId) return;
+type MenuPlacementPreference = 'top' | 'bottom';
 
-    let control: HTMLElement | null = null;
-    const menuEl = menuRef.current;
-    if (menuEl) {
-      let parent = menuEl.parentElement;
-      while (parent && parent !== document.body) {
-        const found = parent.querySelector('.dark-select__control') || 
-                      parent.querySelector('[class$="__control"]') ||
-                      parent.querySelector('[id$="-control"]');
-        if (found) {
-          control = found as HTMLElement;
-          break;
-        }
-        parent = parent.parentElement;
-      }
-    }
+function getStyleNumber(value: unknown): number | null {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
 
-    if (!control) {
-      control = document.getElementById(`react-select-${instanceId}-control`);
-    }
+function getGroupCount(options: unknown): number {
+  if (!Array.isArray(options) || options.length === 0) return 0;
+  const isGrouped = options[0] !== null && typeof options[0] === 'object' && 'options' in options[0];
+  return isGrouped ? options.length : 0;
+}
 
-    if (!control) {
-      try {
-        const escapedId = instanceId.replace(/:/g, '\\:');
-        control = document.querySelector(`[id$="-control"][id*="${escapedId}"]`) as HTMLElement | null;
-      } catch (e) {
-        const controls = document.querySelectorAll('[id$="-control"]');
-        for (let i = 0; i < controls.length; i++) {
-          if (controls[i].id.includes(instanceId)) {
-            control = controls[i] as HTMLElement;
-            break;
-          }
-        }
-      }
-    }
+function getOpenMenuHeight(): number | null {
+  if (typeof document === 'undefined') return null;
+  const menu = document.querySelector('.dark-select__menu') as HTMLElement | null;
+  const menuList = document.querySelector('.dark-select__menu-list') as HTMLElement | null;
+  if (!menu || !menuList) return null;
+  const menuRectHeight = menu.getBoundingClientRect().height;
+  if (menuRectHeight > 0) {
+    return Math.ceil(menuRectHeight);
+  }
 
-    if (control) {
-      const rect = control.getBoundingClientRect();
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-
-      // 1. Align to right side if control is on the right half of the screen
-      let currentAlign: 'left' | 'right' = 'left';
-      if (rect.left + rect.width / 2 > vw / 2) {
-        currentAlign = 'right';
-      }
-      setAlign(currentAlign);
-
-      // 2. Measure menu height and width
-      const menuHeight = menuEl ? menuEl.offsetHeight : 280; // fallback estimate
-      const menuWidth = menuEl ? menuEl.offsetWidth : rect.width;
-
-      // 3. Determine if there is space below
-      const spaceBelow = vh - rect.bottom;
-      const spaceAbove = rect.top;
-
-      let currentPlacement: 'top' | 'bottom' = 'bottom';
-      if (spaceBelow < menuHeight + 10 && spaceAbove > spaceBelow) {
-        currentPlacement = 'top';
-      }
-      setPlacement(currentPlacement);
-
-      // 4. Calculate fixed coords
-      const top = currentPlacement === 'bottom'
-        ? rect.bottom + 4
-        : rect.top - menuHeight - 4;
-
-      let left = rect.left;
-      if (currentAlign === 'right') {
-        left = rect.right - menuWidth;
-      }
-
-      // Keep it within screen bounds
-      if (left < 10) {
-        left = 10;
-      } else if (left + menuWidth > vw - 10) {
-        left = vw - menuWidth - 10;
-      }
-
-      setCoords({
-        top,
-        left,
-        width: rect.width
-      });
-    }
-  }, [props.selectProps.instanceId]);
-
-  React.useLayoutEffect(() => {
-    updatePosition();
-
-    let resizeObserver: ResizeObserver | null = null;
-    if (menuRef.current && typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(() => {
-        updatePosition();
-      });
-      resizeObserver.observe(menuRef.current);
-    }
-
-    // Capture scrolls on any parent container, plus window resize
-    window.addEventListener('scroll', updatePosition, true);
-    window.addEventListener('resize', updatePosition, true);
-
-    return () => {
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-      window.removeEventListener('scroll', updatePosition, true);
-      window.removeEventListener('resize', updatePosition, true);
-    };
-  }, [updatePosition]);
-
-  const style: React.CSSProperties = coords ? {
-    position: 'fixed',
-    top: `${coords.top}px`,
-    left: `${coords.left}px`,
-    minWidth: `${coords.width}px`,
-    zIndex: 99999,
-  } : {
-    position: 'fixed',
-    opacity: 0,
-    pointerEvents: 'none',
-  };
-
-  return (
-    <components.Menu {...props}>
-      <div 
-        ref={menuRef} 
-        className="dark-select-menu-card" 
-        data-align={align} 
-        data-placement={placement}
-        style={style}
-      >
-        {props.children}
-      </div>
-    </components.Menu>
+  return Math.min(
+    DEFAULT_MENU_HEIGHT,
+    Math.ceil(menuList.scrollHeight + MENU_CHROME_HEIGHT)
   );
 }
 
@@ -158,22 +52,22 @@ function buildDarkStyles<Option, IsMulti extends boolean = false, Group extends 
   return {
     control: (base, state) => ({
       ...base,
-      backgroundColor: 'var(--bg-input)',
-      borderColor: state.isFocused ? 'var(--accent-primary)' : 'var(--border-default)',
+      backgroundColor: state.isDisabled ? 'transparent' : 'var(--bg-input)',
+      borderColor: state.isDisabled ? 'transparent' : state.isFocused ? 'var(--accent-primary)' : 'var(--border-default)',
       borderRadius: 'var(--radius-sm)',
       minHeight: '36px',
-      boxShadow: state.isFocused ? 'inset 0 1px 2px rgba(0,0,0,0.075), 0 0 0 2px var(--accent-glow)' : 'inset 0 1px 2px rgba(0,0,0,0.075)',
-      '&:hover': { borderColor: state.isFocused ? 'var(--accent-primary)' : 'var(--border-strong)' },
-      cursor: 'pointer',
+      boxShadow: state.isDisabled ? 'none' : state.isFocused ? 'inset 0 1px 2px rgba(0,0,0,0.075), 0 0 0 2px var(--accent-glow)' : 'inset 0 1px 2px rgba(0,0,0,0.075)',
+      '&:hover': { borderColor: state.isDisabled ? 'transparent' : state.isFocused ? 'var(--accent-primary)' : 'var(--border-strong)' },
+      cursor: state.isDisabled ? 'default' : 'pointer',
       fontSize: '13px',
     }),
     valueContainer: (base) => ({
       ...base,
       padding: '2px 10px',
     }),
-    singleValue: (base) => ({
+    singleValue: (base, state) => ({
       ...base,
-      color: 'var(--text-primary)',
+      color: state.isDisabled ? 'var(--text-secondary)' : 'var(--text-primary)',
       fontSize: '13px',
       fontWeight: 500,
     }),
@@ -189,6 +83,7 @@ function buildDarkStyles<Option, IsMulti extends boolean = false, Group extends 
     indicatorSeparator: () => ({ display: 'none' }),
     dropdownIndicator: (base, state) => ({
       ...base,
+      display: state.isDisabled ? 'none' : 'block',
       color: state.isFocused ? 'var(--accent-primary)' : 'var(--text-muted)',
       padding: '0 6px',
       transition: 'color 0.2s, transform 0.2s',
@@ -207,27 +102,67 @@ function buildDarkStyles<Option, IsMulti extends boolean = false, Group extends 
     }),
     menu: (base) => ({
       ...base,
-      backgroundColor: 'transparent',
-      border: 'none',
-      borderRadius: '0',
-      boxShadow: 'none',
-      overflow: 'visible',
-      zIndex: 9999,
-      marginTop: '0',
+      backgroundColor: 'var(--bg-surface)',
+      border: '1px solid var(--border-default)',
+      borderRadius: 'var(--radius-sm)',
+      boxShadow: 'var(--shadow-lg)',
+      boxSizing: 'border-box',
+      overflow: 'hidden',
+      zIndex: MENU_PORTAL_Z_INDEX,
+      marginTop: '4px',
+      marginBottom: '4px',
       width: '100%',
+      maxWidth: 'calc(100vw - 20px)',
+      animation: 'dropdownAppear 0.12s ease-out',
     }),
+    menuPortal: (base, state) => {
+      const viewportWidth = typeof window === 'undefined' ? null : window.innerWidth;
+      const baseLeft = getStyleNumber(base.left);
+      const baseWidth = getStyleNumber(base.width);
+      const isMenuVisible = (state.selectProps as any).menuIsFullyVisible !== false;
+
+      if (!viewportWidth || baseLeft === null || baseWidth === null) {
+        return {
+          ...base,
+          opacity: isMenuVisible ? 1 : 0,
+          pointerEvents: isMenuVisible ? 'auto' : 'none',
+          zIndex: MENU_PORTAL_Z_INDEX,
+        };
+      }
+
+      const groupCount = getGroupCount(state.selectProps.options);
+      const preferredGroupWidth = groupCount > 1
+        ? groupCount * GROUP_MENU_COLUMN_WIDTH + GROUP_MENU_HORIZONTAL_PADDING
+        : Math.max(baseWidth, 140);
+      const width = Math.min(
+        Math.max(baseWidth, preferredGroupWidth),
+        viewportWidth - MENU_VIEWPORT_MARGIN * 2
+      );
+      const left = Math.min(
+        Math.max(MENU_VIEWPORT_MARGIN, baseLeft),
+        viewportWidth - width - MENU_VIEWPORT_MARGIN
+      );
+
+      return {
+        ...base,
+        left,
+        width,
+        opacity: isMenuVisible ? 1 : 0,
+        pointerEvents: isMenuVisible ? 'auto' : 'none',
+        zIndex: MENU_PORTAL_Z_INDEX,
+      };
+    },
     menuList: (base, state) => {
-      const options = state.selectProps.options || [];
-      const isGrouped = options.length > 0 && options[0] !== null && typeof options[0] === 'object' && 'options' in options[0];
-      const groupCount = isGrouped ? options.length : 0;
+      const groupCount = getGroupCount(state.selectProps.options);
       return {
         ...base,
         padding: '12px 14px',
-        maxHeight: 'none',
+        maxHeight: DEFAULT_MAX_MENU_HEIGHT,
         display: 'grid',
-        gridTemplateColumns: groupCount > 1 ? 'repeat(2, minmax(130px, 1fr))' : '1fr',
+        gridTemplateColumns: groupCount > 1 ? 'repeat(auto-fit, minmax(130px, 1fr))' : '1fr',
         gap: '16px 20px',
-        overflow: 'visible',
+        overflowX: 'hidden',
+        overflowY: 'auto',
       };
     },
     option: (base, state) => ({
@@ -320,6 +255,10 @@ function getShortLabel(option: any): string {
 
   if (!label) return value;
 
+  if (value && value === value.toUpperCase()) {
+    return value;
+  }
+
   // 1. If there's an em-dash/en-dash/hyphen with spaces, e.g., "EWS — Extreme Wide"
   if (label.includes(' — ')) {
     return label.split(' — ')[0].trim();
@@ -363,12 +302,36 @@ function getFullLabel(option: any): string {
   return label;
 }
 
+function getSelectValueTokens(value: any, isMulti?: boolean): string[] {
+  if (!value || typeof value === 'object') return [];
+  const strVal = String(value);
+  if (isMulti) {
+    return strVal.split(',').map(s => normalizeLegacySelectValue(s.trim())).filter(Boolean);
+  }
+  return [normalizeLegacySelectValue(strVal)].filter(Boolean);
+}
+
+function addCurrentValueOptions(groups: SelectGroup[], currentValues: string[]): SelectGroup[] {
+  const seenValues = new Set<string>();
+  const orphanOptions = currentValues
+    .filter(value => {
+      if (!value || findOption(groups, value) || seenValues.has(value)) return false;
+      seenValues.add(value);
+      return true;
+    })
+    .map(value => ({ value, label: value }));
+
+  if (orphanOptions.length === 0) return groups;
+  return [{ label: 'Current', options: orphanOptions }, ...groups];
+}
+
 type DarkSelectProps<Option, IsMulti extends boolean = false, Group extends GroupBase<Option> = GroupBase<Option>> =
   Omit<ReactSelectProps<Option, IsMulti, Group>, 'value' | 'onChange'> & {
     instanceId?: string;
     value?: any;
     onChange?: (value: any, actionMeta: any) => void;
     constrainOnePerGroup?: boolean;
+    constrainShotSize?: boolean;
     isCreatable?: boolean;
     useChips?: boolean;
   };
@@ -377,9 +340,91 @@ export function DarkSelect<
   Option = unknown,
   IsMulti extends boolean = false,
   Group extends GroupBase<Option> = GroupBase<Option>
->({ instanceId, formatOptionLabel, components: customComponents, value, onChange, options, isMulti, constrainOnePerGroup = false, isCreatable = false, useChips = false, ...props }: DarkSelectProps<Option, IsMulti, Group>) {
+>({
+  instanceId,
+  formatOptionLabel,
+  components: customComponents,
+  value,
+  onChange,
+  options,
+  isMulti,
+  constrainOnePerGroup = false,
+  constrainShotSize = false,
+  isCreatable = false,
+  useChips = false,
+  ...props
+}: DarkSelectProps<Option, IsMulti, Group>) {
   const fallbackId = React.useId();
   const safeId = instanceId ?? `dark-select-${fallbackId}`;
+  const selectRootRef = React.useRef<HTMLDivElement>(null);
+  const [menuPortalTarget, setMenuPortalTarget] = React.useState<HTMLElement | null>(null);
+  const [menuHeight, setMenuHeight] = React.useState(DEFAULT_MENU_HEIGHT);
+  const [menuPlacement, setMenuPlacement] = React.useState<MenuPlacementPreference>('bottom');
+  const [menuIsFullyVisible, setMenuIsFullyVisible] = React.useState(true);
+  const [menuIsOpen, setMenuIsOpen] = React.useState(false);
+
+  const updateMenuGeometry = React.useCallback(() => {
+    const control = selectRootRef.current?.querySelector('.dark-select__control');
+    if (!control) {
+      setMenuPlacement('bottom');
+      setMenuIsFullyVisible(false);
+      return;
+    }
+
+    const measuredMenuHeight = getOpenMenuHeight();
+    const requiredMenuHeight = measuredMenuHeight ?? menuHeight;
+    const rect = control.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom - MENU_VIEWPORT_MARGIN;
+    const spaceAbove = rect.top - MENU_VIEWPORT_MARGIN;
+    let nextPlacement: MenuPlacementPreference = 'bottom';
+    let nextIsFullyVisible = true;
+
+    if (spaceBelow >= requiredMenuHeight) {
+      nextPlacement = 'bottom';
+    } else if (spaceAbove >= requiredMenuHeight) {
+      nextPlacement = 'top';
+    } else {
+      nextPlacement = spaceAbove > spaceBelow ? 'top' : 'bottom';
+      nextIsFullyVisible = false;
+    }
+
+    if (measuredMenuHeight && measuredMenuHeight !== menuHeight) {
+      setMenuHeight(measuredMenuHeight);
+    }
+    setMenuPlacement(nextPlacement);
+    setMenuIsFullyVisible(nextIsFullyVisible);
+  }, [menuHeight]);
+
+  React.useEffect(() => {
+    setMenuPortalTarget(document.body);
+  }, []);
+
+  React.useEffect(() => {
+    if (!menuIsOpen) return;
+
+    updateMenuGeometry();
+    const animationFrame = window.requestAnimationFrame(updateMenuGeometry);
+    window.addEventListener('resize', updateMenuGeometry, { passive: true });
+    window.addEventListener('scroll', updateMenuGeometry, { passive: true, capture: true });
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener('resize', updateMenuGeometry);
+      window.removeEventListener('scroll', updateMenuGeometry, { capture: true } as AddEventListenerOptions);
+    };
+  }, [menuIsOpen, updateMenuGeometry]);
+
+  const handleMenuOpen = React.useCallback(() => {
+    setMenuIsFullyVisible(true);
+    updateMenuGeometry();
+    setMenuIsOpen(true);
+    props.onMenuOpen?.();
+  }, [props, updateMenuGeometry]);
+
+  const handleMenuClose = React.useCallback(() => {
+    setMenuIsOpen(false);
+    setMenuIsFullyVisible(true);
+    props.onMenuClose?.();
+  }, [props]);
 
   const defaultFormatOptionLabel = (opt: Option, { context }: { context: 'value' | 'menu' }) => {
     if (context === 'value') {
@@ -388,34 +433,41 @@ export function DarkSelect<
     return getFullLabel(opt);
   };
 
+  const currentValueTokens = React.useMemo(
+    () => getSelectValueTokens(value, Boolean(isMulti)),
+    [value, isMulti]
+  );
+
+  const effectiveOptions = React.useMemo(() => {
+    const selectOptions = (options as any as SelectGroup[]) || [];
+    return addCurrentValueOptions(selectOptions, currentValueTokens);
+  }, [options, currentValueTokens]);
+
   // 1. Resolve option value from string or object format
   const resolvedValue = React.useMemo(() => {
     if (!value) return isMulti ? [] : null;
     if (typeof value === 'object') return value;
 
-    const strVal = String(value);
-    const selectOptions = (options as any as SelectGroup[]) || [];
-
     if (isMulti) {
-      const values = strVal.split(',').map(s => s.trim()).filter(Boolean);
       const foundOptions: any[] = [];
-      values.forEach(val => {
-        const opt = findOption(selectOptions, val);
+      currentValueTokens.forEach(val => {
+        const opt = findOption(effectiveOptions, val);
         if (opt) {
           foundOptions.push(opt);
-        } else if (isCreatable) {
+        } else {
           foundOptions.push({ value: val, label: val });
         }
       });
       return foundOptions;
     }
 
-    const opt = findOption(selectOptions, strVal);
-    if (!opt && isCreatable) {
-      return { value: strVal, label: strVal };
+    const opt = findOption(effectiveOptions, currentValueTokens[0] ?? '');
+    if (!opt) {
+      const fallbackValue = currentValueTokens[0] ?? String(value);
+      return { value: fallbackValue, label: fallbackValue };
     }
     return opt;
-  }, [value, isMulti, options, isCreatable]);
+  }, [value, isMulti, currentValueTokens, effectiveOptions]);
 
   // 2. Intercept onChange to format as comma-separated string & enforce 1-per-category constraint
   const handleOnChange = (newValue: any, actionMeta: any) => {
@@ -428,7 +480,7 @@ export function DarkSelect<
       if (constrainOnePerGroup && actionMeta.action === 'select-option' && actionMeta.option) {
         const addedOpt = actionMeta.option;
         let targetGroupLabel = '';
-        const selectOptions = options as any as SelectGroup[];
+        const selectOptions = effectiveOptions as SelectGroup[];
 
         for (const group of selectOptions) {
           if (group.options.some(o => o.value === addedOpt.value)) {
@@ -449,7 +501,40 @@ export function DarkSelect<
         }
       }
 
-      const joinedValues = arr.map((opt: any) => opt.value).join(',');
+      // Special constraint for shot size: one base size plus one option from each utility group.
+      if (constrainShotSize && actionMeta.action === 'select-option' && actionMeta.option) {
+        const addedOpt = actionMeta.option;
+        const selectOptions = effectiveOptions as SelectGroup[];
+
+        let addedGroupLabel = '';
+        for (const group of selectOptions) {
+          if (group.options.some(o => o.value === addedOpt.value)) {
+            addedGroupLabel = group.label;
+            break;
+          }
+        }
+
+        const isBaseSizeGroup = (label: string) =>
+          label === 'Wide & Full' || label === 'Mediums' || label === 'Close-Ups';
+
+        if (isBaseSizeGroup(addedGroupLabel)) {
+          arr = arr.filter((opt: any) => {
+            if (opt.value === addedOpt.value) return true;
+            const optGroup = selectOptions.find(group => group.options.some(o => o.value === opt.value));
+            const optGroupLabel = optGroup?.label || '';
+            return !isBaseSizeGroup(optGroupLabel);
+          });
+        } else if (addedGroupLabel === 'Grouping' || addedGroupLabel === 'Function') {
+          arr = arr.filter((opt: any) => {
+            if (opt.value === addedOpt.value) return true;
+            const optGroup = selectOptions.find(group => group.options.some(o => o.value === opt.value));
+            const optGroupLabel = optGroup?.label || '';
+            return optGroupLabel !== addedGroupLabel;
+          });
+        }
+      }
+
+      const joinedValues = arr.map((opt: any) => normalizeLegacySelectValue(String(opt.value))).join(',');
       onChange(joinedValues as any, actionMeta);
     } else {
       onChange(newValue, actionMeta);
@@ -473,33 +558,43 @@ export function DarkSelect<
 
   const defaultComponents = useChips
     ? {
-        Menu: CustomMenu,
         ...customComponents
       }
     : {
-        Menu: CustomMenu,
         MultiValue: CustomMultiValue,
-        MultiValueContainer: ({ children }) => <>{children}</>,
+        MultiValueContainer: ({ children }: any) => <>{children}</>,
         MultiValueRemove: () => null,
         ...customComponents
       };
 
   return (
-    <SelectComponent<Option, IsMulti, Group>
-      formatOptionLabel={formatOptionLabel || defaultFormatOptionLabel}
-      components={defaultComponents}
-      value={resolvedValue as any}
-      onChange={handleOnChange as any}
-      options={options}
-      isMulti={isMulti}
-      hideSelectedOptions={false}
-      isClearable={false}
-      instanceId={safeId}
-      styles={buildDarkStyles<Option, IsMulti, Group>()}
-      classNamePrefix="dark-select"
-      menuPosition="fixed"
-      {...props}
-    />
+    <div ref={selectRootRef}>
+      <SelectComponent<Option, IsMulti, Group>
+        formatOptionLabel={formatOptionLabel || defaultFormatOptionLabel}
+        components={defaultComponents}
+        value={resolvedValue as any}
+        onChange={handleOnChange as any}
+        options={effectiveOptions as any}
+        isMulti={isMulti}
+        closeMenuOnSelect={!isMulti}
+        hideSelectedOptions={false}
+        isClearable={false}
+        instanceId={safeId}
+        styles={buildDarkStyles<Option, IsMulti, Group>()}
+        classNamePrefix="dark-select"
+        menuPosition="fixed"
+        menuPlacement={menuPlacement}
+        menuShouldScrollIntoView={false}
+        minMenuHeight={REACT_SELECT_MIN_MENU_HEIGHT}
+        maxMenuHeight={DEFAULT_MAX_MENU_HEIGHT}
+        menuPortalTarget={menuPortalTarget}
+        {...props}
+        isSearchable={props.isSearchable ?? isCreatable}
+        menuIsFullyVisible={menuIsFullyVisible}
+        onMenuOpen={handleMenuOpen}
+        onMenuClose={handleMenuClose}
+      />
+    </div>
   );
 }
 
@@ -511,32 +606,36 @@ export type SelectGroup = { label: string; options: SelectOption[] };
 export const SHOT_SIZE_OPTIONS: SelectGroup[] = [
   {
     label: 'Wide & Full', options: [
-      { value: 'EWS', label: 'EWS — Extreme Wide' },
+      { value: 'EWS', label: 'EWS — Extreme Wide Shot' },
       { value: 'WS', label: 'WS — Wide Shot' },
       { value: 'FS', label: 'FS — Full Shot' },
     ]
   },
   {
     label: 'Mediums', options: [
-      { value: 'Cowboy', label: 'Cowboy Shot' },
+      { value: 'COWBOY', label: 'Cowboy Shot' },
       { value: 'MS', label: 'MS — Medium Shot' },
-      { value: 'MCU', label: 'MCU — Medium Close-Up' },
+      { value: 'MCU', label: 'MCU — Medium Close-Up Shot' },
     ]
   },
   {
     label: 'Close-Ups', options: [
-      { value: 'CU', label: 'CU — Close-Up' },
-      { value: 'ECU', label: 'ECU — Extreme Close-Up' },
-      { value: 'Insert', label: 'Insert Shot' },
+      { value: 'CU', label: 'CU — Close-Up Shot' },
+      { value: 'ECU', label: 'ECU — Extreme Close-Up Shot' },
     ]
   },
   {
-    label: 'Groupings & Function', options: [
+    label: 'Grouping', options: [
       { value: '2S', label: 'Two-Shot' },
       { value: '3S', label: 'Three-Shot' },
-      { value: 'Group', label: 'Group Shot' },
-      { value: 'EST', label: 'EST — Establishing Shot' },
-      { value: 'Cutaway', label: 'Cutaway' },
+      { value: 'GROUP', label: 'Group Shot' },
+    ]
+  },
+  {
+    label: 'Function', options: [
+      { value: 'EST', label: 'Establishing' },
+      { value: 'INSERT', label: 'Insert' },
+      { value: 'CUTAWAY', label: 'Cutaway' },
     ]
   },
 ];
@@ -554,6 +653,8 @@ export const ANGLE_OPTIONS: SelectGroup[] = [
   {
     label: 'Perspective', options: [
       { value: 'Profile', label: 'Profile' },
+      { value: '3/4', label: '3/4 — Three-Quarter' },
+      { value: 'Rear', label: 'Rear' },
       { value: 'OTS', label: 'OTS — Over the Shoulder' },
       { value: 'POV', label: 'POV — Point of View' },
     ]
@@ -568,30 +669,49 @@ export const ANGLE_OPTIONS: SelectGroup[] = [
 export const MOVEMENT_OPTIONS: SelectGroup[] = [
   {
     label: 'Stationary', options: [
-      { value: 'Static', label: 'Static / Tripod' },
-      { value: 'Pan', label: 'Pan (L/R)' },
-      { value: 'Tilt', label: 'Tilt (Up/Down)' },
+      { value: 'STATIC', label: 'Static / Tripod' },
+      { value: 'PAN L', label: 'Pan Left' },
+      { value: 'PAN R', label: 'Pan Right' },
+      { value: 'TILT U', label: 'Tilt Up' },
+      { value: 'TILT D', label: 'Tilt Down' },
     ]
   },
   {
-    label: 'Dynamic / Track', options: [
-      { value: 'Push In', label: 'Push In / Dolly In' },
-      { value: 'Pull Out', label: 'Pull Out / Dolly Out' },
-      { value: 'Track', label: 'Track / Follow' },
+    label: 'Dynamic', options: [
+      { value: 'DOLLY I', label: 'Dolly In' },
+      { value: 'DOLLY O', label: 'Dolly Out' },
+      { value: 'TRUCK L', label: 'Truck Left' },
+      { value: 'TRUCK R', label: 'Truck Right' },
+      { value: 'FOLLOW', label: 'Follow' },
+      { value: 'PEDESTAL U', label: 'Pedestal Up' },
+      { value: 'PEDESTAL D', label: 'Pedestal Down' },
     ]
   },
   {
     label: 'Gear / Rig', options: [
-      { value: 'Handheld', label: 'Handheld' },
-      { value: 'Steadicam', label: 'Steadicam / Gimbal' },
-      { value: 'Crane', label: 'Crane / Jib' },
-      { value: 'Drone', label: 'Drone / Aerial' },
+      { value: 'HANDHELD', label: 'Handheld' },
+      { value: 'STEADICAM', label: 'Steadicam' },
+      { value: 'GIMBAL', label: 'Gimbal' },
+      { value: 'CRANE', label: 'Crane' },
+      { value: 'JIB', label: 'Jib' },
+      { value: 'DRONE', label: 'Drone' },
+      { value: 'AERIAL', label: 'Aerial' },
     ]
   },
   {
     label: 'Lens', options: [
-      { value: 'Zoom In', label: 'Zoom In' },
-      { value: 'Zoom Out', label: 'Zoom Out' },
+      { value: 'ZOOM I', label: 'Zoom In' },
+      { value: 'ZOOM O', label: 'Zoom Out' },
+      { value: 'SNAP ZOOM', label: 'Snap Zoom' },
+      { value: 'RACK FOCUS', label: 'Rack Focus' },
+    ]
+  },
+  {
+    label: 'Complex', options: [
+      { value: 'ARC', label: 'Arc' },
+      { value: 'ORBIT', label: 'Orbit' },
+      { value: 'WHIP PAN L', label: 'Whip Pan Left' },
+      { value: 'WHIP PAN R', label: 'Whip Pan Right' },
     ]
   },
 ];

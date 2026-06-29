@@ -8,10 +8,16 @@ const withSerwist = withSerwistInit({
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "export",
+  trailingSlash: true,
   typescript: {
     ignoreBuildErrors: true,
   },
-  allowedDevOrigins: ["192.168.1.41", "192.168.1.41:3000", "192.168.1.41:3001"],
+  turbopack: {},
+  allowedDevOrigins: [
+    "192.168.1.41", "192.168.1.41:3000", "192.168.1.41:3001",
+    "192.168.1.33", "192.168.1.33:3000", "192.168.1.33:3001"
+  ],
 };
 
 export default withSerwist(nextConfig);

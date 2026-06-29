@@ -1,7 +1,7 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getFirestore, Firestore, initializeFirestore, collection, addDoc } from 'firebase/firestore';
 import { getAnalytics, isSupported, Analytics } from 'firebase/analytics';
-import { getStorage, FirebaseStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { getStorage, FirebaseStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { getAuth, Auth, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut, User } from 'firebase/auth';
 
 const firebaseConfig = {
@@ -54,8 +54,14 @@ if (isFirebaseEnabled) {
 export async function uploadImageToStorage(path: string, file: File): Promise<string> {
   if (!storage) throw new Error('Firebase Storage is not enabled');
   const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, file);
+  await uploadBytes(storageRef, file, { contentType: file.type || 'image/jpeg' });
   return getDownloadURL(storageRef);
+}
+
+export async function deleteImageFromStorage(url: string): Promise<void> {
+  if (!storage || !url || !url.startsWith('http')) return;
+  const storageRef = ref(storage, url);
+  await deleteObject(storageRef);
 }
 
 export async function signInWithGoogle(): Promise<User> {

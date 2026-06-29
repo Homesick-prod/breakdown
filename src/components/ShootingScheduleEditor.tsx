@@ -1,7 +1,7 @@
 `use client`;
 
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, TouchSensor, useSensor, useSensors, useDraggable, useDroppable } from '@dnd-kit/core';
+import React, { useState, useCallback, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, useDraggable, useDroppable, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
@@ -17,11 +17,27 @@ import { exportProject } from '../utils/file';
 import { exportToPDF } from '../utils/pdf';
 import { exportCallSheetToPDF } from '../utils/callsheetpdf';
 import Footer from './Footer';
+import EditorMobileCommandBar from './EditorMobileCommandBar';
 import { DarkSelect, findOption, SHOT_SIZE_OPTIONS, ANGLE_OPTIONS, MOVEMENT_OPTIONS, INT_EXT_OPTIONS, PERIOD_OPTIONS, SelectOption } from './DarkSelect';
 import { DarkDatePicker, DarkTimePicker } from './DarkDatePicker';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
-import { setImage, getImage, deleteImage } from '../utils/db';
-import { isFirebaseEnabled, uploadImageToStorage, logActivity } from '../lib/firebase';
+import { setImage, deleteImage } from '../utils/db';
+import { isFirebaseEnabled, uploadImageToStorage, deleteImageFromStorage, logActivity } from '../lib/firebase';
+import { fetchImageUrlAsDataUrl, optimizeImageFile } from '../utils/imageOptimizer';
+import { migrateLegacyStoredImage } from '../utils/imageMigration';
+
+const toTranslateOnlyTransform = (transform: any) => {
+  if (!transform) return undefined;
+  return `translate3d(${Math.round(transform.x)}px, ${Math.round(transform.y)}px, 0)`;
+};
+
+const getScheduleShotLinkKey = (item: any) => {
+  if (!item || item.type === 'break') return '';
+  if (item.linkedShotId) return `id:${item.linkedShotId}`;
+  const sceneNumber = String(item.sceneNumber || '').trim().toLowerCase();
+  const shotNumber = String(item.shotNumber || '').trim().toLowerCase();
+  return sceneNumber && shotNumber ? `key:${sceneNumber}::${shotNumber}` : '';
+};
 
 interface TimelineItem {
   id: string;
@@ -234,19 +250,250 @@ function SaveStatusIndicator({ status }) {
   );
 }
 
-// Sortable timeline item (table row) component
-function SortableItem({ id, item, index, imagePreviews, handleItemChange, handleImageUpload, removeTimelineItem, handleRemoveImage, activeImageUploadId, setActiveImageUploadId, focusedItemId, setFocusedItemId, viewMode, castOptions, getSceneCast }) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
-  const style = { transform: CSS.Transform.toString(transform), transition };
-  const isBreak = item.type === 'break';
-  const isFirstItem = index === 0;
-  const isActiveForUpload = activeImageUploadId === item.id;
-  const isFocused = focusedItemId === item.id;
+const SCENE_GROUP_TIMING_TITLE = 'Edit shot timing in Shot View';
+const SCENE_GROUP_TIMING_FIELDS = new Set(['start', 'end', 'duration']);
+const SHOT_LINKED_FIELDS = new Set(['sceneNumber', 'shotNumber', 'shotSize', 'angle', 'movement', 'lens', 'shotDescription', 'cast', 'notes']);
+const isDefaultZoom = (value: number) => Math.abs(value - 1) < 0.001;
 
-  const sceneCast = getSceneCast(item);
+type DeferredTextFieldProps = {
+  value?: string | number | null;
+  onCommit: (value: string) => void;
+  as?: 'input' | 'textarea';
+  commitDelay?: number;
+  className?: string;
+  style?: React.CSSProperties;
+  placeholder?: string;
+  type?: string;
+  rows?: number;
+  disabled?: boolean;
+  title?: string;
+};
+
+const DeferredTextField = React.memo(function DeferredTextField({
+  value,
+  onCommit,
+  as = 'input',
+  commitDelay = 250,
+  ...props
+}: DeferredTextFieldProps) {
+  const [draft, setDraft] = useState(value == null ? '' : String(value));
+  const draftRef = useRef(draft);
+  const committedRef = useRef(value == null ? '' : String(value));
+  const onCommitRef = useRef(onCommit);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFocusedRef = useRef(false);
+
+  useEffect(() => {
+    onCommitRef.current = onCommit;
+  }, [onCommit]);
+
+  useEffect(() => {
+    const nextValue = value == null ? '' : String(value);
+    committedRef.current = nextValue;
+    if (!isFocusedRef.current && nextValue !== draftRef.current) {
+      draftRef.current = nextValue;
+      setDraft(nextValue);
+    }
+  }, [value]);
+
+  const clearPendingCommit = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
+  const commit = useCallback((nextValue = draftRef.current) => {
+    clearPendingCommit();
+    if (nextValue === committedRef.current) return;
+    committedRef.current = nextValue;
+    onCommitRef.current(nextValue);
+  }, [clearPendingCommit]);
+
+  const handleChange = useCallback((event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const nextValue = event.target.value;
+    draftRef.current = nextValue;
+    setDraft(nextValue);
+    clearPendingCommit();
+    timeoutRef.current = setTimeout(() => commit(nextValue), commitDelay);
+  }, [clearPendingCommit, commit, commitDelay]);
+
+  useEffect(() => () => clearPendingCommit(), [clearPendingCommit]);
+
+  const sharedProps = {
+    ...props,
+    value: draft,
+    onChange: handleChange,
+    onFocus: () => {
+      isFocusedRef.current = true;
+    },
+    onBlur: () => {
+      isFocusedRef.current = false;
+      commit();
+    },
+  };
+
+  return as === 'textarea'
+    ? <textarea {...sharedProps as any} />
+    : <input {...sharedProps as any} />;
+});
+
+// Static placeholder rendered when a row is actively being dragged
+const SortableItemDraggingPlaceholder = ({ item, viewMode, sceneCast }: any) => {
+  const isBreak = item.type === 'break';
+  if (isBreak) {
+    return (
+      <td colSpan={viewMode === 'shot' ? 18 : 10} style={{ padding: '8px 12px' }}>
+        <div style={{ padding: '8px 12px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', color: 'var(--accent-amber)', fontWeight: 600, fontSize: '13px' }}>
+          {item.description || 'Meal Break'}
+        </div>
+      </td>
+    );
+  }
+
+  const staticStyle = {
+    padding: '6px 8px',
+    fontSize: '13px',
+    color: 'var(--text-secondary)',
+    whiteSpace: 'nowrap' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    display: 'inline-flex',
+    alignItems: 'center',
+    height: '34px',
+  };
+
+  return (
+    <>
+      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px', color: 'var(--text-secondary)', height: '34px' }}>
+          <span>{item.start || '--:--'}</span>
+          <span style={{ color: 'var(--text-muted)' }}>→</span>
+          <span>{item.end || '--:--'}</span>
+        </div>
+      </td>
+      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+        <div style={{ fontSize: '13px', color: 'var(--text-secondary)', height: '34px', display: 'flex', alignItems: 'center' }}>
+          {item.duration} min
+        </div>
+      </td>
+      <td className="col-scene" style={{ padding: '8px 12px', width: '84px' }}>
+        <div style={{ ...staticStyle, width: '60px', justifyContent: 'center' }}>{item.sceneNumber || '-'}</div>
+      </td>
+      {viewMode === 'shot' && (
+        <td className="col-shot" style={{ padding: '8px 12px', width: '84px' }}>
+          <div style={{ ...staticStyle, width: '60px', justifyContent: 'center' }}>{item.shotNumber || '-'}</div>
+        </td>
+      )}
+      <td style={{ padding: '8px 12px', minWidth: '100px' }}>
+        <div style={{ ...staticStyle, width: '96px' }}>{item.intExt || '-'}</div>
+      </td>
+      <td style={{ padding: '8px 12px', minWidth: '115px' }}>
+        <div style={{ ...staticStyle, width: '108px' }}>{item.dayNight || '-'}</div>
+      </td>
+      <td style={{ padding: '8px 12px' }}>
+        <div style={{ ...staticStyle, width: '140px' }}>{item.location || '-'}</div>
+      </td>
+      {viewMode === 'shot' && (
+        <>
+          <td style={{ padding: '8px 12px', minWidth: '140px' }}>
+            <div style={{ ...staticStyle, width: '132px' }}>{item.shotSize || '-'}</div>
+          </td>
+          <td style={{ padding: '8px 12px', minWidth: '140px' }}>
+            <div style={{ ...staticStyle, width: '132px' }}>{item.angle || '-'}</div>
+          </td>
+          <td style={{ padding: '8px 12px', minWidth: '140px' }}>
+            <div style={{ ...staticStyle, width: '132px' }}>{item.movement || '-'}</div>
+          </td>
+          <td style={{ padding: '8px 12px' }}>
+            <div style={{ ...staticStyle, width: '72px' }}>{item.lens || '-'}</div>
+          </td>
+        </>
+      )}
+      <td style={{ padding: '8px 12px' }}>
+        <div style={{ ...staticStyle, width: '200px' }}>
+          {viewMode === 'shot' ? (item.shotDescription || '-') : (item.description || '-')}
+        </div>
+      </td>
+      <td style={{ padding: '8px 12px', minWidth: '160px' }}>
+        <div style={{ ...staticStyle, width: '152px' }}>
+          {viewMode === 'shot' ? (item.cast || '-') : (sceneCast || '-')}
+        </div>
+      </td>
+      {viewMode === 'shot' && (
+        <td style={{ padding: '8px 12px' }}>
+          <div style={{ width: '72px', height: '56px', background: 'var(--bg-input)', borderRadius: '6px', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Image</span>
+          </div>
+        </td>
+      )}
+      <td style={{ padding: '8px 12px' }}>
+        <div style={{ ...staticStyle, width: '120px' }}>{item.props || '-'}</div>
+      </td>
+      <td style={{ padding: '8px 12px' }}>
+        <div style={{ ...staticStyle, width: '120px' }}>{item.costume || '-'}</div>
+      </td>
+      <td style={{ padding: '8px 12px' }}>
+        <div style={{ ...staticStyle, width: '140px' }}>{item.notes || '-'}</div>
+      </td>
+      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+        <div style={{ width: '24px', height: '24px', margin: '0 auto' }}></div>
+      </td>
+    </>
+  );
+};
+
+// Memoized content containing all heavy cell items (inputs, selects, image pickers)
+const SortableItemContent = React.memo(function SortableItemContent({
+  id,
+  item,
+  index,
+  imagePreview,
+  handleItemChange,
+  handleImageUpload,
+  removeTimelineItem,
+  handleRemoveImage,
+  isActiveForUpload,
+  setActiveImageUploadId,
+  isFocused,
+  setFocusedItemId,
+  viewMode,
+  castOptions,
+  sceneCast
+}: any) {
+  const isBreak = item.type === 'break';
+  const isSceneTimingReadOnly = viewMode === 'scene' && !isBreak;
+  const useLiteShotCells = false;
+
+  const isFirstItem = index === 0;
+  const readOnlyTimingStyle = {
+    width: '72px',
+    padding: '6px 8px',
+    fontSize: '13px',
+    borderRadius: '6px',
+    border: '1px solid transparent',
+    color: 'var(--text-secondary)',
+    background: 'transparent',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'not-allowed',
+  };
+  const readOnlyDurationStyle = {
+    width: '64px',
+    padding: '6px 8px',
+    fontSize: '13px',
+    borderRadius: '6px',
+    border: '1px solid transparent',
+    color: 'var(--text-secondary)',
+    background: 'transparent',
+    textAlign: 'center' as const,
+    cursor: 'not-allowed',
+  };
+
   const shotCastOptions = useMemo(() => {
-    const names = sceneCast.split(',').map(s => s.trim()).filter(Boolean);
-    const options = names.map(name => ({ value: name, label: name }));
+    const names = String(sceneCast || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+    const options = names.map((name: string) => ({ value: name, label: name }));
     return [
       {
         label: 'Scene Cast',
@@ -259,67 +506,133 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
     setActiveImageUploadId(isActiveForUpload ? null : item.id);
   };
 
-  const isEvenRow = index % 2 !== 0;
-  const rowBg = isBreak
-    ? 'rgba(245,158,11,0.05)'
-    : isEvenRow
-      ? 'var(--bg-table-striped)'
-      : 'var(--bg-elevated)';
+  const formatCellValue = (value: any) => {
+    if (Array.isArray(value)) {
+      return value
+        .map((entry) => {
+          if (typeof entry === 'string') return entry;
+          return entry?.label || entry?.value || '';
+        })
+        .filter(Boolean)
+        .join(', ');
+    }
+    if (value && typeof value === 'object') {
+      return value.label || value.value || '';
+    }
+    return String(value || '').trim();
+  };
+
+  const renderLiteCell = (value: any, placeholder: string, width: number, options?: { area?: boolean; compact?: boolean; static?: boolean }) => {
+    const displayValue = formatCellValue(value);
+    const classNames = [
+      'schedule-lite-cell',
+      displayValue ? '' : 'empty',
+      options?.area ? 'area' : '',
+      options?.compact ? 'compact' : '',
+      options?.static ? 'static' : '',
+    ].filter(Boolean).join(' ');
+
+    return (
+      <span
+        className={classNames}
+        title={displayValue || placeholder}
+        style={{ '--lite-width': `${width}px` } as React.CSSProperties}
+      >
+        {displayValue || placeholder}
+      </span>
+    );
+  };
 
   return (
-    <tr
-      ref={setNodeRef}
-      onFocusCapture={() => setFocusedItemId(item.id)}
-      onClickCapture={() => setFocusedItemId(item.id)}
-      style={{
-        ...style,
-        background: rowBg,
-      }}
-      className="group transition-colors duration-200"
-    >
-      <td className="col-drag" style={{ padding: '8px', textAlign: 'center', whiteSpace: 'nowrap', width: '48px', borderLeft: isFocused ? '3px solid var(--accent-primary)' : '3px solid transparent' }}>
-        <button {...attributes} {...listeners} style={{ cursor: 'grab', padding: '6px', color: 'var(--text-muted)', background: 'transparent', border: 'none', borderRadius: '8px', display: 'flex', alignItems: 'center', margin: '0 auto' }}>
-          <GripVertical size={16} />
-        </button>
-      </td>
+    <>
       <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <DarkTimePicker value={item.start} onChange={(val) => handleItemChange(item.id, 'start', val)} disabled={!isFirstItem} style={{ width: '72px', padding: '6px 8px', fontSize: '13px' }} />
+          {useLiteShotCells ? (
+            renderLiteCell(item.start || '--:--', '--:--', 72, { compact: true, static: true })
+          ) : isSceneTimingReadOnly ? (
+            <span title={SCENE_GROUP_TIMING_TITLE} style={readOnlyTimingStyle}>{item.start || '--:--'}</span>
+          ) : (
+            <DarkTimePicker value={item.start} onChange={(val) => handleItemChange(item.id, 'start', val)} disabled={!isFirstItem} style={{ width: '72px', padding: '6px 8px', fontSize: '13px' }} />
+          )}
           <span style={{ color: 'var(--text-muted)' }}>→</span>
-          <DarkTimePicker value={item.end} onChange={(val) => handleItemChange(item.id, 'end', val)} style={{ width: '72px', padding: '6px 8px', fontSize: '13px' }} />
+          {useLiteShotCells ? (
+            renderLiteCell(item.end || '--:--', '--:--', 72, { compact: true, static: true })
+          ) : isSceneTimingReadOnly ? (
+            <span title={SCENE_GROUP_TIMING_TITLE} style={readOnlyTimingStyle}>{item.end || '--:--'}</span>
+          ) : (
+            <DarkTimePicker value={item.end} onChange={(val) => handleItemChange(item.id, 'end', val)} style={{ width: '72px', padding: '6px 8px', fontSize: '13px' }} />
+          )}
         </div>
       </td>
       <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <input type="number" min="0" value={item.duration} onChange={(e) => handleItemChange(item.id, 'duration', e.target.value)} className="no-style" style={{ width: '64px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
+          {useLiteShotCells ? (
+            renderLiteCell(item.duration, '0', 64, { compact: true })
+          ) : isSceneTimingReadOnly ? (
+            <span title={SCENE_GROUP_TIMING_TITLE} style={readOnlyDurationStyle}>{item.duration}</span>
+          ) : (
+            <input type="number" min="0" value={item.duration} onChange={(e) => handleItemChange(item.id, 'duration', e.target.value)} className="no-style" style={{ width: '64px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
+          )}
           <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>min</span>
         </div>
       </td>
       {isBreak ? (
         <td colSpan={viewMode === 'shot' ? 15 : 9} style={{ padding: '8px 12px' }}>
-          <input type="text" value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="no-style" style={{ width: '100%', padding: '8px 12px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', color: 'var(--accent-amber)', fontWeight: 600, fontSize: '13px', outline: 'none' }} placeholder="Break description" />
+          <DeferredTextField type="text" value={item.description} onCommit={(value) => handleItemChange(item.id, 'description', value)} className="no-style" style={{ width: '100%', padding: '8px 12px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', color: 'var(--accent-amber)', fontWeight: 600, fontSize: '13px', outline: 'none' }} placeholder="Break description" />
         </td>
       ) : (
         <>
           <td className="col-scene" style={{ padding: '8px 12px', width: '84px' }}>
-            <input type="text" value={item.sceneNumber} onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="1A" />
+            {useLiteShotCells ? (
+              renderLiteCell(item.sceneNumber, '1A', 60, { compact: true })
+            ) : (
+              <DeferredTextField type="text" value={item.sceneNumber} onCommit={(value) => handleItemChange(item.id, 'sceneNumber', value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="1A" />
+            )}
           </td>
           {viewMode === 'shot' && (
             <td className="col-shot" style={{ padding: '8px 12px', width: '84px' }}>
-              <input type="text" value={item.shotNumber} onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="001" />
+              {useLiteShotCells ? (
+                renderLiteCell(item.shotNumber, '001', 60, { compact: true })
+              ) : (
+                <DeferredTextField type="text" value={item.shotNumber} onCommit={(value) => handleItemChange(item.id, 'shotNumber', value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="001" />
+              )}
             </td>
           )}
-          <td style={{ padding: '8px 12px', minWidth: '100px' }}>
-            <DarkSelect<SelectOption> instanceId={`row-intExt-${item.id}`} options={INT_EXT_OPTIONS} value={findOption(INT_EXT_OPTIONS, item.intExt)} onChange={(opt) => handleItemChange(item.id, 'intExt', (opt as SelectOption)?.value ?? '')} placeholder="INT/EXT" isClearable={false} />
+          <td style={{ padding: '8px 12px', minWidth: '100px' }} title={viewMode === 'shot' ? 'Edit INT/EXT in Scene View only' : undefined}>
+            {useLiteShotCells ? (
+              renderLiteCell(item.intExt, 'INT/EXT', 96)
+            ) : (
+              <DarkSelect<SelectOption>
+                instanceId={`row-intExt-${item.id}`}
+                options={INT_EXT_OPTIONS}
+                value={findOption(INT_EXT_OPTIONS, item.intExt)}
+                onChange={(opt) => handleItemChange(item.id, 'intExt', (opt as SelectOption)?.value ?? '')}
+                placeholder="INT/EXT"
+                isClearable={false}
+                isDisabled={viewMode === 'shot'}
+              />
+            )}
           </td>
-          <td style={{ padding: '8px 12px', minWidth: '115px' }}>
-            <DarkSelect<SelectOption> instanceId={`row-period-${item.id}`} options={PERIOD_OPTIONS} value={findOption(PERIOD_OPTIONS, item.dayNight)} onChange={(opt) => handleItemChange(item.id, 'dayNight', (opt as SelectOption)?.value ?? '')} placeholder="DAY/NIGHT" isClearable={false} />
+          <td style={{ padding: '8px 12px', minWidth: '115px' }} title={viewMode === 'shot' ? 'Edit Period in Scene View only' : undefined}>
+            {useLiteShotCells ? (
+              renderLiteCell(item.dayNight, 'DAY/NIGHT', 108)
+            ) : (
+              <DarkSelect<SelectOption>
+                instanceId={`row-period-${item.id}`}
+                options={PERIOD_OPTIONS}
+                value={findOption(PERIOD_OPTIONS, item.dayNight)}
+                onChange={(opt) => handleItemChange(item.id, 'dayNight', (opt as SelectOption)?.value ?? '')}
+                placeholder="DAY/NIGHT"
+                isClearable={false}
+                isDisabled={viewMode === 'shot'}
+              />
+            )}
           </td>
           <td style={{ padding: '8px 12px' }}>
-            <input
+            <DeferredTextField
               type="text"
               value={item.location}
-              onChange={(e) => handleItemChange(item.id, 'location', e.target.value)}
+              onCommit={(value) => handleItemChange(item.id, 'location', value)}
               className="no-style"
               style={{
                 width: '140px',
@@ -339,65 +652,98 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
           {viewMode === 'shot' && (
             <>
               <td style={{ padding: '8px 12px', minWidth: '140px' }}>
-                <DarkSelect<SelectOption> instanceId={`row-size-${item.id}`} options={SHOT_SIZE_OPTIONS} value={findOption(SHOT_SIZE_OPTIONS, item.shotSize)} onChange={(opt) => handleItemChange(item.id, 'shotSize', (opt as SelectOption)?.value ?? '')} placeholder="Size..." isClearable />
+                {useLiteShotCells ? (
+                  renderLiteCell(item.shotSize, 'Size...', 132)
+                ) : (
+                  <DarkSelect<SelectOption, true>
+                    instanceId={`row-size-${item.id}`}
+                    options={SHOT_SIZE_OPTIONS}
+                    value={item.shotSize}
+                    onChange={(val: any) => handleItemChange(item.id, 'shotSize', val)}
+                    placeholder="Size..."
+                    isMulti
+                    constrainShotSize={true}
+                  />
+                )}
               </td>
               <td style={{ padding: '8px 12px', minWidth: '140px' }}>
-                <DarkSelect<SelectOption, true>
-                  instanceId={`row-angle-${item.id}`}
-                  options={ANGLE_OPTIONS}
-                  value={item.angle}
-                  onChange={(val: any) => handleItemChange(item.id, 'angle', val)}
-                  placeholder="Angle..."
-                  isMulti
-                  constrainOnePerGroup={true}
-                />
+                {useLiteShotCells ? (
+                  renderLiteCell(item.angle, 'Angle...', 132)
+                ) : (
+                  <DarkSelect<SelectOption, true>
+                    instanceId={`row-angle-${item.id}`}
+                    options={ANGLE_OPTIONS}
+                    value={item.angle}
+                    onChange={(val: any) => handleItemChange(item.id, 'angle', val)}
+                    placeholder="Angle..."
+                    isMulti
+                    constrainOnePerGroup={true}
+                  />
+                )}
               </td>
               <td style={{ padding: '8px 12px', minWidth: '140px' }}>
-                <DarkSelect<SelectOption, true>
-                  instanceId={`row-movement-${item.id}`}
-                  options={MOVEMENT_OPTIONS}
-                  value={item.movement}
-                  onChange={(val: any) => handleItemChange(item.id, 'movement', val)}
-                  placeholder="Movement..."
-                  isMulti
-                />
+                {useLiteShotCells ? (
+                  renderLiteCell(item.movement, 'Movement...', 132)
+                ) : (
+                  <DarkSelect<SelectOption, true>
+                    instanceId={`row-movement-${item.id}`}
+                    options={MOVEMENT_OPTIONS}
+                    value={item.movement}
+                    onChange={(val: any) => handleItemChange(item.id, 'movement', val)}
+                    placeholder="Movement..."
+                    isMulti
+                  />
+                )}
               </td>
               <td style={{ padding: '8px 12px' }}>
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                  <input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', e.target.value ? `${e.target.value}mm` : '')} className="no-style" style={{ width: '72px', height: '36px', paddingLeft: '8px', paddingRight: '28px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="50" />
-                  <span style={{ position: 'absolute', right: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', pointerEvents: 'none' }}>mm</span>
-                </div>
+                {useLiteShotCells ? (
+                  renderLiteCell(item.lens, '50mm', 72)
+                ) : (
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <input type="number" value={item.lens ? item.lens.replace('mm', '').trim() : ''} onChange={(e) => handleItemChange(item.id, 'lens', e.target.value ? `${e.target.value}mm` : '')} className="no-style" style={{ width: '72px', height: '36px', paddingLeft: '8px', paddingRight: '28px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="50" />
+                    <span style={{ position: 'absolute', right: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', pointerEvents: 'none' }}>mm</span>
+                  </div>
+                )}
               </td>
             </>
           )}
           <td style={{ padding: '8px 12px' }}>
-            <textarea
-              value={viewMode === 'shot' ? (item.shotDescription || '') : (item.description || '')}
-              onChange={(e) => handleItemChange(item.id, viewMode === 'shot' ? 'shotDescription' : 'description', e.target.value)}
-              className="no-style"
-              style={{ width: '200px', padding: '7px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }}
-              placeholder={viewMode === 'shot' ? 'Shot description' : 'Scene description'}
-              rows={2}
-            />
+            {useLiteShotCells ? (
+              renderLiteCell(item.shotDescription || item.description, 'Shot description', 200, { area: true })
+            ) : (
+              <DeferredTextField
+                as="textarea"
+                value={viewMode === 'shot' ? (item.shotDescription || '') : (item.description || '')}
+                onCommit={(value) => handleItemChange(item.id, viewMode === 'shot' ? 'shotDescription' : 'description', value)}
+                className="no-style"
+                style={{ width: '200px', padding: '7px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }}
+                placeholder={viewMode === 'shot' ? 'Shot description' : 'Scene description'}
+                rows={2}
+              />
+            )}
           </td>
           <td style={{ padding: '8px 12px', minWidth: '160px' }}>
-            <DarkSelect<SelectOption, true>
-              instanceId={`row-cast-${item.id}`}
-              options={viewMode === 'shot' ? shotCastOptions : castOptions}
-              value={viewMode === 'shot' ? (item.cast || '') : sceneCast}
-              onChange={(val: any) => handleItemChange(item.id, viewMode === 'shot' ? 'cast' : 'sceneCast', val)}
-              placeholder="Cast..."
-              isMulti
-              isCreatable={viewMode === 'scene'}
-              useChips={true}
-            />
+            {useLiteShotCells ? (
+              renderLiteCell(item.cast, 'Cast...', 152)
+            ) : (
+              <DarkSelect<SelectOption, true>
+                instanceId={`row-cast-${item.id}`}
+                options={viewMode === 'shot' ? shotCastOptions : castOptions}
+                value={viewMode === 'shot' ? (item.cast || '') : sceneCast}
+                onChange={(val: any) => handleItemChange(item.id, viewMode === 'shot' ? 'cast' : 'sceneCast', val)}
+                placeholder="Cast..."
+                isMulti
+                isCreatable={viewMode === 'scene'}
+                useChips={true}
+              />
+            )}
           </td>
           {viewMode === 'shot' && (
             <td style={{ padding: '8px 12px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '4px', borderRadius: '8px', cursor: 'pointer', background: isActiveForUpload ? 'var(--accent-glow-sm)' : 'transparent', border: isActiveForUpload ? '1px solid var(--accent-primary)' : '1px solid transparent', transition: 'all 0.2s' }}>
-                {imagePreviews[item.id] ? (
+                {imagePreview ? (
                   <div className="relative group/img" onClick={handleImageAreaClick}>
-                    <img src={imagePreviews[item.id]} alt={`Ref for ${item.shotNumber}`} style={{ width: '72px', height: '56px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-default)' }} />
+                    <img src={imagePreview} alt={`Ref for ${item.shotNumber}`} style={{ width: '72px', height: '56px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-default)' }} />
                     <button onClick={(e) => { e.stopPropagation(); handleRemoveImage(item.id); }} className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity shadow-lg"><X className="w-3 h-3" /></button>
                   </div>
                 ) : (
@@ -407,19 +753,31 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
                 )}
                 <input type="file" accept="image/*" id={`image-${item.id}`} onChange={(e) => handleImageUpload(item.id, e.target.files ? e.target.files[0] : null)} className="hidden" />
                 <label htmlFor={`image-${item.id}`} style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent-primary)', cursor: 'pointer' }} onClick={(e) => e.stopPropagation()}>
-                  {imagePreviews[item.id] ? 'Change' : 'Upload'}
+                  {imagePreview ? 'Change' : 'Upload'}
                 </label>
               </div>
             </td>
           )}
           <td style={{ padding: '8px 12px' }}>
-            <input type="text" value={item.props} onChange={(e) => handleItemChange(item.id, 'props', e.target.value)} className="no-style" style={{ width: '120px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="Props" />
+            {useLiteShotCells ? (
+              renderLiteCell(item.props, 'Props', 120)
+            ) : (
+              <DeferredTextField type="text" value={item.props} onCommit={(value) => handleItemChange(item.id, 'props', value)} className="no-style" style={{ width: '120px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="Props" />
+            )}
           </td>
           <td style={{ padding: '8px 12px' }}>
-            <input type="text" value={item.costume} onChange={(e) => handleItemChange(item.id, 'costume', e.target.value)} className="no-style" style={{ width: '120px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="Costume" />
+            {useLiteShotCells ? (
+              renderLiteCell(item.costume, 'Costume', 120)
+            ) : (
+              <DeferredTextField type="text" value={item.costume} onCommit={(value) => handleItemChange(item.id, 'costume', value)} className="no-style" style={{ width: '120px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} placeholder="Costume" />
+            )}
           </td>
           <td style={{ padding: '8px 12px' }}>
-            <textarea value={item.notes} onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)} className="no-style" style={{ width: '140px', padding: '7px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }} placeholder="Notes" rows={2} />
+            {useLiteShotCells ? (
+              renderLiteCell(item.notes, 'Notes', 140, { area: true })
+            ) : (
+              <DeferredTextField as="textarea" value={item.notes} onCommit={(value) => handleItemChange(item.id, 'notes', value)} className="no-style" style={{ width: '140px', padding: '7px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }} placeholder="Notes" rows={2} />
+            )}
           </td>
         </>
       )}
@@ -428,11 +786,139 @@ function SortableItem({ id, item, index, imagePreviews, handleItemChange, handle
           <Trash2 className="w-4 h-4" />
         </button>
       </td>
+    </>
+  );
+}, (prev, next) => {
+  return (
+    prev.id === next.id &&
+    prev.index === next.index &&
+    prev.imagePreview === next.imagePreview &&
+    prev.isActiveForUpload === next.isActiveForUpload &&
+    prev.isFocused === next.isFocused &&
+    prev.viewMode === next.viewMode &&
+    prev.sceneCast === next.sceneCast &&
+    prev.castOptions === next.castOptions &&
+    prev.item === next.item
+  );
+});
+
+// Sortable timeline item (table row) shell component
+const SortableItem = React.memo(function SortableItem({ id, item, index, imagePreview, handleItemChange, handleImageUpload, removeTimelineItem, handleRemoveImage, isActiveForUpload, setActiveImageUploadId, isFocused, setFocusedItemId, viewMode, castOptions, sceneCast }: any) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+
+  const rowRef = useRef<HTMLTableRowElement | null>(null);
+  const pendingFocusCellIndexRef = useRef<number | null>(null);
+  const [dragSnapshot, setDragSnapshot] = useState<{ height: number; width: number } | null>(null);
+
+  const setCombinedRef = useCallback((node: HTMLTableRowElement | null) => {
+    rowRef.current = node;
+    setNodeRef(node);
+  }, [setNodeRef]);
+
+  const handleRowClick = useCallback((event: React.MouseEvent<HTMLTableRowElement>) => {
+    if (isFocused) return;
+    const td = (event.target as HTMLElement).closest('td');
+    if (!td) return;
+    pendingFocusCellIndexRef.current = td.cellIndex;
+    setFocusedItemId(item.id);
+  }, [isFocused, item.id, setFocusedItemId]);
+
+  useEffect(() => {
+    if (isFocused && pendingFocusCellIndexRef.current !== null) {
+      const cellIndex = pendingFocusCellIndexRef.current;
+      pendingFocusCellIndexRef.current = null;
+      const timer = setTimeout(() => {
+        const rowEl = rowRef.current;
+        if (rowEl) {
+          const td = rowEl.cells[cellIndex];
+          if (td) {
+            const focusable = td.querySelector('input, textarea, select, [tabindex="0"]') as HTMLElement | null;
+            if (focusable) {
+              focusable.focus();
+            }
+          }
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isFocused]);
+
+  useLayoutEffect(() => {
+    if (!isDragging) {
+      if (dragSnapshot) setDragSnapshot(null);
+      return;
+    }
+
+    const rowEl = rowRef.current;
+    if (!rowEl || dragSnapshot) return;
+    const rect = rowEl.getBoundingClientRect();
+    setDragSnapshot({
+      height: rect.height,
+      width: rect.width,
+    });
+  }, [isDragging, dragSnapshot]);
+
+  const style = {
+    transform: toTranslateOnlyTransform(transform),
+    transition: isDragging ? 'none' : transition,
+    opacity: 1,
+    willChange: isDragging ? 'transform' : 'auto',
+    width: isDragging && dragSnapshot ? `${dragSnapshot.width}px` : undefined,
+    height: isDragging && dragSnapshot ? `${dragSnapshot.height}px` : undefined,
+    minHeight: isDragging && dragSnapshot ? `${dragSnapshot.height}px` : undefined,
+  };
+
+  const isEvenRow = index % 2 !== 0;
+  const isBreak = item.type === 'break';
+  const rowBg = isBreak
+    ? 'rgba(245,158,11,0.05)'
+    : isEvenRow
+      ? 'var(--bg-table-striped)'
+      : 'var(--bg-elevated)';
+
+  return (
+    <tr
+      ref={setCombinedRef}
+      onFocusCapture={() => setFocusedItemId(item.id)}
+      onClickCapture={handleRowClick}
+      style={{
+        ...style,
+        background: rowBg,
+      }}
+      className={`group ${isDragging ? 'dragging-row' : ''}`}
+    >
+      <td className="col-drag" style={{ padding: '8px', textAlign: 'center', whiteSpace: 'nowrap', width: '48px', borderLeft: isFocused ? '3px solid var(--accent-primary)' : '3px solid transparent' }}>
+        <button
+          {...attributes}
+          {...listeners}
+          style={{ cursor: 'grab', padding: '6px', color: 'var(--text-muted)', opacity: 1, background: 'transparent', border: 'none', borderRadius: '8px', display: 'flex', alignItems: 'center', margin: '0 auto' }}
+          title="Drag to reorder"
+        >
+          <GripVertical size={16} />
+        </button>
+      </td>
+      <SortableItemContent
+        id={id}
+        item={item}
+        index={index}
+        imagePreview={imagePreview}
+        handleItemChange={handleItemChange}
+        handleImageUpload={handleImageUpload}
+        removeTimelineItem={removeTimelineItem}
+        handleRemoveImage={handleRemoveImage}
+        isActiveForUpload={isActiveForUpload}
+        setActiveImageUploadId={setActiveImageUploadId}
+        isFocused={isFocused}
+        setFocusedItemId={setFocusedItemId}
+        viewMode={viewMode}
+        castOptions={castOptions}
+        sceneCast={sceneCast}
+      />
     </tr>
   );
-}
+});
 
-function DraggableSceneCard({ scene }: { scene: any }) {
+const DraggableSceneCard = React.memo(function DraggableSceneCard({ scene }: { scene: any }) {
   // Drag and drop disabled for now
   /*
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -491,40 +977,94 @@ function DraggableSceneCard({ scene }: { scene: any }) {
       )}
     </div>
   );
-}
+});
 
-function SortableMobileCard({
+// Static placeholder rendered when a mobile card is actively being dragged
+const SortableMobileCardDraggingPlaceholder = ({ item, viewMode }: { item: any, viewMode: 'scene' | 'shot' }) => {
+  const isBreak = item.type === 'break';
+  if (isBreak) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', gap: '12px', background: 'rgba(245,158,11,0.06)' }}>
+        <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
+          <span className="chip chip-amber" style={{ fontSize: '11px', fontWeight: 700 }}>BREAK</span>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>{item.start} - {item.end}</span>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>({item.duration}m)</span>
+          <div style={{ fontSize: '13px', color: 'var(--text-primary)', borderBottom: '1px dashed var(--border-subtle)', padding: '2px 4px', minWidth: '120px' }}>
+            {item.description || 'Meal Break'}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', gap: '12px' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+          {item.sceneNumber && (
+            <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--accent-primary)' }}>
+              Sc. {item.sceneNumber}
+            </span>
+          )}
+          {viewMode === 'shot' && item.shotNumber && (
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+              Sh. {item.shotNumber}
+            </span>
+          )}
+          <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+            {item.start} - {item.end}
+          </span>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+            ({item.duration}m)
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+          <span style={{ fontWeight: 600, color: item.intExt === 'EXT' ? 'var(--accent-amber)' : 'var(--text-accent)' }}>
+            {item.intExt}
+          </span>
+          <span>•</span>
+          <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '180px' }}>
+            {item.location || 'No Location'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Memoized mobile card content containing inputs and selects
+const SortableMobileCardContent = React.memo(function SortableMobileCardContent({
   id,
   item,
   index,
-  imagePreviews,
+  imagePreview,
   handleItemChange,
   handleImageUpload,
   removeTimelineItem,
   handleRemoveImage,
-  activeImageUploadId,
+  isActiveForUpload,
   setActiveImageUploadId,
   viewMode,
   castOptions,
-  getSceneCast
+  sceneCast
 }: {
   id: string;
   item: any;
   index: number;
-  imagePreviews: Record<string, string>;
+  imagePreview?: string;
   handleItemChange: (itemId: string, field: string, value: any) => void;
   handleImageUpload: (itemId: string, file: File | null) => void;
   removeTimelineItem: (itemId: string) => void;
   handleRemoveImage: (itemId: string) => void;
-  activeImageUploadId: any;
+  isActiveForUpload: boolean;
   setActiveImageUploadId: any;
   viewMode: 'scene' | 'shot';
   castOptions: any;
-  getSceneCast: (item: any) => string;
+  sceneCast: string;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-  
-  const sceneCast = getSceneCast(item);
+  const [isExpanded, setIsExpanded] = useState(false);
+
   const shotCastOptions = useMemo(() => {
     const names = sceneCast.split(',').map(s => s.trim()).filter(Boolean);
     const options = names.map(name => ({ value: name, label: name }));
@@ -536,67 +1076,58 @@ function SortableMobileCard({
     ];
   }, [sceneCast]);
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    background: 'var(--bg-surface)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: '12px',
-    marginBottom: '12px',
-    overflow: 'hidden',
-    position: 'relative' as const,
-  };
-  const [isExpanded, setIsExpanded] = useState(false);
-
   const isBreak = item.type === 'break';
+  const isSceneTimingReadOnly = viewMode === 'scene' && !isBreak;
+  const mobileReadOnlyTimingStyle = {
+    width: '100%',
+    padding: '8px 12px',
+    background: 'transparent',
+    border: '1px solid transparent',
+    borderRadius: '6px',
+    color: 'var(--text-secondary)',
+    fontSize: '13px',
+    cursor: 'not-allowed',
+  };
 
   if (isBreak) {
     return (
-      <div ref={setNodeRef} style={style}>
-        <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', gap: '12px', background: 'rgba(245,158,11,0.06)' }}>
-          {/* Drag Handle */}
-          <div {...attributes} {...listeners} className="touch-target" style={{ cursor: 'grab', color: 'var(--text-muted)' }}>
-            <GripVertical className="w-5 h-5" />
-          </div>
-          
-          <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
-            <span className="chip chip-amber" style={{ fontSize: '11px', fontWeight: 700 }}>BREAK</span>
-            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>{item.start} - {item.end}</span>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>({item.duration}m)</span>
-            <input
-              type="text"
-              value={item.description || ''}
-              onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
-              className="no-style"
-              style={{
-                flex: 1,
-                minWidth: '120px',
-                background: 'transparent',
-                border: 'none',
-                borderBottom: '1px dashed var(--border-subtle)',
-                fontSize: '13px',
-                color: 'var(--text-primary)',
-                padding: '2px 4px',
-                outline: 'none',
-              }}
-            />
-          </div>
-
-          <button
-            onClick={() => removeTimelineItem(item.id)}
-            className="btn-ghost"
-            style={{ color: 'var(--accent-red)', padding: '8px' }}
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+      <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', gap: '12px', background: 'rgba(245,158,11,0.06)' }}>
+        <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
+          <span className="chip chip-amber" style={{ fontSize: '11px', fontWeight: 700 }}>BREAK</span>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>{item.start} - {item.end}</span>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>({item.duration}m)</span>
+          <input
+            type="text"
+            value={item.description || ''}
+            onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
+            className="no-style"
+            style={{
+              flex: 1,
+              minWidth: '120px',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: '1px dashed var(--border-subtle)',
+              fontSize: '13px',
+              color: 'var(--text-primary)',
+              padding: '2px 4px',
+              outline: 'none',
+            }}
+          />
         </div>
+
+        <button
+          onClick={() => removeTimelineItem(item.id)}
+          className="btn-ghost"
+          style={{ color: 'var(--accent-red)', padding: '8px' }}
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
       </div>
     );
   }
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <>
       {/* Header section (Always visible) */}
       <div 
         style={{ 
@@ -609,17 +1140,6 @@ function SortableMobileCard({
         }}
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        {/* Drag Handle */}
-        <div 
-          {...attributes} 
-          {...listeners} 
-          className="touch-target" 
-          style={{ cursor: 'grab', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={(e) => e.stopPropagation()} // Stop propagation so it doesn't toggle expand
-        >
-          <GripVertical className="w-5 h-5" />
-        </div>
-
         {/* Scene Info */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
@@ -633,10 +1153,16 @@ function SortableMobileCard({
                 Sh. {item.shotNumber}
               </span>
             )}
-            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+            <span
+              title={isSceneTimingReadOnly ? SCENE_GROUP_TIMING_TITLE : undefined}
+              style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}
+            >
               {item.start} - {item.end}
             </span>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+            <span
+              title={isSceneTimingReadOnly ? SCENE_GROUP_TIMING_TITLE : undefined}
+              style={{ fontSize: '11px', color: 'var(--text-muted)' }}
+            >
               ({item.duration}m)
             </span>
           </div>
@@ -739,13 +1265,17 @@ function SortableMobileCard({
             <div>
               <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Duration</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <input
-                  type="number"
-                  min="0"
-                  value={item.duration}
-                  onChange={(e) => handleItemChange(item.id, 'duration', e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
-                />
+                {isSceneTimingReadOnly ? (
+                  <span title={SCENE_GROUP_TIMING_TITLE} style={mobileReadOnlyTimingStyle}>{item.duration}</span>
+                ) : (
+                  <input
+                    type="number"
+                    min="0"
+                    value={item.duration}
+                    onChange={(e) => handleItemChange(item.id, 'duration', e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                  />
+                )}
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>m</span>
               </div>
             </div>
@@ -778,13 +1308,14 @@ function SortableMobileCard({
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
                   <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Shot Size</label>
-                  <DarkSelect<SelectOption>
+                  <DarkSelect<SelectOption, true>
                     instanceId={`mobile-size-${item.id}`}
                     options={SHOT_SIZE_OPTIONS}
-                    value={findOption(SHOT_SIZE_OPTIONS, item.shotSize)}
-                    onChange={(opt) => handleItemChange(item.id, 'shotSize', (opt as SelectOption)?.value ?? '')}
+                    value={item.shotSize}
+                    onChange={(val: any) => handleItemChange(item.id, 'shotSize', val)}
                     placeholder="Size..."
-                    isClearable
+                    isMulti
+                    constrainShotSize={true}
                   />
                 </div>
                 <div>
@@ -857,14 +1388,14 @@ function SortableMobileCard({
             />
           </div>
 
-          {/* Image Upload/Reference */}
+          {/* Reference Image */}
           {viewMode === 'shot' && (
             <div>
               <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>Reference Image</label>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {imagePreviews[item.id] ? (
+                {imagePreview ? (
                   <div style={{ position: 'relative', width: '100%', height: '140px', borderRadius: '8px', overflow: 'hidden' }}>
-                    <img src={imagePreviews[item.id]} alt="Reference" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <img src={imagePreview} alt="Reference" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     <button 
                       onClick={() => handleRemoveImage(item.id)} 
                       style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: '50%', padding: '4px', border: 'none', cursor: 'pointer' }}
@@ -910,9 +1441,133 @@ function SortableMobileCard({
           </div>
         </div>
       )}
+    </>
+  );
+}, (prev, next) => {
+  return (
+    prev.id === next.id &&
+    prev.index === next.index &&
+    prev.imagePreview === next.imagePreview &&
+    prev.isActiveForUpload === next.isActiveForUpload &&
+    prev.viewMode === next.viewMode &&
+    prev.sceneCast === next.sceneCast &&
+    prev.castOptions === next.castOptions &&
+    prev.item === next.item
+  );
+});
+
+// Sortable mobile card shell component
+const SortableMobileCard = React.memo(function SortableMobileCard({
+  id,
+  item,
+  index,
+  imagePreview,
+  handleItemChange,
+  handleImageUpload,
+  removeTimelineItem,
+  handleRemoveImage,
+  isActiveForUpload,
+  setActiveImageUploadId,
+  viewMode,
+  castOptions,
+  sceneCast
+}: {
+  id: string;
+  item: any;
+  index: number;
+  imagePreview?: string;
+  handleItemChange: (itemId: string, field: string, value: any) => void;
+  handleImageUpload: (itemId: string, file: File | null) => void;
+  removeTimelineItem: (itemId: string) => void;
+  handleRemoveImage: (itemId: string) => void;
+  isActiveForUpload: boolean;
+  setActiveImageUploadId: any;
+  viewMode: 'scene' | 'shot';
+  castOptions: any;
+  sceneCast: string;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [dragSnapshot, setDragSnapshot] = useState<{ height: number; width: number } | null>(null);
+
+  const setCombinedRef = useCallback((node: HTMLDivElement | null) => {
+    cardRef.current = node;
+    setNodeRef(node);
+  }, [setNodeRef]);
+
+  useLayoutEffect(() => {
+    if (!isDragging) {
+      if (dragSnapshot) setDragSnapshot(null);
+      return;
+    }
+
+    const cardEl = cardRef.current;
+    if (!cardEl || dragSnapshot) return;
+    const rect = cardEl.getBoundingClientRect();
+    setDragSnapshot({
+      height: rect.height,
+      width: rect.width,
+    });
+  }, [isDragging, dragSnapshot]);
+
+  const style = {
+    transform: toTranslateOnlyTransform(transform),
+    transition: isDragging ? 'none' : transition,
+    opacity: 1,
+    zIndex: isDragging ? 20 : 1,
+    willChange: isDragging ? 'transform' : 'auto',
+    background: 'var(--bg-surface)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: '12px',
+    marginBottom: '12px',
+    overflow: 'hidden',
+    position: 'relative' as const,
+    width: isDragging && dragSnapshot ? `${dragSnapshot.width}px` : undefined,
+    height: isDragging && dragSnapshot ? `${dragSnapshot.height}px` : undefined,
+    minHeight: isDragging && dragSnapshot ? `${dragSnapshot.height}px` : undefined,
+  };
+
+  return (
+    <div ref={setCombinedRef} className={`editor-render-surface ${isDragging ? 'dragging-card' : ''}`} style={style}>
+      <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch' }}>
+        <div 
+          {...attributes} 
+          {...listeners} 
+          className="touch-target" 
+          style={{ 
+            cursor: 'grab', 
+            color: 'var(--text-muted)', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            padding: '12px 12px',
+            borderRight: '1px solid var(--border-subtle)',
+            background: 'var(--bg-elevated)',
+          }}
+        >
+          <GripVertical className="w-5 h-5" />
+        </div>
+        <div style={{ flex: 1 }}>
+          <SortableMobileCardContent
+            id={id}
+            item={item}
+            index={index}
+            imagePreview={imagePreview}
+            handleItemChange={handleItemChange}
+            handleImageUpload={handleImageUpload}
+            removeTimelineItem={removeTimelineItem}
+            handleRemoveImage={handleRemoveImage}
+            isActiveForUpload={isActiveForUpload}
+            setActiveImageUploadId={setActiveImageUploadId}
+            viewMode={viewMode}
+            castOptions={castOptions}
+            sceneCast={sceneCast}
+          />
+        </div>
+      </div>
     </div>
   );
-}
+});;
 
 function ShotImportModal({ isOpen, onClose, shotList, imagePreviews, onImport }) {
   // Hooks are now at the top level
@@ -1487,6 +2142,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       ...prev,
       headerInfo: headerInfoVal
     }), { isContinuous });
+    setDirtyRevision((revision: number) => revision + 1);
   }, [setDocState, docState.headerInfo]);
 
   const setTimelineItems = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
@@ -1497,6 +2153,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
         timelineItems: timelineItemsVal
       };
     }, options);
+    setDirtyRevision((revision: number) => revision + 1);
   }, [setDocState]);
 
   const setImagePreviews = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
@@ -1507,6 +2164,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
         imagePreviews: imagePreviewsVal
       };
     }, options);
+    setDirtyRevision((revision: number) => revision + 1);
   }, [setDocState]);
   const setCallSheetData = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
     setDocState(prev => {
@@ -1516,6 +2174,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
         callSheetData: callSheetDataVal
       };
     }, options);
+    setDirtyRevision((revision: number) => revision + 1);
   }, [setDocState]);
   const [viewMode, setViewMode] = useState<'scene' | 'shot'>('scene');
   const [saveStatus, setSaveStatus] = useState('idle');
@@ -1525,15 +2184,20 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   const [showZoomControls, setShowZoomControls] = useState(true);
   const [activeImageUploadId, setActiveImageUploadId] = useState(null);
   const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
-  const debounceTimeoutRef = useRef(null);
+  const [dirtyRevision, setDirtyRevision] = useState(0);
+  const debounceTimeoutRef = useRef<any>(null);
   const isInitialMount = useRef(true);
-  const tableContainerRef = useRef(null);
-  const floatingScrollbarRef = useRef(null);
-  const floatingScrollbarContentRef = useRef(null);
+  const tableContainerRef = useRef<HTMLDivElement | null>(null);
+  const floatingScrollbarRef = useRef<HTMLDivElement | null>(null);
+  const floatingScrollbarContentRef = useRef<HTMLDivElement | null>(null);
   const [showFloatingScrollbar, setShowFloatingScrollbar] = useState(false);
   const [isTableScrolled, setIsTableScrolled] = useState(false);
-  const isSyncingScroll = useRef(false);
-  const tableRef = useRef(null);
+  const [isDraggingTimelineItem, setIsDraggingTimelineItem] = useState(false);
+  const isSyncingScroll = useRef<string | null>(null);
+  const isDraggingTimelineItemRef = useRef(false);
+  const dragLockedScrollLeftRef = useRef<number | null>(null);
+  const legacyImageMigrationRunRef = useRef(false);
+  const tableRef = useRef<HTMLTableElement | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   
@@ -1549,28 +2213,44 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     );
   }, [project?.data?.breakdownData?.scenes, timelineItems]);
 
+  const sceneCastByScene = useMemo(() => {
+    const sceneCastMap = new Map<string, string>();
+    const fallbackCastMap = new Map<string, Set<string>>();
+
+    timelineItems.forEach((item: any) => {
+      if (item.type !== 'shot') return;
+
+      const sceneNum = (item.sceneNumber || '').trim().toLowerCase();
+      if (!sceneNum) return;
+
+      if (item.sceneCast && !sceneCastMap.has(sceneNum)) {
+        sceneCastMap.set(sceneNum, item.sceneCast);
+      }
+
+      if (item.cast) {
+        let castSet = fallbackCastMap.get(sceneNum);
+        if (!castSet) {
+          castSet = new Set<string>();
+          fallbackCastMap.set(sceneNum, castSet);
+        }
+        String(item.cast).split(',').map(s => s.trim()).filter(Boolean).forEach(c => castSet.add(c));
+      }
+    });
+
+    fallbackCastMap.forEach((castSet, sceneNum) => {
+      if (!sceneCastMap.has(sceneNum)) {
+        sceneCastMap.set(sceneNum, Array.from(castSet).join(', '));
+      }
+    });
+
+    return sceneCastMap;
+  }, [timelineItems]);
+
   const getSceneCast = useCallback((item: any) => {
     const sceneNum = (item.sceneNumber || '').trim().toLowerCase();
     if (!sceneNum) return '';
-
-    const firstWithSceneCast = timelineItems.find((t: any) => 
-      t.type === 'shot' && 
-      (t.sceneNumber || '').trim().toLowerCase() === sceneNum && 
-      t.sceneCast
-    );
-    if (firstWithSceneCast?.sceneCast) {
-      return firstWithSceneCast.sceneCast;
-    }
-
-    // Fallback to union of all shot casts in this scene
-    const unionSet = new Set<string>();
-    timelineItems.forEach((t: any) => {
-      if (t.type === 'shot' && (t.sceneNumber || '').trim().toLowerCase() === sceneNum && t.cast) {
-        String(t.cast).split(',').map(s => s.trim()).filter(Boolean).forEach(c => unionSet.add(c));
-      }
-    });
-    return Array.from(unionSet).join(', ');
-  }, [timelineItems]);
+    return sceneCastByScene.get(sceneNum) || '';
+  }, [sceneCastByScene]);
 
   const castOptions = useMemo(() => {
     const uniqueCast = new Set<string>();
@@ -1704,6 +2384,8 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   const itemsToRender = useMemo(() => {
     return viewMode === 'scene' ? groupedTimelineItems : timelineItems;
   }, [viewMode, groupedTimelineItems, timelineItems]);
+
+  const itemsToRenderIds = useMemo(() => itemsToRender.map((item: any) => item.id), [itemsToRender]);
 
   const { setNodeRef: setTimelineDroppableRef } = useDroppable({
     id: 'schedule-timeline-empty',
@@ -1884,41 +2566,64 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   const shotList = useMemo(() => project?.data?.shotListData?.shotListItems || [], [project]);
   const shotListImagePreviews = useMemo(() => project?.data?.shotListData?.imagePreviews || {}, [project]);
 
-  const stringifiedData = useMemo(() => JSON.stringify({ headerInfo, timelineItems, imagePreviews, callSheetData }), [headerInfo, timelineItems, imagePreviews, callSheetData]);
   const onSaveRef = useRef(onSave);
+  const hasPendingSaveRef = useRef(false);
+  const latestSaveDataRef = useRef({
+    headerInfo,
+    timelineItems,
+    imagePreviews,
+    callSheetData
+  });
   useEffect(() => { onSaveRef.current = onSave; });
+  useEffect(() => {
+    latestSaveDataRef.current = {
+      headerInfo,
+      timelineItems,
+      imagePreviews,
+      callSheetData
+    };
+  }, [headerInfo, timelineItems, imagePreviews, callSheetData]);
 
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
+    hasPendingSaveRef.current = true;
     setSaveStatus('dirty');
     if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
     debounceTimeoutRef.current = setTimeout(() => {
-      // Create a complete data payload for saving
-      const dataToSave = {
-        headerInfo,
-        timelineItems,
-        imagePreviews,
-        callSheetData
-      };
-
       setSaveStatus('saving');
       Promise.resolve()
         .then(() => new Promise(resolve => setTimeout(resolve, 500)))
-        .then(() => onSaveRef.current(dataToSave))
+        .then(() => onSaveRef.current(latestSaveDataRef.current))
         .then(() => {
+          hasPendingSaveRef.current = false;
           setSaveStatus('saved');
           return new Promise(resolve => setTimeout(resolve, 2500));
         })
         .then(() => setSaveStatus('idle'));
     }, 1000);
     return () => { if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current); };
-  }, [stringifiedData]);
+  }, [dirtyRevision]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+      if (hasPendingSaveRef.current) {
+        Promise.resolve(onSaveRef.current(latestSaveDataRef.current)).catch((err) => {
+          console.error('Failed to flush schedule changes on exit:', err);
+        });
+      }
+    };
+  }, []);
   // --- END: AUTOSAVE ---
 
   // --- START: UI BEHAVIOR HOOKS ---
+  useEffect(() => {
+    isDraggingTimelineItemRef.current = isDraggingTimelineItem;
+  }, [isDraggingTimelineItem]);
+
   useEffect(() => {
     const tableContainer = tableContainerRef.current;
     const floatingScrollbar = floatingScrollbarRef.current;
@@ -1932,27 +2637,68 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       setShowFloatingScrollbar(tableContainer.scrollWidth > tableContainer.clientWidth);
     };
     const handleTableScroll = () => {
-      // Drive the freeze-shadow opacity proportionally: 0 at rest, 1.0 after 180px of scroll
+      if (isDraggingTimelineItemRef.current && dragLockedScrollLeftRef.current !== null) {
+        const lockedScrollLeft = dragLockedScrollLeftRef.current;
+        if (tableContainer.scrollLeft !== lockedScrollLeft) {
+          tableContainer.scrollLeft = lockedScrollLeft;
+        }
+        if (floatingScrollbar.scrollLeft !== lockedScrollLeft) {
+          floatingScrollbar.scrollLeft = lockedScrollLeft;
+        }
+        return;
+      }
+
       const opacity = Math.min(tableContainer.scrollLeft / 180, 1);
       tableContainer.style.setProperty('--freeze-opacity', String(opacity));
-      if (!isSyncingScroll.current) { isSyncingScroll.current = true; floatingScrollbar.scrollLeft = tableContainer.scrollLeft; requestAnimationFrame(() => { isSyncingScroll.current = false; }); }
+
+      if (isSyncingScroll.current === 'floating') return;
+
+      isSyncingScroll.current = 'table';
+      floatingScrollbar.scrollLeft = tableContainer.scrollLeft;
+
+      setTimeout(() => {
+        if (isSyncingScroll.current === 'table') {
+          isSyncingScroll.current = null;
+        }
+      }, 0);
     };
-    const handleFloatingScroll = () => { if (!isSyncingScroll.current) { isSyncingScroll.current = true; tableContainer.scrollLeft = floatingScrollbar.scrollLeft; requestAnimationFrame(() => { isSyncingScroll.current = false; }); } };
+
+    const handleFloatingScroll = () => {
+      if (isDraggingTimelineItemRef.current && dragLockedScrollLeftRef.current !== null) {
+        const lockedScrollLeft = dragLockedScrollLeftRef.current;
+        if (floatingScrollbar.scrollLeft !== lockedScrollLeft) {
+          floatingScrollbar.scrollLeft = lockedScrollLeft;
+        }
+        return;
+      }
+
+      if (isSyncingScroll.current === 'table') return;
+
+      isSyncingScroll.current = 'floating';
+      tableContainer.scrollLeft = floatingScrollbar.scrollLeft;
+
+      setTimeout(() => {
+        if (isSyncingScroll.current === 'floating') {
+          isSyncingScroll.current = null;
+        }
+      }, 0);
+    };
 
     const observer = new ResizeObserver(updateScrollbar);
     observer.observe(tableEl);
-    tableContainer.addEventListener('scroll', handleTableScroll);
-    floatingScrollbar.addEventListener('scroll', handleFloatingScroll);
+    tableContainer.addEventListener('scroll', handleTableScroll, { passive: true });
+    tableContainer.addEventListener('wheel', handleTableScroll, { passive: true });
+    floatingScrollbar.addEventListener('scroll', handleFloatingScroll, { passive: true });
     window.addEventListener('resize', updateScrollbar);
-    window.addEventListener('scroll', updateScrollbar, true);
     updateScrollbar();
+    handleTableScroll();
 
     return () => {
       observer.disconnect();
       if (tableContainer) tableContainer.removeEventListener('scroll', handleTableScroll);
+      if (tableContainer) tableContainer.removeEventListener('wheel', handleTableScroll);
       if (floatingScrollbar) floatingScrollbar.removeEventListener('scroll', handleFloatingScroll);
       window.removeEventListener('resize', updateScrollbar);
-      window.removeEventListener('scroll', updateScrollbar, true);
     };
   }, [timelineItems, zoomLevel]);
 
@@ -2009,12 +2755,32 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     setTimelineItems(updatedItems);
   }, [headerInfo.firstShotTime]);
 
-  const handleItemChange = useCallback((itemId, field, value) => {
-    let newItems = [...timelineItems];
-    let itemsToUpdate: string[] = [];
+  const timelineItemsRef = useRef(timelineItems);
+  const groupedTimelineItemsRef = useRef(groupedTimelineItems);
+  const viewModeRef = useRef(viewMode);
+  const handleFirstShotChangeRef = useRef(handleFirstShotChange);
 
-    if (String(itemId).startsWith('scene-group-')) {
-      const group = groupedTimelineItems.find(g => g.id === itemId);
+  useEffect(() => {
+    timelineItemsRef.current = timelineItems;
+    groupedTimelineItemsRef.current = groupedTimelineItems;
+    viewModeRef.current = viewMode;
+    handleFirstShotChangeRef.current = handleFirstShotChange;
+  }, [timelineItems, groupedTimelineItems, viewMode, handleFirstShotChange]);
+
+  const handleItemChange = useCallback((itemId, field, value) => {
+    let newItems = [...timelineItemsRef.current];
+    let itemsToUpdate: string[] = [];
+    const isSceneGroupUpdate = String(itemId).startsWith('scene-group-');
+
+    if (SCENE_GROUP_TIMING_FIELDS.has(field)) {
+      if (isSceneGroupUpdate) return;
+
+      const itemToUpdate = newItems.find(item => item.id === itemId);
+      if (viewModeRef.current === 'scene' && itemToUpdate?.type !== 'break') return;
+    }
+
+    if (isSceneGroupUpdate) {
+      const group = groupedTimelineItemsRef.current.find(g => g.id === itemId);
       if (!group) return;
       itemsToUpdate = group.underlyingItems.map((ui: any) => ui.id);
     } else {
@@ -2022,6 +2788,16 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     }
 
     if (itemsToUpdate.length === 0) return;
+
+    if (!isSceneGroupUpdate && SHOT_LINKED_FIELDS.has(field)) {
+      const sourceItem = newItems.find(item => item.id === itemsToUpdate[0]);
+      const linkKey = getScheduleShotLinkKey(sourceItem);
+      if (linkKey) {
+        itemsToUpdate = newItems
+          .filter(item => getScheduleShotLinkKey(item) === linkKey)
+          .map(item => item.id);
+      }
+    }
 
     let requiresRecalculation = false;
     let firstUpdatedIndex = -1;
@@ -2060,7 +2836,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
         const itemToChange = { ...newItems[itemIndex] };
 
         if (field === 'start' && itemIndex === 0) {
-          handleFirstShotChange(value);
+          handleFirstShotChangeRef.current(value);
           return;
         }
 
@@ -2121,8 +2897,9 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     }
 
     const isTextField = ['sceneNumber', 'shotNumber', 'location', 'description', 'shotDescription', 'lens', 'cast', 'sceneCast', 'props', 'costume', 'notes'].includes(field);
+    timelineItemsRef.current = newItems;
     setTimelineItems(newItems, { isContinuous: isTextField });
-  }, [timelineItems, groupedTimelineItems, handleFirstShotChange]);
+  }, [setTimelineItems]);
 
   const addShot = useCallback(() => {
     const lastItem = timelineItems[timelineItems.length - 1];
@@ -2191,8 +2968,25 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
 
     const newPreviews = { ...imagePreviews };
     let hasPreviewDeleted = false;
+    const itemsToRemove = timelineItems.filter(item => idsToRemove.includes(item.id));
+    const storageUrls = Array.from(new Set(
+      itemsToRemove
+        .map((item: any) => item.imageUrl)
+        .filter((url: any): url is string => !!url && url.startsWith('http'))
+    ));
+
+    void Promise.all([
+      ...idsToRemove.map(id => deleteImage(id)),
+      ...storageUrls.map(url => deleteImageFromStorage(url).catch(err => {
+        console.error('Failed to delete image from Firebase Storage:', err);
+      })),
+    ]);
+
     idsToRemove.forEach(id => {
       if (newPreviews[id]) {
+        if (!newPreviews[id].startsWith('http')) {
+          URL.revokeObjectURL(newPreviews[id]);
+        }
         delete newPreviews[id];
         hasPreviewDeleted = true;
       }
@@ -2206,45 +3000,89 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
 
   const handleImageUpload = useCallback(async (itemId, file) => {
     if (!file || !file.type.startsWith('image/')) return;
+    const sourceItem = timelineItemsRef.current.find((item: any) => item.id === itemId);
+    const linkKey = getScheduleShotLinkKey(sourceItem);
+    const idsToUpdate = linkKey
+      ? timelineItemsRef.current
+          .filter((item: any) => getScheduleShotLinkKey(item) === linkKey)
+          .map((item: any) => item.id)
+      : [itemId];
 
-    // Always store in IndexedDB as local cache
-    await setImage(itemId, file);
+    // Always store the optimized image in IndexedDB as local cache.
+    const optimizedFile = await optimizeImageFile(file);
+    await Promise.all(idsToUpdate.map((id: string) => setImage(id, optimizedFile)));
 
     let finalImageUrl = 'true';
     if (isFirebaseEnabled) {
       try {
-        finalImageUrl = await uploadImageToStorage(`projects/${project?.id || 'schedule'}/schedule/${itemId}`, file);
+        finalImageUrl = await uploadImageToStorage(`projects/${project?.id || 'schedule'}/images/${itemId}.jpg`, optimizedFile);
       } catch (err) {
         console.error('Failed to upload image to Firebase Storage:', err);
       }
     }
 
+    setTimelineItems((prev: any[]) => prev.map((item: any) => (
+      idsToUpdate.includes(item.id) ? { ...item, imageUrl: finalImageUrl } : item
+    )));
+
     setImagePreviews(prev => {
       const prevVal = prev || {};
-      if (prevVal[itemId] && !prevVal[itemId].startsWith('http')) {
-        URL.revokeObjectURL(prevVal[itemId]);
-      }
-      return {
-        ...prevVal,
-        [itemId]: finalImageUrl.startsWith('http') ? finalImageUrl : URL.createObjectURL(file)
-      };
+      const next = { ...prevVal };
+      idsToUpdate.forEach((id: string) => {
+        if (next[id] && !next[id].startsWith('http')) {
+          URL.revokeObjectURL(next[id]);
+        }
+      });
+
+      const previewUrl = finalImageUrl.startsWith('http') ? finalImageUrl : URL.createObjectURL(optimizedFile);
+      idsToUpdate.forEach((id: string) => {
+        next[id] = previewUrl;
+      });
+
+      return next;
     });
     setActiveImageUploadId(null);
-  }, [project?.id, setImagePreviews]);
+  }, [project?.id, setImagePreviews, setTimelineItems]);
 
   const handleRemoveImage = useCallback(async (itemId) => {
-    await deleteImage(itemId);
+    const sourceItem = timelineItemsRef.current.find((item: any) => item.id === itemId);
+    const linkKey = getScheduleShotLinkKey(sourceItem);
+    const idsToUpdate = linkKey
+      ? timelineItemsRef.current
+          .filter((item: any) => getScheduleShotLinkKey(item) === linkKey)
+          .map((item: any) => item.id)
+      : [itemId];
+
+    const storageUrls = Array.from(new Set(
+      timelineItemsRef.current
+        .filter((item: any) => idsToUpdate.includes(item.id))
+        .map((item: any) => item.imageUrl)
+        .filter((url: any): url is string => !!url && url.startsWith('http'))
+    ));
+
+    await Promise.all([
+      ...idsToUpdate.map((id: string) => deleteImage(id)),
+      ...storageUrls.map((url: string) => deleteImageFromStorage(url).catch(err => {
+        console.error('Failed to delete image from Firebase Storage:', err);
+      })),
+    ]);
+    setTimelineItems((prev: any[]) => prev.map((item: any) => (
+      idsToUpdate.includes(item.id) ? { ...item, imageUrl: '' } : item
+    )));
+
     setImagePreviews(prev => {
       const newPreviews = { ...prev };
-      if (newPreviews[itemId]) {
-        if (!newPreviews[itemId].startsWith('http')) {
-          URL.revokeObjectURL(newPreviews[itemId]);
+      idsToUpdate.forEach((id: string) => {
+        if (newPreviews[id]) {
+          if (!newPreviews[id].startsWith('http')) {
+            URL.revokeObjectURL(newPreviews[id]);
+          }
+          delete newPreviews[id];
         }
-        delete newPreviews[itemId];
-      }
+      });
       return newPreviews;
     });
-  }, [setImagePreviews]);
+  }, [setImagePreviews, setTimelineItems]);
 
   const handlePasteImage = useCallback(async (e, targetItemId) => {
     const itemIdToUse = targetItemId || activeImageUploadId;
@@ -2301,32 +3139,84 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     return () => document.removeEventListener('paste', globalPasteHandler);
   }, [activeImageUploadId, handlePasteImage]);
 
-  // Load images from IndexedDB on mount
+  // Load and migrate legacy IndexedDB/data-URL images on mount.
   useEffect(() => {
-    const loadImages = async () => {
+    if (legacyImageMigrationRunRef.current) return;
+    legacyImageMigrationRunRef.current = true;
+
+    let cancelled = false;
+    const objectUrlsToRevoke: string[] = [];
+
+    const loadAndMigrateImages = async () => {
       const previews = { ...imagePreviews };
-      let updated = false;
-      for (const [itemId, url] of Object.entries(imagePreviews)) {
-        if (url === 'true' || (url && typeof url === 'string' && !url.startsWith('http') && !url.startsWith('data:'))) {
-          try {
-            const imageFile = await getImage(itemId);
-            if (imageFile) {
-              previews[itemId] = URL.createObjectURL(imageFile);
-              updated = true;
-            }
-          } catch (error) {
-            console.error(`Failed to load local image for schedule item ${itemId}:`, error);
+      const migratedUrls: Record<string, string> = {};
+      let previewsChanged = false;
+
+      for (const item of timelineItems) {
+        if (!item?.id) continue;
+
+        const itemId = item.id;
+        const currentImageUrl = typeof item.imageUrl === 'string' ? item.imageUrl : '';
+        const currentPreview = typeof imagePreviews?.[itemId] === 'string' ? imagePreviews[itemId] : '';
+
+        if (!currentImageUrl && !currentPreview) continue;
+
+        if (currentImageUrl.startsWith('http')) {
+          if (previews[itemId] !== currentImageUrl) previewsChanged = true;
+          previews[itemId] = currentImageUrl;
+        } else if (currentPreview.startsWith('http')) {
+          if (previews[itemId] !== currentPreview) previewsChanged = true;
+          previews[itemId] = currentPreview;
+        }
+
+        try {
+          const migratedImage = await migrateLegacyStoredImage({
+            projectId: project?.id,
+            itemId,
+            imageUrl: currentImageUrl,
+            previewUrl: currentPreview,
+          });
+
+          if (!migratedImage) continue;
+
+          migratedUrls[itemId] = migratedImage.imageUrl;
+          if (migratedImage.imageUrl.startsWith('http')) {
+            if (previews[itemId] !== migratedImage.imageUrl) previewsChanged = true;
+            previews[itemId] = migratedImage.imageUrl;
+          } else {
+            const objectUrl = URL.createObjectURL(migratedImage.file);
+            objectUrlsToRevoke.push(objectUrl);
+            previews[itemId] = objectUrl;
+            previewsChanged = true;
           }
+        } catch (error) {
+          console.error(`Failed to migrate image for schedule item ${itemId}:`, error);
         }
       }
-      if (updated) {
+
+      if (cancelled) return;
+
+      if (previewsChanged) {
         setImagePreviews(previews);
+      }
+
+      if (Object.keys(migratedUrls).length > 0) {
+        setTimelineItems((prevItems: any[]) => prevItems.map(item => (
+          migratedUrls[item.id] && migratedUrls[item.id] !== item.imageUrl
+            ? { ...item, imageUrl: migratedUrls[item.id] }
+            : item
+        )));
       }
     };
 
-    if (imagePreviews && Object.keys(imagePreviews).length > 0) {
-      loadImages();
+    if (timelineItems.length > 0 || Object.keys(imagePreviews || {}).length > 0) {
+      loadAndMigrateImages();
     }
+
+    return () => {
+      cancelled = true;
+      objectUrlsToRevoke.forEach(url => URL.revokeObjectURL(url));
+    };
   }, []);
 
   const handleImportShots = useCallback((shotIdsToImport) => {
@@ -2354,8 +3244,10 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
         movement: shot.movement,
         lens: shot.lens,
         description: correspondingScene?.description || shot.description || '',
+        shotDescription: shot.description || '',
         notes: correspondingScene?.notes || shot.notes || '',
         linkedShotId: shot.id,
+        imageUrl: shot.imageUrl || '',
         intExt: correspondingScene?.intExt || 'INT',
         dayNight: correspondingScene?.dayNight || 'DAY',
         location: correspondingScene?.location || '',
@@ -2367,9 +3259,22 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       return newShot;
     });
 
+    const importedImagePreviews = newTimelineItems.reduce((acc: Record<string, string>, item: any, index: number) => {
+      const sourceShot = shotsToAdd[index];
+      const preview = shotListImagePreviews[sourceShot.id];
+      const imageUrl = sourceShot.imageUrl;
+      if (preview) acc[item.id] = preview;
+      else if (typeof imageUrl === 'string' && imageUrl.startsWith('http')) acc[item.id] = imageUrl;
+      return acc;
+    }, {});
+
+    if (Object.keys(importedImagePreviews).length > 0) {
+      setImagePreviews(prev => ({ ...prev, ...importedImagePreviews }));
+    }
+
     recalculateAndUpdateTimes([...timelineItems, ...newTimelineItems]);
 
-  }, [shotList, timelineItems, recalculateAndUpdateTimes, project]);
+  }, [shotList, shotListImagePreviews, timelineItems, recalculateAndUpdateTimes, project, setImagePreviews]);
 
   const stats = useMemo(() => {
     const totalDuration = timelineItems.reduce((sum, item) => sum + (item.duration || 0), 0);
@@ -2440,6 +3345,43 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       });
   }, [headerInfo, timelineItems, imagePreviews, callSheetData]);
 
+  const handleExportSchedulePDF = useCallback(async () => {
+    const preparedItems = itemsToRender.map(item => {
+      if (viewMode === 'shot') {
+        return {
+          ...item,
+          description: item.shotDescription || item.description || '',
+          cast: item.cast || ''
+        };
+      }
+
+      return {
+        ...item,
+        description: item.description || '',
+        cast: item.sceneCast || item.cast || ''
+      };
+    });
+
+    const pdfImagePreviews = { ...imagePreviews };
+    await Promise.all(Object.entries(pdfImagePreviews).map(async ([itemId, url]) => {
+      if (typeof url !== 'string' || !url.startsWith('http')) return;
+      const dataUrl = await fetchImageUrlAsDataUrl(url);
+      if (dataUrl) pdfImagePreviews[itemId] = dataUrl;
+    }));
+
+    await Promise.all(preparedItems.map(async (item: any) => {
+      if (!item?.id || pdfImagePreviews[item.id]) return;
+      if (!item.imageUrl?.startsWith?.('http')) return;
+      const dataUrl = await fetchImageUrlAsDataUrl(item.imageUrl);
+      if (dataUrl) pdfImagePreviews[item.id] = dataUrl;
+    }));
+
+    exportToPDF(headerInfo, preparedItems, stats, pdfImagePreviews);
+    if (project.ownerId) {
+      logActivity(project.ownerId, 'export_schedule_pdf', { projectId: project.id });
+    }
+  }, [itemsToRender, viewMode, headerInfo, stats, imagePreviews, project]);
+
   const handleDeleteShortcut = useCallback(() => {
     if (focusedItemId) {
       removeTimelineItem(focusedItemId);
@@ -2456,27 +3398,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     {
       key: 'p',
       ctrl: true,
-      action: () => {
-        const preparedItems = itemsToRender.map(item => {
-          if (viewMode === 'shot') {
-            return {
-              ...item,
-              description: item.shotDescription || item.description || '',
-              cast: item.cast || ''
-            };
-          } else {
-            return {
-              ...item,
-              description: item.description || '',
-              cast: item.sceneCast || item.cast || ''
-            };
-          }
-        });
-        exportToPDF(headerInfo, preparedItems, stats, imagePreviews);
-        if (project.ownerId) {
-          logActivity(project.ownerId, 'export_schedule_pdf', { projectId: project.id });
-        }
-      },
+      action: handleExportSchedulePDF,
     },
     {
       key: 'n',
@@ -2527,25 +3449,31 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   }, []);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: {
-        delay: 250,
-        tolerance: 5,
-      },
-    }),
+    useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  function handleDragEnd({ active, over }) {
+  const handleDragStart = useCallback(() => {
+    const lockedScrollLeft = tableContainerRef.current?.scrollLeft ?? 0;
+    dragLockedScrollLeftRef.current = lockedScrollLeft;
+    isDraggingTimelineItemRef.current = true;
+    setIsDraggingTimelineItem(true);
+    if (floatingScrollbarRef.current) {
+      floatingScrollbarRef.current.scrollLeft = lockedScrollLeft;
+    }
+  }, []);
+
+  const releaseDragScrollLock = useCallback(() => {
+    isDraggingTimelineItemRef.current = false;
+    dragLockedScrollLeftRef.current = null;
+    setIsDraggingTimelineItem(false);
+  }, []);
+
+  const handleDragEnd = useCallback(({ active, over }: DragEndEvent) => {
+    releaseDragScrollLock();
     if (!active || !over) return;
 
-    const isSidebarDrag = !itemsToRender.some(item => item.id === active.id);
-    const isOverEmpty = over.id === 'schedule-timeline-empty';
+    const isSidebarDrag = !itemsToRender.some((item: any) => item.id === active.id);
 
     if (isSidebarDrag) {
       // Sidebar drag disabled for now
@@ -2567,15 +3495,15 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
             recalculateAndUpdateTimes(flatItems);
           }
         } else {
-          const oldIndex = timelineItems.findIndex(item => item.id === active.id);
-          const newIndex = timelineItems.findIndex(item => item.id === over.id);
+          const oldIndex = timelineItems.findIndex((item: any) => item.id === active.id);
+          const newIndex = timelineItems.findIndex((item: any) => item.id === over.id);
           if (oldIndex !== -1 && newIndex !== -1) {
             recalculateAndUpdateTimes(arrayMove(timelineItems, oldIndex, newIndex));
           }
         }
       }
     }
-  }
+  }, [groupedTimelineItems, itemsToRender, recalculateAndUpdateTimes, releaseDragScrollLock, timelineItems, viewMode]);
 
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.05, 1.5));
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.05, 0.60));
@@ -2592,16 +3520,13 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     }
   }, [timelineItems, setHeaderInfo]);
 
-  const dragModifiers = [({ transform }) => ({ ...transform, x: transform.x / zoomLevel, y: transform.y / zoomLevel })];
+  const dragModifiers = useMemo(
+    () => [({ transform }: any) => ({ ...transform, x: transform.x / zoomLevel, y: transform.y / zoomLevel })],
+    [zoomLevel]
+  );
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragEnd={handleDragEnd}
-      modifiers={dragModifiers}
-    >
-      <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
       {/* Background glows */}
       <div style={{ display: 'none' }} />
       <div style={{ position: 'fixed', bottom: '-10%', right: '5%', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(245,158,11,0.05) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 0 }} />
@@ -2625,7 +3550,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
         onExport={handleExportCallSheet}
       />
 
-      <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+      <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
         <header style={{
           position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50, height: '64px',
           background: 'var(--bg-overlay)',
@@ -2697,32 +3622,29 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
               <div style={{ height: '20px', width: '1px', background: 'var(--border-subtle)' }} />
               <button onClick={handleExportProject} className="btn-ghost" style={{ fontSize: '13px', gap: '6px' }}><FileDown className="w-4 h-4" /><span className="hidden sm:inline">Save .mbd</span></button>
               <button onClick={handleOpenCallSheet} className="btn-secondary" style={{ fontSize: '13px', gap: '6px' }}><ClipboardList className="w-4 h-4" /><span className="hidden sm:inline">Call Sheet</span></button>
-              <button onClick={() => {
-                const preparedItems = itemsToRender.map(item => {
-                  if (viewMode === 'shot') {
-                    return {
-                      ...item,
-                      description: item.shotDescription || item.description || '',
-                      cast: item.cast || ''
-                    };
-                  } else {
-                    return {
-                      ...item,
-                      description: item.description || '',
-                      cast: item.sceneCast || item.cast || ''
-                    };
-                  }
-                });
-                exportToPDF(headerInfo, preparedItems, stats, imagePreviews);
-                if (project.ownerId) {
-                  logActivity(project.ownerId, 'export_schedule_pdf', { projectId: project.id });
-                }
-              }} className="btn-primary" style={{ fontSize: '13px', gap: '6px' }}><Download className="w-4 h-4" /><span className="hidden sm:inline">Export PDF</span></button>
+              <button onClick={handleExportSchedulePDF} className="btn-primary" style={{ fontSize: '13px', gap: '6px' }}><Download className="w-4 h-4" /><span className="hidden sm:inline">Export PDF</span></button>
             </div>
           </div>
         </header>
 
-        <main style={{ flex: 1, padding: '24px', paddingTop: '88px' }}>
+        <EditorMobileCommandBar
+          status={<SaveStatusIndicator status={saveStatus} />}
+          segments={[
+            { label: 'Scene', active: viewMode === 'scene', onClick: () => setViewMode('scene') },
+            { label: 'Shot', active: viewMode === 'shot', onClick: () => setViewMode('shot') },
+          ]}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={undo}
+          onRedo={redo}
+          actions={[
+            { label: 'Save .mbd', icon: <FileDown className="w-4 h-4" />, onClick: handleExportProject },
+            { label: 'Call Sheet', icon: <ClipboardList className="w-4 h-4" />, onClick: handleOpenCallSheet },
+            { label: 'Export PDF', icon: <Download className="w-4 h-4" />, onClick: handleExportSchedulePDF, primary: true },
+          ]}
+        />
+
+        <main className="editor-main" style={{ flex: 1, padding: '24px', paddingTop: '88px' }}>
           <div style={{ marginBottom: '24px' }}>
             <button
               onClick={() => setShowProductionDetails(!showProductionDetails)}
@@ -2872,7 +3794,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
           </div>
 
           {/* Stat Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+          <div className="editor-stat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '14px', marginBottom: '24px' }}>
             {[
               { label: 'Total Duration', value: `${stats.totalHours}h ${stats.totalMinutes}m`, icon: Clock, gradient: 'var(--accent-primary)' },
               { label: 'Total Shots', value: stats.shotCount, icon: Film, gradient: 'var(--text-accent)' },
@@ -2892,15 +3814,15 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
           </div>
 
           {/* Action buttons */}
-          <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="editor-action-toolbar">
             <button onClick={addShot} className="btn-primary" style={{ fontSize: '13px' }}><Plus className="w-4 h-4" />Add Shot</button>
             <button onClick={addBreak} className="btn-secondary" style={{ color: 'var(--accent-amber)', borderColor: 'var(--accent-amber)' }}><Coffee className="w-4 h-4" />Add Break</button>
-            <div style={{ width: '1px', background: 'var(--border-subtle)', margin: '0 4px' }} />
+            <div aria-hidden="true" style={{ width: '1px', background: 'var(--border-subtle)', margin: '0 4px' }} />
             <button onClick={() => setIsImportModalOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '10px 16px', background: 'rgba(20,184,166,0.15)', color: '#2dd4bf', fontWeight: 600, fontSize: '13px', border: '1px solid rgba(20,184,166,0.3)', borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s', fontFamily: 'inherit' }}><ListPlus className="w-4 h-4" />Import from Shot List</button>
             
             <button 
               onClick={() => setShowSidebar(!showSidebar)} 
-              className="btn-secondary" 
+              className="btn-secondary editor-holding-pen-toggle"
               style={{ 
                 marginLeft: 'auto', 
                 fontSize: '13px', 
@@ -2930,86 +3852,97 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
           <div style={{ display: 'flex', overflow: 'hidden', alignItems: 'flex-start', width: '100%' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               {isMobile ? (
-                <div style={{ padding: '4px' }}>
-                  <SortableContext items={itemsToRender.map((item: any) => item.id)} strategy={verticalListSortingStrategy}>
-                    {itemsToRender.map((item: any, index: number) => (
-                      <SortableMobileCard
-                        key={item.id}
-                        id={item.id}
-                        item={item}
-                        index={index}
-                        imagePreviews={imagePreviews}
-                        handleItemChange={handleItemChange}
-                        handleImageUpload={handleImageUpload}
-                        removeTimelineItem={removeTimelineItem}
-                        handleRemoveImage={handleRemoveImage}
-                        activeImageUploadId={activeImageUploadId}
-                        setActiveImageUploadId={setActiveImageUploadId}
-                        viewMode={viewMode}
-                        castOptions={castOptions}
-                        getSceneCast={getSceneCast}
-                      />
-                    ))}
-                  </SortableContext>
-                  {itemsToRender.length === 0 && (
-                    <div ref={setTimelineDroppableRef} style={{ textAlign: 'center', padding: '48px 16px' }}>
-                      <div className="empty-state-icon" style={{ width: '48px', height: '48px', borderRadius: '12px', margin: '0 auto 16px' }}>
-                        <Film style={{ width: '20px', height: '20px', color: 'var(--accent-primary)' }} />
-                      </div>
-                      <p style={{ color: 'var(--text-secondary)', fontWeight: 600, fontSize: '14px' }}>No shots added yet</p>
-                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>Click "Add Shot" to start building your schedule</p>
-                    </div>
+                <div className="editor-mobile-card-list" style={{ padding: '4px' }}>
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragStart={handleDragStart}
+                    onDragEnd={handleDragEnd}
+                    onDragCancel={releaseDragScrollLock}
+                  >
+                    <SortableContext items={itemsToRenderIds} strategy={verticalListSortingStrategy}>
+                      {itemsToRender.map((item: any, index: number) => (
+                        <SortableMobileCard
+                          key={item.id}
+                          id={item.id}
+                          item={item}
+                          index={index}
+                          imagePreview={imagePreviews[item.id]}
+                          handleItemChange={handleItemChange}
+                          handleImageUpload={handleImageUpload}
+                          removeTimelineItem={removeTimelineItem}
+                          handleRemoveImage={handleRemoveImage}
+                          isActiveForUpload={activeImageUploadId === item.id}
+                          setActiveImageUploadId={setActiveImageUploadId}
+                          viewMode={viewMode}
+                          castOptions={castOptions}
+                          sceneCast={getSceneCast(item)}
+                        />
+                      ))}
+                    </SortableContext>
+                  </DndContext>
+	                  {itemsToRender.length === 0 && (
+	                    <div ref={setTimelineDroppableRef} style={{ textAlign: 'center', padding: '48px 16px' }}>
+	                      <p style={{ color: 'var(--text-secondary)', fontWeight: 600, fontSize: '14px' }}>No shots added yet</p>
+	                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>Click "Add Shot" to start building your schedule</p>
+	                    </div>
                   )}
                 </div>
               ) : (
-                <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: '14px', overflow: 'hidden' }}>
+                <div className="editor-table-shell" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: '14px', overflow: 'hidden' }}>
                   <div
                     ref={tableContainerRef}
                     className={`table-scroll-hidden ${isTableScrolled ? 'table-scrolled' : ''}`}
-                    style={{ overflowX: 'auto', zoom: zoomLevel }}
+                    style={{ overflowX: 'auto', ...(isDefaultZoom(zoomLevel) ? {} : { zoom: zoomLevel }) }}
                   >
-                    <table className="dark-table" style={{ minWidth: viewMode === 'shot' ? '2400px' : '1500px' }} ref={tableRef}>
-                      <thead>
-                        <tr>
-                          <th className="col-drag" style={{ width: '48px' }}></th>
-                          <th>Time</th>
-                          <th>Dur.</th>
-                          <th className="col-scene" style={{ width: '84px' }}>Scene</th>
-                          {viewMode === 'shot' && <th className="col-shot" style={{ width: '84px' }}>Shot</th>}
-                          <th>INT/EXT</th>
-                          <th>Period</th>
-                          <th>Location</th>
-                          {viewMode === 'shot' && (
-                            <>
-                              <th>Size</th>
-                              <th>Angle</th>
-                              <th>Movement</th>
-                              <th>Lens</th>
-                            </>
-                          )}
-                          <th>Description</th>
-                          <th>Cast</th>
-                          {viewMode === 'shot' && <th style={{ textAlign: 'center' }}>Reference</th>}
-                          <th>Props</th>
-                          <th>Costume</th>
-                          <th>Notes</th>
-                          <th></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <SortableContext items={itemsToRender.map(item => item.id)} strategy={verticalListSortingStrategy}>
-                          {itemsToRender.map((item, index) => <SortableItem key={item.id} id={item.id} item={item} index={index} imagePreviews={imagePreviews} handleItemChange={handleItemChange} handleImageUpload={handleImageUpload} removeTimelineItem={removeTimelineItem} handleRemoveImage={handleRemoveImage} activeImageUploadId={activeImageUploadId} setActiveImageUploadId={setActiveImageUploadId} focusedItemId={focusedItemId} setFocusedItemId={setFocusedItemId} viewMode={viewMode} castOptions={castOptions} getSceneCast={getSceneCast} />)}
-                        </SortableContext>
-                      </tbody>
-                    </table>
-                    {itemsToRender.length === 0 && (
-                      <div ref={setTimelineDroppableRef} style={{ textAlign: 'center', padding: '64px 24px' }}>
-                        <div className="empty-state-icon" style={{ width: '64px', height: '64px', borderRadius: '16px', margin: '0 auto 16px' }}>
-                          <Film style={{ width: '28px', height: '28px', color: 'var(--accent-primary)' }} />
-                        </div>
-                        <p style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>No shots added yet</p>
-                        <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '6px' }}>Click "Add Shot" to start building your schedule</p>
-                      </div>
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      onDragCancel={releaseDragScrollLock}
+                      modifiers={dragModifiers}
+                    >
+                      <table className="dark-table" style={{ minWidth: viewMode === 'shot' ? '2400px' : '1500px' }} ref={tableRef}>
+                        <thead>
+                          <tr>
+                            <th className="col-drag" style={{ width: '48px' }}></th>
+                            <th>Time</th>
+                            <th>Dur.</th>
+                            <th className="col-scene" style={{ width: '84px' }}>Scene</th>
+                            {viewMode === 'shot' && <th className="col-shot" style={{ width: '84px' }}>Shot</th>}
+                            <th>INT/EXT</th>
+                            <th>Period</th>
+                            <th>Location</th>
+                            {viewMode === 'shot' && (
+                              <>
+                                <th>Size</th>
+                                <th>Angle</th>
+                                <th>Movement</th>
+                                <th>Lens</th>
+                              </>
+                            )}
+                            <th>Description</th>
+                            <th>Cast</th>
+                            {viewMode === 'shot' && <th style={{ textAlign: 'center' }}>Reference</th>}
+                            <th>Props</th>
+                            <th>Costume</th>
+                            <th>Notes</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <SortableContext items={itemsToRenderIds} strategy={verticalListSortingStrategy}>
+                            {itemsToRender.map((item: any, index: number) => <SortableItem key={item.id} id={item.id} item={item} index={index} imagePreview={imagePreviews[item.id]} handleItemChange={handleItemChange} handleImageUpload={handleImageUpload} removeTimelineItem={removeTimelineItem} handleRemoveImage={handleRemoveImage} isActiveForUpload={activeImageUploadId === item.id} setActiveImageUploadId={setActiveImageUploadId} isFocused={focusedItemId === item.id} setFocusedItemId={setFocusedItemId} viewMode={viewMode} castOptions={castOptions} sceneCast={getSceneCast(item)} />)}
+                          </SortableContext>
+                        </tbody>
+                      </table>
+                    </DndContext>
+	                    {itemsToRender.length === 0 && (
+	                      <div ref={setTimelineDroppableRef} style={{ textAlign: 'center', padding: '64px 24px' }}>
+	                        <p style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>No shots added yet</p>
+	                        <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '6px' }}>Click "Add Shot" to start building your schedule</p>
+	                      </div>
                     )}
                   </div>
                 </div>
@@ -3097,7 +4030,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
           className="floating-scrollbar-container desktop-only"
           style={{
             opacity: showFloatingScrollbar ? 1 : 0,
-            pointerEvents: showFloatingScrollbar ? 'auto' : 'none'
+            pointerEvents: showFloatingScrollbar && !isDraggingTimelineItem ? 'auto' : 'none'
           }}
         >
           <div ref={floatingScrollbarContentRef} style={{ height: '50px' }}></div>
@@ -3192,6 +4125,5 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
 
       </div>
     </div>
-  </DndContext>
   );
 }

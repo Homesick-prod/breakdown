@@ -1,4 +1,5 @@
 import { getImage, setImage } from './db'; // We need our database helpers
+import { optimizeImageFile } from './imageOptimizer';
 
 // Helper to convert a Base64 string back into a File object for IndexedDB
 const dataUrlToFile = async (dataUrl: string, fileName: string): Promise<File> => {
@@ -96,7 +97,8 @@ export const importProject = async (file: File): Promise<any> => {
       if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image')) {
         try {
           const imageFile = await dataUrlToFile(dataUrl, `${shotId}.png`);
-          await setImage(shotId, imageFile);
+          const optimizedFile = await optimizeImageFile(imageFile);
+          await setImage(shotId, optimizedFile);
         } catch (error) {
           console.error(`Failed to process image for shot ${shotId}:`, error);
         }

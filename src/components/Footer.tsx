@@ -5,21 +5,24 @@ import { Github, Clapperboard } from 'lucide-react';
 
 export default function Footer() {
   return (
-    <footer style={{
-      borderTop: '1px solid var(--border-subtle)',
-      background: 'var(--bg-surface)',
-      padding: '18px 0',
-      position: 'relative',
-      zIndex: 1,
-    }}>
-      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '0 14  px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+    <footer
+      className="app-footer"
+      style={{
+        borderTop: '1px solid var(--border-subtle)',
+        background: 'var(--bg-surface)',
+        padding: '18px 0',
+        position: 'relative',
+        zIndex: 1,
+      }}
+    >
+      <div className="app-footer-inner" style={{ maxWidth: '1400px', margin: '0 auto', padding: '0 24px' }}>
+        <div className="app-footer-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+          <div className="app-footer-brand" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div>
               <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
                 MentalBreakdown
               </span>
-              <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '8px' }}>
+              <span className="app-footer-meta" style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '8px' }}>
                 ©{new Date().getFullYear()} &middot; V.3.2.0 (LTS) &middot; by Tawich P.
               </span>
             </div>

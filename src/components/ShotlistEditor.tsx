@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -19,7 +19,6 @@ import {
   verticalListSortingStrategy,
   rectSortingStrategy
 } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import {
   GripVertical, Film, Plus, Save, Trash2, Download, ArrowLeft,
   Loader2, Check, CloudOff, Image as ImageIcon, X, List, Camera, Minus,
@@ -29,10 +28,35 @@ import {
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import { DarkSelect, findOption, SHOT_SIZE_OPTIONS, ANGLE_OPTIONS, MOVEMENT_OPTIONS, SelectOption } from './DarkSelect';
 // --- Important: Make sure the path to your db helper and pdf utility is correct ---
-import { exportShotListToPDF } from '../utils/shotpdf'; 
-import { setImage, getImage, deleteImage } from '../utils/db'; 
-import { isFirebaseEnabled, uploadImageToStorage, logActivity } from '../lib/firebase';
+import { exportShotListToPDF } from '../utils/shotpdf';
+import { setImage, getImage, deleteImage } from '../utils/db';
+import { isFirebaseEnabled, uploadImageToStorage, deleteImageFromStorage, logActivity } from '../lib/firebase';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { fetchImageUrlAsDataUrl, fileToDataUrl, optimizeImageFile } from '../utils/imageOptimizer';
+import { migrateLegacyStoredImage } from '../utils/imageMigration';
+
+const toTranslateOnlyTransform = (transform: any) => {
+  if (!transform) return undefined;
+  return `translate3d(${Math.round(transform.x)}px, ${Math.round(transform.y)}px, 0)`;
+};
+
+const getShotListItemKey = (item: any) => {
+  const sceneNumber = String(item?.sceneNumber || '').trim().toLowerCase();
+  const shotNumber = String(item?.shotNumber || '').trim().toLowerCase();
+  return sceneNumber && shotNumber ? `${sceneNumber}::${shotNumber}` : '';
+};
+
+const getDuplicateShotListIds = (items: ShotItem[], itemId: string) => {
+  const sourceItem = items.find(item => item.id === itemId);
+  const sourceKey = getShotListItemKey(sourceItem);
+  if (!sourceKey) return [itemId];
+
+  return items
+    .filter(item => getShotListItemKey(item) === sourceKey)
+    .map(item => item.id);
+};
+
+const SHOTLIST_LINKED_FIELDS = new Set(['sceneNumber', 'shotNumber', 'shotSize', 'angle', 'movement', 'lens', 'description', 'notes', 'imageUrl']);
 
 //==============================================================================
 // TYPE DEFINITIONS (No changes needed)
@@ -88,7 +112,7 @@ type ShotListEditorProps = {
 type SortableItemProps = {
   id: string;
   item: ShotItem;
-  index: number;
+  index?: number;
   imagePreviews: ImagePreviews;
   activeImageUploadId: string | null;
   setActiveImageUploadId: (id: string | null) => void;
@@ -111,6 +135,93 @@ const exportProject = (project: Project) => console.log('Exporting project:', pr
 //==============================================================================
 // CHILD COMPONENTS (No changes needed)
 //==============================================================================
+type DeferredTextFieldProps = {
+  value?: string | number | null;
+  onCommit: (value: string) => void;
+  as?: 'input' | 'textarea';
+  commitDelay?: number;
+  className?: string;
+  style?: React.CSSProperties;
+  placeholder?: string;
+  type?: string;
+  rows?: number;
+  disabled?: boolean;
+  title?: string;
+  onFocus?: (e: any) => void;
+  onBlur?: (e: any) => void;
+};
+
+const DeferredTextField = React.memo(function DeferredTextField({
+  value,
+  onCommit,
+  as = 'input',
+  commitDelay = 250,
+  ...props
+}: DeferredTextFieldProps) {
+  const [draft, setDraft] = useState(value == null ? '' : String(value));
+  const draftRef = useRef(draft);
+  const committedRef = useRef(value == null ? '' : String(value));
+  const onCommitRef = useRef(onCommit);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFocusedRef = useRef(false);
+
+  useEffect(() => {
+    onCommitRef.current = onCommit;
+  }, [onCommit]);
+
+  useEffect(() => {
+    const nextValue = value == null ? '' : String(value);
+    committedRef.current = nextValue;
+    if (!isFocusedRef.current && nextValue !== draftRef.current) {
+      draftRef.current = nextValue;
+      setDraft(nextValue);
+    }
+  }, [value]);
+
+  const clearPendingCommit = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
+  const commit = useCallback((nextValue = draftRef.current) => {
+    clearPendingCommit();
+    if (nextValue === committedRef.current) return;
+    committedRef.current = nextValue;
+    onCommitRef.current(nextValue);
+  }, [clearPendingCommit]);
+
+  const handleChange = useCallback((event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const nextValue = event.target.value;
+    draftRef.current = nextValue;
+    setDraft(nextValue);
+    clearPendingCommit();
+    timeoutRef.current = setTimeout(() => commit(nextValue), commitDelay);
+  }, [clearPendingCommit, commit, commitDelay]);
+
+  useEffect(() => () => clearPendingCommit(), [clearPendingCommit]);
+
+  const sharedProps = {
+    ...props,
+    value: draft,
+    onChange: handleChange,
+    onFocus: (e: any) => {
+      isFocusedRef.current = true;
+      if (props.onFocus) props.onFocus(e);
+    },
+    onBlur: (e: any) => {
+      isFocusedRef.current = false;
+      commit();
+      if (props.onBlur) props.onBlur(e);
+    },
+  };
+
+  return as === 'textarea'
+    ? <textarea {...sharedProps as any} />
+    : <input {...sharedProps as any} />;
+});
+
 const SaveStatusIndicator: React.FC<{ status: SaveStatus }> = ({ status }) => {
   const getStatusDisplay = () => {
     switch (status) {
@@ -129,32 +240,19 @@ const SaveStatusIndicator: React.FC<{ status: SaveStatus }> = ({ status }) => {
   );
 };
 
-const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, focusedItemId, setFocusedItemId }) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
+const SortableCardDraggingPlaceholder: React.FC<{ item: ShotItem; imagePreviews: ImagePreviews }> = ({ item, imagePreviews }) => {
+  const getSelectLabel = (val: any) => {
+    if (Array.isArray(val)) {
+      return val.map((opt: any) => opt.label || opt.value || opt).join(', ');
+    }
+    if (val && typeof val === 'object') {
+      return val.label || val.value || '';
+    }
+    return String(val || '');
   };
-  const isActiveForUpload = activeImageUploadId === item.id;
-  const isFocused = focusedItemId === item.id;
 
   return (
-    <div
-      ref={setNodeRef}
-      onFocusCapture={() => setFocusedItemId(item.id)}
-      onClickCapture={() => setFocusedItemId(item.id)}
-      className={`group`}
-      style={{
-        ...style,
-        background: 'var(--bg-elevated)',
-        border: `1px solid ${isFocused ? 'var(--accent-primary)' : 'var(--border-subtle)'}`,
-        borderRadius: '14px',
-        boxShadow: isFocused ? '0 0 0 3px var(--accent-glow-sm)' : 'var(--shadow-sm)',
-        transition: 'all 0.25s',
-        opacity: isDragging ? 0.5 : 1,
-      }}
-    >
+    <>
       <div style={{
         padding: '14px 16px',
         borderBottom: '1px solid var(--border-subtle)',
@@ -163,25 +261,131 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
       }}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button {...attributes} {...listeners} style={{ cursor: 'grab', padding: '6px', color: 'var(--text-muted)', background: 'transparent', border: 'none', borderRadius: '8px', display: 'flex', alignItems: 'center' }}>
+            <div style={{ padding: '6px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
               <GripVertical size={16} />
-            </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {item.sceneNumber || '-'} - {item.shotNumber || '-'}
+                </div>
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Scene - Shot</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          {imagePreviews[item.id] ? (
+            <img
+              src={imagePreviews[item.id]}
+              alt={`Ref for ${item.shotNumber}`}
+              style={{ width: '128px', height: '96px', objectFit: 'cover', borderRadius: '10px', border: '2px solid var(--border-default)' }}
+            />
+          ) : (
+            <div style={{ width: '128px', height: '96px', borderRadius: '10px', border: '2px dashed var(--border-default)', background: 'var(--bg-input)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+              <ImageIcon style={{ width: '22px', height: '22px', color: 'var(--text-muted)', marginBottom: '4px' }} />
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Reference</span>
+            </div>
+          )}
+        </div>
+
+        {/* Size + Angle */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>Size</label>
+            <div style={{ height: '36px', display: 'flex', alignItems: 'center', padding: '0 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+              {getSelectLabel(item.shotSize) || '-'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>Angle</label>
+            <div style={{ height: '36px', display: 'flex', alignItems: 'center', padding: '0 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+              {getSelectLabel(item.angle) || '-'}
+            </div>
+          </div>
+        </div>
+
+        {/* Movement + Lens */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>Movement</label>
+            <div style={{ height: '36px', display: 'flex', alignItems: 'center', padding: '0 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+              {getSelectLabel(item.movement) || '-'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>Lens</label>
+            <div style={{ height: '36px', display: 'flex', alignItems: 'center', padding: '0 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+              {item.lens || '-'}
+            </div>
+          </div>
+        </div>
+
+        {/* Description */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>Description</label>
+          <div style={{ padding: '8px 10px', minHeight: '52px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+            {item.description || '-'}
+          </div>
+        </div>
+
+        {/* Notes */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>Notes</label>
+          <div style={{ padding: '8px 10px', minHeight: '52px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '8px', fontSize: '13px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+            {item.notes || '-'}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+const SortableCardContent = React.memo(function SortableCardContent({
+  id,
+  item,
+  imagePreviews,
+  activeImageUploadId,
+  setActiveImageUploadId,
+  handleItemChange,
+  handleImageUpload,
+  removeShotItem,
+  handleRemoveImage,
+  focusedItemId,
+  setFocusedItemId
+}: SortableItemProps) {
+  const isActiveForUpload = activeImageUploadId === item.id;
+  const isFocused = focusedItemId === item.id;
+
+  return (
+    <>
+      <div style={{
+        padding: '14px 16px',
+        borderBottom: '1px solid var(--border-subtle)',
+        background: 'var(--bg-elevated)',
+        borderRadius: '14px 14px 0 0',
+      }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <div>
                 <div className="flex items-center gap-2">
-                  <input
+                  <DeferredTextField
                     type="text"
                     value={item.sceneNumber}
-                    onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)}
+                    onCommit={(value) => handleItemChange(item.id, 'sceneNumber', value)}
                     className="no-style"
                     style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', background: 'transparent', border: 'none', outline: 'none', textAlign: 'center', width: `${Math.max(String(item.sceneNumber).length, 2)}ch`, padding: 0 }}
                     placeholder="1A"
                   />
                   <span style={{ color: 'var(--text-muted)' }}>-</span>
-                  <input
+                  <DeferredTextField
                     type="text"
                     value={item.shotNumber}
-                    onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)}
+                    onCommit={(value) => handleItemChange(item.id, 'shotNumber', value)}
                     className="no-style"
                     style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', background: 'transparent', border: 'none', outline: 'none', textAlign: 'center', width: `${Math.max(String(item.shotNumber).length, 3)}ch`, padding: 0 }}
                     placeholder="001"
@@ -240,13 +444,14 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
             <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
               <Eye className="w-3 h-3" />Size
             </label>
-            <DarkSelect<SelectOption>
+            <DarkSelect<SelectOption, true>
               instanceId={`size-${item.id}`}
               options={SHOT_SIZE_OPTIONS}
-              value={findOption(SHOT_SIZE_OPTIONS, item.shotSize)}
-              onChange={(opt) => handleItemChange(item.id, 'shotSize', (opt as SelectOption)?.value ?? '')}
+              value={item.shotSize}
+              onChange={(val: any) => handleItemChange(item.id, 'shotSize', val)}
               placeholder="Select Size..."
-              isClearable
+              isMulti
+              constrainShotSize={true}
             />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
@@ -317,9 +522,10 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
           <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
             <FileText className="w-3 h-3" />Description
           </label>
-          <textarea
+          <DeferredTextField
+            as="textarea"
             value={item.description}
-            onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
+            onCommit={(value) => handleItemChange(item.id, 'description', value)}
             placeholder="Describe the shot..."
             rows={2}
             className="no-style"
@@ -334,9 +540,10 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
           <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
             <StickyNote className="w-3 h-3" />Notes
           </label>
-          <textarea
+          <DeferredTextField
+            as="textarea"
             value={item.notes}
-            onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)}
+            onCommit={(value) => handleItemChange(item.id, 'notes', value)}
             placeholder="Additional notes..."
             rows={2}
             className="no-style"
@@ -346,51 +553,226 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
           />
         </div>
       </div>
+    </>
+  );
+}, (prev, next) => {
+  return (
+    prev.id === next.id &&
+    prev.activeImageUploadId === next.activeImageUploadId &&
+    prev.focusedItemId === next.focusedItemId &&
+    prev.imagePreviews[prev.id] === next.imagePreviews[next.id] &&
+    prev.item === next.item
+  );
+});
+
+const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, focusedItemId, setFocusedItemId }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [dragSnapshot, setDragSnapshot] = useState<{ height: number; width: number } | null>(null);
+  const setCombinedRef = useCallback((node: HTMLDivElement | null) => {
+    cardRef.current = node;
+    setNodeRef(node);
+  }, [setNodeRef]);
+
+  useLayoutEffect(() => {
+    if (!isDragging) {
+      if (dragSnapshot) setDragSnapshot(null);
+      return;
+    }
+
+    const cardEl = cardRef.current;
+    if (!cardEl || dragSnapshot) return;
+    const rect = cardEl.getBoundingClientRect();
+    setDragSnapshot({
+      height: rect.height,
+      width: rect.width,
+    });
+  }, [isDragging, dragSnapshot]);
+
+  const style = {
+    transform: toTranslateOnlyTransform(transform),
+    transition: isDragging ? 'none' : transition,
+    opacity: 1,
+    zIndex: isDragging ? 20 : 1,
+    willChange: isDragging ? 'transform' : 'auto',
+    width: isDragging && dragSnapshot ? `${dragSnapshot.width}px` : undefined,
+    height: isDragging && dragSnapshot ? `${dragSnapshot.height}px` : undefined,
+    minHeight: isDragging && dragSnapshot ? `${dragSnapshot.height}px` : undefined,
+  };
+  const isFocused = focusedItemId === item.id;
+
+  return (
+    <div
+      ref={setCombinedRef}
+      onFocusCapture={() => setFocusedItemId(item.id)}
+      onClickCapture={() => setFocusedItemId(item.id)}
+      className={`group ${isDragging ? 'dragging-card' : ''}`}
+      style={{
+        ...style,
+        background: 'var(--bg-elevated)',
+        border: `1px solid ${isFocused ? 'var(--accent-primary)' : 'var(--border-subtle)'}`,
+        borderRadius: '14px',
+        boxShadow: isFocused ? '0 0 0 3px var(--accent-glow-sm)' : 'var(--shadow-sm)',
+        transition: isDragging ? 'none' : (transition || 'border-color 0.2s, box-shadow 0.2s'),
+      }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', width: '100%', height: '100%' }}>
+        <div style={{ flex: 1 }}>
+          <SortableCardContent
+            id={id}
+            item={item}
+            imagePreviews={imagePreviews}
+            activeImageUploadId={activeImageUploadId}
+            setActiveImageUploadId={setActiveImageUploadId}
+            handleItemChange={handleItemChange}
+            handleImageUpload={handleImageUpload}
+            removeShotItem={removeShotItem}
+            handleRemoveImage={handleRemoveImage}
+            focusedItemId={focusedItemId}
+            setFocusedItemId={setFocusedItemId}
+          />
+        </div>
+        <div 
+          {...attributes} 
+          {...listeners} 
+          style={{ 
+            cursor: 'grab', 
+            padding: '12px', 
+            color: 'var(--text-muted)', 
+            background: 'var(--bg-elevated)', 
+            borderLeft: '1px solid var(--border-subtle)', 
+            borderRadius: '0 14px 14px 0', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center' 
+          }}
+          title="Drag to reorder"
+        >
+          <GripVertical size={16} />
+        </div>
+      </div>
     </div>
   );
-}
+};
 
-const SortableRow: React.FC<SortableItemProps> = ({ id, item, index, imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, focusedItemId, setFocusedItemId }) => {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
-  const style = { transform: CSS.Transform.toString(transform), transition };
+
+const SortableRowDraggingPlaceholder: React.FC<{ item: ShotItem; imagePreviews: ImagePreviews }> = ({ item, imagePreviews }) => {
+  const staticStyle = {
+    padding: '6px 8px',
+    fontSize: '13px',
+    color: 'var(--text-secondary)',
+    whiteSpace: 'nowrap' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    display: 'inline-flex',
+    alignItems: 'center',
+    height: '34px',
+  };
+
+  const getSelectLabel = (val: any) => {
+    if (Array.isArray(val)) {
+      return val.map((opt: any) => opt.label || opt.value || opt).join(', ');
+    }
+    if (val && typeof val === 'object') {
+      return val.label || val.value || '';
+    }
+    return String(val || '');
+  };
+
+  return (
+    <>
+      <td style={{ padding: '10px 12px' }}>
+        <div style={{ ...staticStyle, width: '60px', justifyContent: 'center', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px' }}>
+          {item.sceneNumber || '-'}
+        </div>
+      </td>
+      <td style={{ padding: '10px 12px' }}>
+        <div style={{ ...staticStyle, width: '60px', justifyContent: 'center', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px' }}>
+          {item.shotNumber || '-'}
+        </div>
+      </td>
+      <td style={{ padding: '10px 12px', minWidth: '150px' }}>
+        <div style={{ ...staticStyle, width: '132px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px' }}>
+          {getSelectLabel(item.shotSize) || '-'}
+        </div>
+      </td>
+      <td style={{ padding: '10px 12px', minWidth: '150px' }}>
+        <div style={{ ...staticStyle, width: '132px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px' }}>
+          {getSelectLabel(item.angle) || '-'}
+        </div>
+      </td>
+      <td style={{ padding: '10px 12px', minWidth: '150px' }}>
+        <div style={{ ...staticStyle, width: '132px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px' }}>
+          {getSelectLabel(item.movement) || '-'}
+        </div>
+      </td>
+      <td style={{ padding: '10px 12px' }}>
+        <div style={{ ...staticStyle, width: '72px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px' }}>
+          {item.lens || '-'}
+        </div>
+      </td>
+      <td style={{ padding: '10px 12px' }}>
+        <div style={{ ...staticStyle, width: '260px', height: '56px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', whiteSpace: 'normal', display: 'flex', alignItems: 'flex-start', padding: '6px 8px', overflowY: 'auto' }}>
+          {item.description || '-'}
+        </div>
+      </td>
+      <td style={{ padding: '10px 12px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '6px', borderRadius: '8px', border: '1px solid transparent' }}>
+          {imagePreviews[item.id] ? (
+            <img src={imagePreviews[item.id]} alt={`Ref for ${item.shotNumber}`} style={{ width: '80px', height: '64px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border-default)' }} />
+          ) : (
+            <div style={{ width: '80px', height: '64px', background: 'var(--bg-input)', borderRadius: '6px', border: '2px dashed var(--border-default)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <ImageIcon style={{ width: '20px', height: '20px', color: 'var(--text-muted)' }} />
+            </div>
+          )}
+        </div>
+      </td>
+      <td style={{ padding: '10px 12px' }}>
+        <div style={{ ...staticStyle, width: '200px', height: '56px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', whiteSpace: 'normal', display: 'flex', alignItems: 'flex-start', padding: '6px 8px', overflowY: 'auto' }}>
+          {item.notes || '-'}
+        </div>
+      </td>
+      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+        <div style={{ width: '28px', height: '28px' }}></div>
+      </td>
+    </>
+  );
+};
+
+const SortableRowContent = React.memo(function SortableRowContent({
+  id,
+  item,
+  index,
+  imagePreviews,
+  activeImageUploadId,
+  setActiveImageUploadId,
+  handleItemChange,
+  handleImageUpload,
+  removeShotItem,
+  handleRemoveImage,
+  focusedItemId,
+  setFocusedItemId
+}: SortableItemProps & { index: number }) {
   const isActiveForUpload = activeImageUploadId === item.id;
   const isFocused = focusedItemId === item.id;
 
-  const isEvenRow = index % 2 !== 0;
-  const rowBg = isEvenRow
-    ? 'var(--bg-table-striped)'
-    : 'var(--bg-elevated)';
-
   return (
-    <tr
-      ref={setNodeRef}
-      onFocusCapture={() => setFocusedItemId(item.id)}
-      onClickCapture={() => setFocusedItemId(item.id)}
-      style={{
-        ...style,
-        background: rowBg,
-      }}
-      className="group"
-    >
-      <td style={{ padding: '10px 8px', textAlign: 'center', whiteSpace: 'nowrap', borderLeft: isFocused ? '3px solid var(--accent-primary)' : '3px solid transparent' }}>
-        <button {...attributes} {...listeners} style={{ cursor: 'grab', padding: '6px', color: 'var(--text-muted)', background: 'transparent', border: 'none', borderRadius: '8px', display: 'flex', alignItems: 'center' }}>
-          <GripVertical size={16} />
-        </button>
+    <>
+      <td style={{ padding: '10px 12px' }}>
+        <DeferredTextField type="text" value={item.sceneNumber} onCommit={(value) => handleItemChange(item.id, 'sceneNumber', value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="1A" />
       </td>
       <td style={{ padding: '10px 12px' }}>
-        <input type="text" value={item.sceneNumber} onChange={(e) => handleItemChange(item.id, 'sceneNumber', e.target.value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="1A" />
-      </td>
-      <td style={{ padding: '10px 12px' }}>
-        <input type="text" value={item.shotNumber} onChange={(e) => handleItemChange(item.id, 'shotNumber', e.target.value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="001" />
+        <DeferredTextField type="text" value={item.shotNumber} onCommit={(value) => handleItemChange(item.id, 'shotNumber', value)} className="no-style" style={{ width: '60px', padding: '6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }} placeholder="001" />
       </td>
       <td style={{ padding: '10px 12px', minWidth: '150px' }}>
-        <DarkSelect<SelectOption>
+        <DarkSelect<SelectOption, true>
           instanceId={`row-size-${item.id}`}
           options={SHOT_SIZE_OPTIONS}
-          value={findOption(SHOT_SIZE_OPTIONS, item.shotSize)}
-          onChange={(opt) => handleItemChange(item.id, 'shotSize', (opt as SelectOption)?.value ?? '')}
+          value={item.shotSize}
+          onChange={(val: any) => handleItemChange(item.id, 'shotSize', val)}
           placeholder="Size..."
-          isClearable
+          isMulti
+          constrainShotSize={true}
         />
       </td>
       <td style={{ padding: '10px 12px', minWidth: '150px' }}>
@@ -421,7 +803,7 @@ const SortableRow: React.FC<SortableItemProps> = ({ id, item, index, imagePrevie
         </div>
       </td>
       <td style={{ padding: '10px 12px' }}>
-        <textarea value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="no-style" style={{ width: '260px', padding: '7px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }} placeholder="Shot description" rows={2} />
+        <DeferredTextField as="textarea" value={item.description} onCommit={(value) => handleItemChange(item.id, 'description', value)} className="no-style" style={{ width: '260px', padding: '7px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }} placeholder="Shot description" rows={2} />
       </td>
       <td style={{ padding: '10px 12px' }} onClick={() => setActiveImageUploadId(isActiveForUpload ? null : item.id)}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '6px', borderRadius: '8px', cursor: 'pointer', background: isActiveForUpload ? 'var(--accent-glow-sm)' : 'transparent', border: isActiveForUpload ? '1px solid var(--accent-primary)' : '1px solid transparent', transition: 'all 0.2s' }}>
@@ -442,16 +824,101 @@ const SortableRow: React.FC<SortableItemProps> = ({ id, item, index, imagePrevie
         </div>
       </td>
       <td style={{ padding: '10px 12px' }}>
-        <textarea value={item.notes} onChange={(e) => handleItemChange(item.id, 'notes', e.target.value)} className="no-style" style={{ width: '200px', padding: '7px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }} placeholder="Notes" rows={2} />
+        <DeferredTextField as="textarea" value={item.notes} onCommit={(value) => handleItemChange(item.id, 'notes', value)} className="no-style" style={{ width: '200px', padding: '7px 10px', background: 'var(--bg-input)', border: '1px solid var(--border-default)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit' }} placeholder="Notes" rows={2} />
       </td>
       <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', textAlign: 'center' }}>
         <button onClick={() => removeShotItem(item.id)} className="opacity-0 group-hover:opacity-100" style={{ padding: '6px', color: 'var(--text-muted)', background: 'transparent', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.12)'; }} onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}>
           <Trash2 className="w-4 h-4" />
         </button>
       </td>
+    </>
+  );
+}, (prev, next) => {
+  return (
+    prev.id === next.id &&
+    prev.index === next.index &&
+    prev.activeImageUploadId === next.activeImageUploadId &&
+    prev.focusedItemId === next.focusedItemId &&
+    prev.imagePreviews[prev.id] === next.imagePreviews[next.id] &&
+    prev.item === next.item
+  );
+});
+
+const SortableRow: React.FC<SortableItemProps & { index: number }> = ({ id, item, index, imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, focusedItemId, setFocusedItemId }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const rowRef = useRef<HTMLTableRowElement | null>(null);
+  const [dragSnapshot, setDragSnapshot] = useState<{ height: number; width: number } | null>(null);
+  const setCombinedRef = useCallback((node: HTMLTableRowElement | null) => {
+    rowRef.current = node;
+    setNodeRef(node);
+  }, [setNodeRef]);
+
+  useLayoutEffect(() => {
+    if (!isDragging) {
+      if (dragSnapshot) setDragSnapshot(null);
+      return;
+    }
+
+    const rowEl = rowRef.current;
+    if (!rowEl || dragSnapshot) return;
+    const rect = rowEl.getBoundingClientRect();
+    setDragSnapshot({
+      height: rect.height,
+      width: rect.width,
+    });
+  }, [isDragging, dragSnapshot]);
+
+  const style = {
+    transform: toTranslateOnlyTransform(transform),
+    transition: isDragging ? 'none' : transition,
+    opacity: 1,
+    position: 'relative' as const,
+    zIndex: isDragging ? 40 : 1,
+    willChange: isDragging ? 'transform' : 'auto',
+    width: isDragging && dragSnapshot ? `${dragSnapshot.width}px` : undefined,
+    height: isDragging && dragSnapshot ? `${dragSnapshot.height}px` : undefined,
+    minHeight: isDragging && dragSnapshot ? `${dragSnapshot.height}px` : undefined,
+  };
+  const isFocused = focusedItemId === item.id;
+
+  const isEvenRow = index % 2 !== 0;
+  const rowBg = isEvenRow
+    ? 'var(--bg-table-striped)'
+    : 'var(--bg-elevated)';
+
+  return (
+    <tr
+      ref={setCombinedRef}
+      onFocusCapture={() => setFocusedItemId(item.id)}
+      onClickCapture={() => setFocusedItemId(item.id)}
+      style={{
+        ...style,
+        background: rowBg,
+      }}
+      className={`group ${isDragging ? 'dragging-row' : ''}`}
+    >
+      <td style={{ padding: '10px 8px', textAlign: 'center', whiteSpace: 'nowrap', borderLeft: isFocused ? '3px solid var(--accent-primary)' : '3px solid transparent' }}>
+        <button {...attributes} {...listeners} style={{ cursor: 'grab', padding: '6px', color: 'var(--text-muted)', background: 'transparent', border: 'none', borderRadius: '8px', display: 'flex', alignItems: 'center' }}>
+          <GripVertical size={16} />
+        </button>
+      </td>
+      <SortableRowContent
+        id={id}
+        item={item}
+        index={index}
+        imagePreviews={imagePreviews}
+        activeImageUploadId={activeImageUploadId}
+        setActiveImageUploadId={setActiveImageUploadId}
+        handleItemChange={handleItemChange}
+        handleImageUpload={handleImageUpload}
+        removeShotItem={removeShotItem}
+        handleRemoveImage={handleRemoveImage}
+        focusedItemId={focusedItemId}
+        setFocusedItemId={setFocusedItemId}
+      />
     </tr>
   );
-}
+};
 
 
 
@@ -516,40 +983,91 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isInitialMount = useRef(true);
   const onSaveRef = useRef(onSave);
+  const hasPendingSaveRef = useRef(false);
+  const legacyImageMigrationRunRef = useRef(false);
+  const latestSaveDataRef = useRef<ProjectSaveData>({
+    name: projectTitle,
+    shotListData: {
+      shotListItems
+    }
+  });
+  const listScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isDraggingShotListItem, setIsDraggingShotListItem] = useState(false);
+  const isDraggingShotListItemRef = useRef(false);
+  const dragLockedScrollLeftRef = useRef<number | null>(null);
   useEffect(() => { onSaveRef.current = onSave; });
+  useEffect(() => {
+    latestSaveDataRef.current = {
+      name: projectTitle,
+      shotListData: {
+        shotListItems
+      }
+    };
+  }, [projectTitle, shotListItems]);
 
   useEffect(() => {
-    const loadImages = async () => {
+    isDraggingShotListItemRef.current = isDraggingShotListItem;
+  }, [isDraggingShotListItem]);
+
+  useEffect(() => {
+    if (legacyImageMigrationRunRef.current) return;
+    legacyImageMigrationRunRef.current = true;
+
+    let cancelled = false;
+    const objectUrlsToRevoke: string[] = [];
+
+    const loadAndMigrateImages = async () => {
       const previews: ImagePreviews = {};
+      const migratedUrls: Record<string, string> = {};
+
       for (const item of shotListItems) {
-        if (item.imageUrl) {
-          if (item.imageUrl.startsWith('http')) {
-            previews[item.id] = item.imageUrl;
+        if (!item.imageUrl) continue;
+
+        if (item.imageUrl.startsWith('http')) {
+          previews[item.id] = item.imageUrl;
+        }
+
+        try {
+          const migratedImage = await migrateLegacyStoredImage({
+            projectId: project?.id,
+            itemId: item.id,
+            imageUrl: item.imageUrl,
+          });
+
+          if (!migratedImage) continue;
+
+          migratedUrls[item.id] = migratedImage.imageUrl;
+          if (migratedImage.imageUrl.startsWith('http')) {
+            previews[item.id] = migratedImage.imageUrl;
           } else {
-            try {
-              const imageFile = await getImage(item.id);
-              if (imageFile) {
-                previews[item.id] = URL.createObjectURL(imageFile);
-              }
-            } catch (error) {
-              console.error(`Failed to load image for shot ${item.id}:`, error);
-            }
+            const objectUrl = URL.createObjectURL(migratedImage.file);
+            objectUrlsToRevoke.push(objectUrl);
+            previews[item.id] = objectUrl;
           }
+        } catch (error) {
+          console.error(`Failed to migrate image for shot ${item.id}:`, error);
         }
       }
+
+      if (cancelled) return;
       setImagePreviews(previews);
+
+      if (Object.keys(migratedUrls).length > 0) {
+        setShotListItems(prevItems => prevItems.map(item => (
+          migratedUrls[item.id] && migratedUrls[item.id] !== item.imageUrl
+            ? { ...item, imageUrl: migratedUrls[item.id] }
+            : item
+        )));
+      }
     };
 
     if (shotListItems.length > 0) {
-        loadImages();
+      loadAndMigrateImages();
     }
 
     return () => {
-      Object.values(imagePreviews).forEach(url => {
-        if (!url.startsWith('http')) {
-          URL.revokeObjectURL(url);
-        }
-      });
+      cancelled = true;
+      objectUrlsToRevoke.forEach(url => URL.revokeObjectURL(url));
     };
   }, []);
 
@@ -560,17 +1078,13 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
       return;
     }
 
+    hasPendingSaveRef.current = true;
     setSaveStatus('dirty');
     if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
 
 debounceTimeoutRef.current = setTimeout(() => {
       // Create a complete data payload for saving
-      const dataToSave = { 
-        name: projectTitle, 
-        shotListData: { 
-          shotListItems 
-        } 
-      };
+      const dataToSave = latestSaveDataRef.current;
 
       setSaveStatus('saving');
 
@@ -579,6 +1093,7 @@ debounceTimeoutRef.current = setTimeout(() => {
 
       Promise.all([savePromise, minDelayPromise])
         .then(() => {
+          hasPendingSaveRef.current = false;
           setSaveStatus('saved');
           setTimeout(() => setSaveStatus('idle'), 1500);
         })
@@ -591,11 +1106,28 @@ debounceTimeoutRef.current = setTimeout(() => {
     return () => { if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current); };
   }, [projectTitle, shotListItems]);
 
+  useEffect(() => {
+    return () => {
+      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+      if (hasPendingSaveRef.current) {
+        Promise.resolve(onSaveRef.current(latestSaveDataRef.current)).catch((err) => {
+          console.error('Failed to flush shotlist changes on exit:', err);
+        });
+      }
+    };
+  }, [shotListItems]);
+
 
   const handleItemChange = useCallback((itemId: string, field: keyof ShotItem, value: any) => {
     const isTextField = ['sceneNumber', 'shotNumber', 'lens', 'description', 'notes'].includes(field as string);
     setShotListItems(
-      prevItems => prevItems.map(item => item.id === itemId ? { ...item, [field]: value } : item),
+      prevItems => {
+        const idsToUpdate = SHOTLIST_LINKED_FIELDS.has(field as string)
+          ? new Set(getDuplicateShotListIds(prevItems, itemId))
+          : new Set([itemId]);
+
+        return prevItems.map(item => idsToUpdate.has(item.id) ? { ...item, [field]: value } : item);
+      },
       { isContinuous: isTextField }
     );
   }, [setShotListItems]);
@@ -606,7 +1138,15 @@ debounceTimeoutRef.current = setTimeout(() => {
   }, []);
 
   const removeShotItem = useCallback(async (itemId: string) => {
-    await deleteImage(itemId);
+    const sourceItem = shotListItems.find(item => item.id === itemId);
+    await Promise.all([
+      deleteImage(itemId),
+      sourceItem?.imageUrl?.startsWith('http')
+        ? deleteImageFromStorage(sourceItem.imageUrl).catch(err => {
+            console.error('Failed to delete image from Firebase Storage:', err);
+          })
+        : Promise.resolve(),
+    ]);
     setShotListItems(prevItems => prevItems.filter(item => item.id !== itemId));
     setImagePreviews(prevPreviews => {
       const newPreviews = { ...prevPreviews };
@@ -616,58 +1156,81 @@ debounceTimeoutRef.current = setTimeout(() => {
       }
       return newPreviews;
     });
-  }, []);
+  }, [shotListItems]);
 
   const handleImageUpload = useCallback(async (itemId: string, file: File | null) => {
     if (!file || !file.type.startsWith('image/')) return;
-    
+    const idsToUpdate = getDuplicateShotListIds(shotListItems, itemId);
+    const optimizedFile = await optimizeImageFile(file);
+
     // Always store in IndexedDB as a local fallback/copy
-    await setImage(itemId, file);
+    await Promise.all(idsToUpdate.map(id => setImage(id, optimizedFile)));
 
     let finalImageUrl = 'true';
     if (isFirebaseEnabled) {
       try {
-        finalImageUrl = await uploadImageToStorage(`projects/${project.id}/shots/${itemId}`, file);
+        finalImageUrl = await uploadImageToStorage(`projects/${project.id}/images/${itemId}.jpg`, optimizedFile);
       } catch (err) {
         console.error('Failed to upload image to Firebase Storage:', err);
       }
     }
 
-    setShotListItems(prev => prev.map(item => 
-      item.id === itemId ? { ...item, imageUrl: finalImageUrl } : item
+    setShotListItems(prev => prev.map(item =>
+      idsToUpdate.includes(item.id) ? { ...item, imageUrl: finalImageUrl } : item
     ));
 
     setImagePreviews(prev => {
-      if (prev[itemId] && !prev[itemId].startsWith('http')) {
-        URL.revokeObjectURL(prev[itemId]);
-      }
-      return { 
-        ...prev, 
-        [itemId]: finalImageUrl.startsWith('http') ? finalImageUrl : URL.createObjectURL(file) 
-      };
+      const next = { ...prev };
+      idsToUpdate.forEach(id => {
+        if (next[id] && !next[id].startsWith('http')) {
+          URL.revokeObjectURL(next[id]);
+        }
+      });
+
+      const previewUrl = finalImageUrl.startsWith('http') ? finalImageUrl : URL.createObjectURL(optimizedFile);
+      idsToUpdate.forEach(id => {
+        next[id] = previewUrl;
+      });
+
+      return next;
     });
-    
+
     setActiveImageUploadId(null);
-  }, [project?.id]);
+  }, [project?.id, shotListItems]);
 
   const handleRemoveImage = useCallback(async (itemId: string) => {
-    await deleteImage(itemId);
-    
-    setShotListItems(prev => prev.map(item => 
-      item.id === itemId ? { ...item, imageUrl: '' } : item
+    const idsToUpdate = getDuplicateShotListIds(shotListItems, itemId);
+    const storageUrls = Array.from(new Set(
+      shotListItems
+        .filter(item => idsToUpdate.includes(item.id))
+        .map(item => item.imageUrl)
+        .filter((url): url is string => !!url && url.startsWith('http'))
+    ));
+
+    await Promise.all([
+      ...idsToUpdate.map(id => deleteImage(id)),
+      ...storageUrls.map(url => deleteImageFromStorage(url).catch(err => {
+        console.error('Failed to delete image from Firebase Storage:', err);
+      })),
+    ]);
+
+    setShotListItems(prev => prev.map(item =>
+      idsToUpdate.includes(item.id) ? { ...item, imageUrl: '' } : item
     ));
 
     setImagePreviews(prev => {
       const newPreviews = { ...prev };
-      if (newPreviews[itemId]) {
-        if (!newPreviews[itemId].startsWith('http')) {
-          URL.revokeObjectURL(newPreviews[itemId]);
+      idsToUpdate.forEach(id => {
+        if (newPreviews[id]) {
+          if (!newPreviews[id].startsWith('http')) {
+            URL.revokeObjectURL(newPreviews[id]);
+          }
+          delete newPreviews[id];
         }
-        delete newPreviews[itemId];
-      }
+      });
       return newPreviews;
     });
-  }, []);
+  }, [shotListItems]);
 
   const handlePasteImage = useCallback(async (e: React.ClipboardEvent, targetItemId?: string) => {
     const itemIdToUse = targetItemId || activeImageUploadId;
@@ -722,13 +1285,11 @@ debounceTimeoutRef.current = setTimeout(() => {
       for (const item of itemsWithImages) {
         const imageFile = await getImage(item.id);
         if (imageFile) {
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(imageFile);
-          });
+          const dataUrl = await fileToDataUrl(imageFile);
           imagePreviewsForPDF[item.id] = dataUrl;
+        } else if (item.imageUrl?.startsWith('http')) {
+          const dataUrl = await fetchImageUrlAsDataUrl(item.imageUrl);
+          if (dataUrl) imagePreviewsForPDF[item.id] = dataUrl;
         }
       }
 
@@ -852,7 +1413,32 @@ debounceTimeoutRef.current = setTimeout(() => {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
+  const handleDragStart = useCallback(() => {
+    const lockedScrollLeft = listScrollContainerRef.current?.scrollLeft ?? 0;
+    dragLockedScrollLeftRef.current = lockedScrollLeft;
+    isDraggingShotListItemRef.current = true;
+    setIsDraggingShotListItem(true);
+  }, [shotListItems]);
+
+  const releaseDragScrollLock = useCallback(() => {
+    isDraggingShotListItemRef.current = false;
+    dragLockedScrollLeftRef.current = null;
+    setIsDraggingShotListItem(false);
+  }, []);
+
+  const handleListScroll = useCallback(() => {
+    const scrollContainer = listScrollContainerRef.current;
+    if (!scrollContainer) return;
+    if (!isDraggingShotListItemRef.current || dragLockedScrollLeftRef.current === null) return;
+
+    const lockedScrollLeft = dragLockedScrollLeftRef.current;
+    if (scrollContainer.scrollLeft !== lockedScrollLeft) {
+      scrollContainer.scrollLeft = lockedScrollLeft;
+    }
+  }, []);
+
   function handleDragEnd({ active, over }: DragEndEvent) {
+    releaseDragScrollLock();
     if (active && over && active.id !== over.id) {
       setShotListItems((items) => {
         const oldIndex = items.findIndex(item => item.id === active.id);
@@ -955,7 +1541,7 @@ debounceTimeoutRef.current = setTimeout(() => {
             </div>
           </div>
 
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={releaseDragScrollLock}>
             {viewMode === 'cards' ? (
               <div style={{ minHeight: '400px' }}>
                 <SortableContext items={shotListItems.map(item => item.id)} strategy={rectSortingStrategy}>
@@ -963,20 +1549,21 @@ debounceTimeoutRef.current = setTimeout(() => {
                     {shotListItems.map((item, index) => (<SortableCard key={item.id} id={item.id} item={item} index={index} {...{ imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, focusedItemId, setFocusedItemId }} />))}
                   </div>
                 </SortableContext>
-                {shotListItems.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '80px 24px' }}>
-                    <div className="empty-state-icon animate-float">
-                      <Camera style={{ width: '32px', height: '32px', color: 'var(--accent-primary)' }} />
-                    </div>
-                    <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>No shots added yet</h3>
-                    <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', maxWidth: '380px', margin: '0 auto 24px' }}>Create your first shot to start building your shot list with technical details, references, and notes.</p>
-                    <button onClick={addShot} className="btn-primary"><Plus className="w-4 h-4" />Add Your First Shot</button>
+	                {shotListItems.length === 0 && (
+	                  <div style={{ textAlign: 'center', padding: '80px 24px' }}>
+	                    <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>No shots added yet</h3>
+	                    <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', maxWidth: '380px', margin: '0 auto 24px' }}>Create your first shot to start building your shot list with technical details, references, and notes.</p>
+	                    <button onClick={addShot} className="btn-primary"><Plus className="w-4 h-4" />Add Your First Shot</button>
                   </div>
                 )}
               </div>
             ) : (
               <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: '14px', overflow: 'hidden' }}>
-                <div style={{ overflowX: 'auto', zoom: zoomLevel }}>
+                <div
+                  ref={listScrollContainerRef}
+                  onScroll={handleListScroll}
+                  style={{ overflowX: isDraggingShotListItem ? 'hidden' : 'auto', zoom: zoomLevel }}
+                >
                   <table className="dark-table" style={{ minWidth: '1600px' }}>
                     <thead>
                       <tr>
@@ -999,14 +1586,11 @@ debounceTimeoutRef.current = setTimeout(() => {
                       </SortableContext>
                     </tbody>
                   </table>
-                  {shotListItems.length === 0 && (
-                    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
-                      <div className="empty-state-icon" style={{ width: '56px', height: '56px', borderRadius: '14px', margin: '0 auto 14px' }}>
-                        <List style={{ width: '24px', height: '24px', color: 'var(--accent-primary)' }} />
-                      </div>
-                      <p style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>No shots in your list</p>
-                      <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '6px' }}>Click "Add Shot" to begin</p>
-                    </div>
+	                  {shotListItems.length === 0 && (
+	                    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+	                      <p style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>No shots in your list</p>
+	                      <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '6px' }}>Click "Add Shot" to begin</p>
+	                    </div>
                   )}
                 </div>
               </div>
@@ -1036,4 +1620,4 @@ debounceTimeoutRef.current = setTimeout(() => {
   );
 }
 
-export default ShotListEditor;
+export default ShotListEditor;

@@ -5,7 +5,7 @@ import { Film, Upload, Plus, Folder, MoreVertical, Edit2, Copy, FileDown, Trash2
 import { exportProject, importProject } from '../utils/file';
 import { generateId } from '../utils/id';
 import { deleteImage } from '../utils/db';
-import { db, logAnalyticsEvent, logActivity, isFirebaseEnabled, auth, logOut } from '../lib/firebase';
+import { db, logAnalyticsEvent, logActivity, isFirebaseEnabled, auth, logOut, deleteImageFromStorage } from '../lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import AuthModal from './AuthModal';
 import { collection, query, where, getDocs, doc, setDoc, deleteDoc, updateDoc, getDoc } from 'firebase/firestore';
@@ -15,22 +15,28 @@ import { useTheme } from './ThemeProvider';
 // ────────────────────────────────────────────────
 // Empty State
 // ────────────────────────────────────────────────
-function EmptyState({ onCreateProject }) {
+function EmptyState({ onCreateProject, onImportProject }) {
   return (
-    <div className="text-center py-24 animate-fade-in-up">
-      <div className="empty-state-icon animate-float" style={{ width: '64px', height: '64px', borderRadius: '16px', background: 'var(--accent-glow-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+    <div className="dashboard-empty-state text-center py-24 animate-fade-in-up">
+      <div className="empty-state-icon animate-float" style={{ width: '68px', height: '68px', borderRadius: '18px', background: 'var(--accent-glow-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}>
         <Folder className="w-8 h-8" style={{ color: 'var(--accent-primary)' }} />
       </div>
-      <h3 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>
+      <h3 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px', letterSpacing: '-0.02em' }}>
         No projects yet
       </h3>
       <p style={{ color: 'var(--text-secondary)', marginBottom: '32px', maxWidth: '340px', margin: '0 auto 32px', fontSize: '13px' }}>
-        Create your first project to manage your shooting schedules and shot lists.
+        Start a shot list or schedule in under a minute.
       </p>
-      <button onClick={onCreateProject} className="btn-primary">
-        <Plus className="w-4 h-4" />
-        Create Your First Project
-      </button>
+      <div className="dashboard-empty-actions">
+        <button onClick={onCreateProject} className="btn-primary">
+          <Plus className="w-4 h-4" />
+          New Project
+        </button>
+        <button onClick={onImportProject} className="btn-secondary">
+          <Upload className="w-4 h-4" />
+          Import .mbd
+        </button>
+      </div>
     </div>
   );
 }
@@ -94,20 +100,33 @@ function ProjectCardMenu({ project, onEdit, onDuplicate, onExport, onShare, onDe
 const BANNED_KEYS = new Set(['imagePreviews']);
 const MAX_STR = 800_000; // anything bigger than ~800KB is almost certainly base64
 
-function stripBannedKeys(val: any): any {
+function stripBannedKeys(val: any, isInsideArray = false): any {
   if (val === null || val === undefined) return null;
   if (typeof val === 'string') return val.length > MAX_STR ? '' : val;
   if (typeof val === 'number' || typeof val === 'boolean') return val;
-  if (Array.isArray(val)) return val.map(item => {
-    // Firestore rejects arrays directly inside arrays — wrap inner arrays in an object
-    if (Array.isArray(item)) return { values: stripBannedKeys(item) };
-    return stripBannedKeys(item);
-  });
+
+  if (Array.isArray(val)) {
+    if (isInsideArray) {
+      // Firestore does not allow nested arrays (arrays inside arrays, even nested inside objects inside arrays).
+      // Convert nested arrays to comma-separated strings to avoid "invalid nested entity" Firestore errors.
+      return val.map(item => {
+        if (item && typeof item === 'object') {
+          return item.value || item.label || JSON.stringify(item);
+        }
+        return String(item);
+      }).join(', ');
+    }
+    return val.map(item => {
+      if (Array.isArray(item)) return { values: stripBannedKeys(item, true) };
+      return stripBannedKeys(item, true);
+    });
+  }
+
   if (typeof val === 'object') {
     const out: Record<string, any> = {};
     for (const [k, v] of Object.entries(val)) {
       if (BANNED_KEYS.has(k)) continue;
-      out[k] = stripBannedKeys(v);
+      out[k] = stripBannedKeys(v, isInsideArray);
     }
     return out;
   }
@@ -268,8 +287,11 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
                 const docSize = JSON.stringify(migratedProj).length;
                 console.log(`[Migration] "${proj.name}" sanitized → ${(docSize / 1024).toFixed(1)} KB, data keys:`, Object.keys(migratedProj.data || {}));
                 await setDoc(doc(db, 'projects', proj.id), migratedProj);
-              } catch (migErr) {
+              } catch (migErr: any) {
                 console.error(`Migration failed for project "${proj.name}" (${proj.id}):`, migErr);
+                if (migErr && typeof migErr === 'object') {
+                  console.error(`[Migration Error details] Code: ${migErr.code}, Message: ${migErr.message}, Stack: ${migErr.stack}`);
+                }
                 console.error('[Migration] Sanitized data that failed:', JSON.stringify(sanitizeForFirestore(proj)).substring(0, 2000));
                 remaining.push(proj);      // keep it in localStorage for retry
               }
@@ -465,12 +487,21 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
 
     if (!window.confirm('Are you sure you want to delete this project? This action cannot be undone.')) return;
     try {
-      if (projectToDelete?.data?.shotListData?.shotListItems) {
-        const imageDeletionPromises = projectToDelete.data.shotListData.shotListItems
-          .filter(shot => shot.imageUrl)
-          .map(shot => deleteImage(shot.id));
-        await Promise.all(imageDeletionPromises);
-      }
+      const shotListItems = projectToDelete?.data?.shotListData?.shotListItems || [];
+      const timelineItems = projectToDelete?.data?.timelineItems || projectToDelete?.data?.scheduleData?.timelineItems || [];
+      const imageItems = [...shotListItems, ...timelineItems].filter(item => item?.imageUrl);
+      const storageUrls = Array.from(new Set(
+        imageItems
+          .map(item => item.imageUrl)
+          .filter((url): url is string => !!url && url.startsWith('http'))
+      ));
+
+      await Promise.all([
+        ...imageItems.map(item => deleteImage(item.id)),
+        ...storageUrls.map(url => deleteImageFromStorage(url).catch(err => {
+          console.error('Failed to delete image from Firebase Storage:', err);
+        })),
+      ]);
 
       const updatedProjects = projects.filter(p => p.id !== projectId);
       setProjects(updatedProjects);
@@ -762,14 +793,26 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
               <h2 style={S.heroTitle}>Your Projects</h2>
               <p style={S.heroSub}>Manage your shooting schedules and production timelines</p>
             </div>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="btn-secondary"
-              style={{ gap: '8px', height: '40px', padding: '0 16px' }}
-            >
-              <Upload className="w-4 h-4" />
-              Import Project
-            </button>
+            {!loading && projects.length > 0 && (
+              <div className="dashboard-hero-actions">
+                <button
+                  onClick={() => setShowNewProjectModal(true)}
+                  className="btn-primary"
+                  style={{ gap: '8px', height: '40px', padding: '0 16px' }}
+                >
+                  <Plus className="w-4 h-4" />
+                  New Project
+                </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="btn-secondary"
+                  style={{ gap: '8px', height: '40px', padding: '0 16px' }}
+                >
+                  <Upload className="w-4 h-4" />
+                  Import Project
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Content */}
@@ -778,7 +821,10 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
               <div className="animate-spin" style={{ width: '28px', height: '28px', border: '3px solid var(--border-default)', borderTopColor: 'var(--accent-primary)', borderRadius: '50%' }} />
             </div>
           ) : projects.length === 0 ? (
-            <EmptyState onCreateProject={() => setShowNewProjectModal(true)} />
+            <EmptyState
+              onCreateProject={() => setShowNewProjectModal(true)}
+              onImportProject={() => fileInputRef.current?.click()}
+            />
           ) : (
             <div style={S.grid} className="dashboard-grid">
               {/* Create card */}
@@ -807,30 +853,21 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
                 const hasShotList = !!(
                   project.data?.shotListData?.shotListItems && project.data.shotListData.shotListItems.length > 0
                 );
-                const hasBreakdown = !!(
-                  project.data?.breakdownData?.scenes && project.data.breakdownData.scenes.length > 0
-                );
 
                 // Determine gradient based on features containing data
                 let gradient = 'linear-gradient(90deg, #444444, #555555)'; // Empty state (subtle gray)
-                const activeFeatures = [hasBreakdown && 'breakdown', hasSchedule && 'schedule', hasShotList && 'shotlist'].filter(Boolean);
-                if (activeFeatures.length === 3) {
-                  gradient = 'linear-gradient(90deg, var(--accent-primary), #8b5cf6, var(--accent-amber))';
-                } else if (activeFeatures.length === 2) {
-                  if (hasSchedule && hasShotList) {
-                    gradient = 'linear-gradient(90deg, var(--accent-primary), var(--accent-amber))';
-                  } else if (hasBreakdown && hasSchedule) {
-                    gradient = 'linear-gradient(90deg, var(--accent-primary), #3b82f6)';
-                  } else if (hasBreakdown && hasShotList) {
-                    gradient = 'linear-gradient(90deg, var(--accent-primary), var(--accent-amber))';
-                  }
+                const activeFeatures = [hasSchedule && 'schedule', hasShotList && 'shotlist'].filter(Boolean);
+                if (activeFeatures.length === 2) {
+                  // Both: Schedule (Yellow-orange) to Shot List (Green)
+                  gradient = 'gradient-schedule-shotlist'; // We can write a custom gradient or CSS var or use hex
+                  gradient = 'linear-gradient(90deg, var(--accent-amber), #3fb950)';
                 } else if (activeFeatures.length === 1) {
-                  if (hasBreakdown) {
-                    gradient = 'linear-gradient(90deg, var(--accent-primary), #3b82f6)';
-                  } else if (hasSchedule) {
-                    gradient = 'linear-gradient(90deg, var(--accent-primary), #5db29b)';
-                  } else if (hasShotList) {
+                  if (hasSchedule) {
+                    // Schedule only: Yellow-orange
                     gradient = 'linear-gradient(90deg, var(--accent-amber), #fbbf24)';
+                  } else if (hasShotList) {
+                    // Shot list only: Green
+                    gradient = 'linear-gradient(90deg, #2ea44f, #3fb950)';
                   }
                 }
 
@@ -870,14 +907,11 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
                         {project.isShared && (
                           <span className="chip chip-green"><Share2 className="w-3 h-3" />Shared</span>
                         )}
-                        {hasBreakdown && (
-                          <span className="chip chip-teal" style={{ background: 'rgba(76, 161, 138, 0.1)', color: 'var(--text-accent)', border: '1px solid rgba(76, 161, 138, 0.2)' }}><FileText className="w-3 h-3" />Breakdown</span>
-                        )}
                         {hasSchedule && (
-                          <span className="chip chip-violet"><Video className="w-3 h-3" />Schedule</span>
+                          <span className="chip chip-amber"><Video className="w-3 h-3" />Schedule</span>
                         )}
                         {hasShotList && (
-                          <span className="chip chip-amber"><List className="w-3 h-3" />Shot List</span>
+                          <span className="chip chip-green"><List className="w-3 h-3" />Shot List</span>
                         )}
                       </div>
                     </div>
@@ -927,12 +961,12 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
               <Folder className="w-5 h-5" style={{ color: 'var(--accent-primary)' }} />
-              <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#ffffff', margin: 0, letterSpacing: '-0.01em' }}>Open Project</h3>
+              <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.01em' }}>Open Project</h3>
             </div>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px', marginLeft: '2px' }}>
               Choose how to open <span style={{ color: 'var(--text-accent)', fontWeight: 600 }}>"{projectToOpen.name}"</span>
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '4px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginTop: '4px' }}>
               <button
                 onClick={() => { onSelectProject(projectToOpen, 'shotlist'); setProjectToOpen(null); }}
                 className="option-card shotlist"
@@ -950,15 +984,6 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
                   <Video className="w-5 h-5" />
                 </div>
                 <div className="option-card-title">Schedule</div>
-              </button>
-              <button
-                onClick={() => { onSelectProject(projectToOpen, 'breakdown'); setProjectToOpen(null); }}
-                className="option-card breakdown"
-              >
-                <div className="option-card-icon-wrap">
-                  <FileText className="w-5 h-5" />
-                </div>
-                <div className="option-card-title">Breakdown</div>
               </button>
             </div>
             <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
@@ -1080,7 +1105,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
               <Clapperboard className="w-5 h-5" style={{ color: 'var(--accent-primary)' }} />
-              <h3 style={{ fontSize: '20px', fontWeight: 800, color: '#ffffff', margin: 0, letterSpacing: '-0.01em' }}>
+              <h3 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.01em' }}>
                 Welcome to MentalBreakdown!
               </h3>
             </div>

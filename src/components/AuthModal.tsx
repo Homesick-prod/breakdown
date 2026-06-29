@@ -12,7 +12,7 @@ type AuthModalProps = {
 
 export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<React.ReactNode | null>(null);
 
   if (!isOpen) return null;
 
@@ -29,8 +29,32 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
       onClose();
     } catch (err: any) {
       console.error('Sign-in error:', err);
-      // Don't show cancel error as warning
-      if (err.code !== 'auth/popup-closed-by-user') {
+      if (err.code === 'auth/popup-closed-by-user') {
+        // Don't show cancel error as warning
+      } else if (err.code === 'auth/unauthorized-domain') {
+        const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
+        setError(
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <strong style={{ fontSize: '13px', color: '#ef4444' }}>โดเมนนี้ยังไม่ได้รับอนุญาต (Unauthorized Domain)</strong>
+            <span>
+              กรุณาเพิ่ม IP / โดเมนนี้ในหน้าตั้งค่า Firebase Console:
+            </span>
+            <div style={{ background: 'var(--bg-input)', padding: '8px', borderRadius: '6px', fontFamily: 'monospace', fontSize: '12px', border: '1px solid var(--border-default)', userSelect: 'all', width: 'fit-content', fontWeight: 'bold', color: 'var(--text-primary)' }}>
+              {currentHostname}
+            </div>
+            <ol style={{ paddingLeft: '20px', margin: '4px 0', display: 'flex', flexDirection: 'column', gap: '4px', textAlign: 'left' }}>
+              <li>ไปที่ <strong>Firebase Console</strong></li>
+              <li>เมนู <strong>Authentication</strong> &gt; <strong>Settings</strong></li>
+              <li>ในส่วน <strong>Authorized domains</strong> กด <strong>Add Domain</strong></li>
+              <li>ใส่ค่าข้างต้นแล้วกดบันทึก (Add)</li>
+            </ol>
+            <hr style={{ border: 'none', borderTop: '1px solid rgba(239, 68, 68, 0.2)', margin: '4px 0' }} />
+            <span style={{ opacity: 0.8, fontSize: '11px', textAlign: 'left' }}>
+              <strong>Domain not authorized:</strong> Please add <code>{currentHostname}</code> to your Firebase Console authorized domains list under Authentication &gt; Settings &gt; Authorized domains.
+            </span>
+          </div>
+        );
+      } else {
         setError(err.message || 'Failed to sign in. Please try again.');
       }
     } finally {

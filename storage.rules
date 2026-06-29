@@ -1,8 +1,28 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    match /projects/{projectId}/images/{itemId} {
+      allow read: if true;
+      allow write: if request.resource != null
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size < 2097152;
+      allow delete: if true;
+    }
+
     match /projects/{projectId}/shots/{itemId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if request.resource != null
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size < 2097152;
+      allow delete: if true;
+    }
+
+    match /projects/{projectId}/schedule/{itemId} {
+      allow read: if true;
+      allow write: if request.resource != null
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size < 2097152;
+      allow delete: if true;
     }
   }
 }

@@ -13,6 +13,7 @@ import {
   Path,
   Circle,
 } from '@react-pdf/renderer';
+import { formatSelectValueList } from '../../utils/selectValueFormat';
 
 // Register font
 const getFontPath = (filename: string) => {
@@ -414,7 +415,8 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
           {timelineItems.map((item, i) => {
             const isBreak = item.type === 'break';
             const desc = (item.description || '').toLowerCase();
-            const isHandheld = !isBreak && item.movement && item.movement.toLowerCase().includes('hand');
+            const movement = formatSelectValueList(item.movement);
+            const isHandheld = !isBreak && movement.toLowerCase().includes('hand');
             const isAlt = i % 2 !== 0;
 
             let rowBg = isAlt ? C.bg : C.white;
@@ -471,13 +473,13 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
                       {item.location || '-'}
                     </Text>
                     <Text style={[styles.cell, { width: '5%' }]}>
-                      {item.shotSize || '-'}
+                      {formatSelectValueList(item.shotSize)}
                     </Text>
                     <Text style={[styles.cell, { width: '7%' }]}>
                       {item.angle || '-'}
                     </Text>
                     <Text style={[styles.cell, { width: '7%', color: isHandheld ? C.handheldText : C.black }]}>
-                      {item.movement || '-'}
+                      {movement}
                     </Text>
                     <Text style={[styles.cell, { width: '4%' }]}>
                       {item.lens ? `${String(item.lens).replace(/mm/g, '')}mm` : '-'}

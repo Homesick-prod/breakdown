@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Image,
 } from '@react-pdf/renderer';
+import { formatSelectValueList } from '../../utils/selectValueFormat';
 
 const getFontPath = (filename: string) => {
   if (typeof window === 'undefined') {
@@ -360,7 +361,9 @@ const groupTimelineItemsForCallSheet = (items: any[]) => {
           }
           
           const combineCamera = (field: string) => {
-            const val = item[field];
+            const val = field === 'shotSize' || field === 'movement'
+              ? formatSelectValueList(item[field], '')
+              : item[field];
             if (val && !currentGroup[field].includes(val)) {
               currentGroup[field] = currentGroup[field] ? `${currentGroup[field]} · ${val}` : val;
             }
@@ -621,7 +624,12 @@ const CallSheetDocument = ({ headerInfo, timelineItems, callSheetData, stats }: 
             }
 
             const shotMeta = [item.intExt, item.dayNight].filter(Boolean).join(' · ');
-            const cameraMeta = [item.shotSize, item.angle, item.movement, item.lens ? `${String(item.lens).replace(/mm/g, '')}mm` : ''].filter(Boolean).join(' · ');
+            const cameraMeta = [
+              formatSelectValueList(item.shotSize, ''),
+              item.angle,
+              formatSelectValueList(item.movement, ''),
+              item.lens ? `${String(item.lens).replace(/mm/g, '')}mm` : ''
+            ].filter(Boolean).join(' · ');
 
             return (
               <View key={item.id ?? i} style={[styles.tableRow, { backgroundColor: rowBg }]}>

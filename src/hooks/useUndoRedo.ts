@@ -30,6 +30,11 @@ export function useUndoRedo<T>(initialState: T | (() => T)) {
 
       if (shouldMerge) {
         futureRef.current = [];
+        setHistoryStatus(prev => (
+          prev.canRedo
+            ? { canUndo: pastRef.current.length > 0, canRedo: false }
+            : prev
+        ));
       } else {
         pastRef.current.push(prev);
         if (pastRef.current.length > limit) {
@@ -37,12 +42,11 @@ export function useUndoRedo<T>(initialState: T | (() => T)) {
         }
         futureRef.current = [];
         lastPushTimeRef.current = now;
+        setHistoryStatus({
+          canUndo: pastRef.current.length > 0,
+          canRedo: false
+        });
       }
-
-      setHistoryStatus({
-        canUndo: pastRef.current.length > 0,
-        canRedo: false
-      });
 
       return resolved;
     });
