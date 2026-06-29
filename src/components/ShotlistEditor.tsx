@@ -120,7 +120,7 @@ type SortableItemProps = {
   handleImageUpload: (itemId: string, file: File | null) => void;
   removeShotItem: (itemId: string) => void;
   handleRemoveImage: (itemId: string) => void;
-  focusedItemId: string | null;
+  isFocused: boolean;
   setFocusedItemId: (id: string | null) => void;
 };
 
@@ -354,11 +354,10 @@ const SortableCardContent = React.memo(function SortableCardContent({
   handleImageUpload,
   removeShotItem,
   handleRemoveImage,
-  focusedItemId,
+  isFocused,
   setFocusedItemId
 }: SortableItemProps) {
   const isActiveForUpload = activeImageUploadId === item.id;
-  const isFocused = focusedItemId === item.id;
 
   return (
     <>
@@ -559,13 +558,13 @@ const SortableCardContent = React.memo(function SortableCardContent({
   return (
     prev.id === next.id &&
     prev.activeImageUploadId === next.activeImageUploadId &&
-    prev.focusedItemId === next.focusedItemId &&
+    prev.isFocused === next.isFocused &&
     prev.imagePreviews[prev.id] === next.imagePreviews[next.id] &&
     prev.item === next.item
   );
 });
 
-const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, focusedItemId, setFocusedItemId }) => {
+const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, isFocused, setFocusedItemId }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [dragSnapshot, setDragSnapshot] = useState<{ height: number; width: number } | null>(null);
@@ -599,7 +598,7 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
     height: isDragging && dragSnapshot ? `${dragSnapshot.height}px` : undefined,
     minHeight: isDragging && dragSnapshot ? `${dragSnapshot.height}px` : undefined,
   };
-  const isFocused = focusedItemId === item.id;
+
 
   return (
     <div
@@ -628,7 +627,7 @@ const SortableCard: React.FC<SortableItemProps> = ({ id, item, imagePreviews, ac
             handleImageUpload={handleImageUpload}
             removeShotItem={removeShotItem}
             handleRemoveImage={handleRemoveImage}
-            focusedItemId={focusedItemId}
+            isFocused={isFocused}
             setFocusedItemId={setFocusedItemId}
           />
         </div>
@@ -750,11 +749,10 @@ const SortableRowContent = React.memo(function SortableRowContent({
   handleImageUpload,
   removeShotItem,
   handleRemoveImage,
-  focusedItemId,
+  isFocused,
   setFocusedItemId
 }: SortableItemProps & { index: number }) {
   const isActiveForUpload = activeImageUploadId === item.id;
-  const isFocused = focusedItemId === item.id;
 
   return (
     <>
@@ -838,13 +836,13 @@ const SortableRowContent = React.memo(function SortableRowContent({
     prev.id === next.id &&
     prev.index === next.index &&
     prev.activeImageUploadId === next.activeImageUploadId &&
-    prev.focusedItemId === next.focusedItemId &&
+    prev.isFocused === next.isFocused &&
     prev.imagePreviews[prev.id] === next.imagePreviews[next.id] &&
     prev.item === next.item
   );
 });
 
-const SortableRow: React.FC<SortableItemProps & { index: number }> = ({ id, item, index, imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, focusedItemId, setFocusedItemId }) => {
+const SortableRow: React.FC<SortableItemProps & { index: number }> = ({ id, item, index, imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, isFocused, setFocusedItemId }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const rowRef = useRef<HTMLTableRowElement | null>(null);
   const [dragSnapshot, setDragSnapshot] = useState<{ height: number; width: number } | null>(null);
@@ -879,7 +877,7 @@ const SortableRow: React.FC<SortableItemProps & { index: number }> = ({ id, item
     height: isDragging && dragSnapshot ? `${dragSnapshot.height}px` : undefined,
     minHeight: isDragging && dragSnapshot ? `${dragSnapshot.height}px` : undefined,
   };
-  const isFocused = focusedItemId === item.id;
+
 
   const isEvenRow = index % 2 !== 0;
   const rowBg = isEvenRow
@@ -913,7 +911,7 @@ const SortableRow: React.FC<SortableItemProps & { index: number }> = ({ id, item
         handleImageUpload={handleImageUpload}
         removeShotItem={removeShotItem}
         handleRemoveImage={handleRemoveImage}
-        focusedItemId={focusedItemId}
+        isFocused={isFocused}
         setFocusedItemId={setFocusedItemId}
       />
     </tr>
@@ -1567,7 +1565,23 @@ debounceTimeoutRef.current = setTimeout(() => {
               <div style={{ minHeight: '400px' }}>
                 <SortableContext items={shotListItems.map(item => item.id)} strategy={rectSortingStrategy}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }} className="shotlist-grid">
-                    {shotListItems.map((item, index) => (<SortableCard key={item.id} id={item.id} item={item} index={index} {...{ imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, focusedItemId, setFocusedItemId }} />))}
+                    {shotListItems.map((item, index) => (
+                      <SortableCard 
+                        key={item.id} 
+                        id={item.id} 
+                        item={item} 
+                        index={index} 
+                        imagePreviews={imagePreviews}
+                        activeImageUploadId={activeImageUploadId}
+                        setActiveImageUploadId={setActiveImageUploadId}
+                        handleItemChange={handleItemChange}
+                        handleImageUpload={handleImageUpload}
+                        removeShotItem={removeShotItem}
+                        handleRemoveImage={handleRemoveImage}
+                        isFocused={focusedItemId === item.id}
+                        setFocusedItemId={setFocusedItemId}
+                      />
+                    ))}
                   </div>
                 </SortableContext>
 	                {shotListItems.length === 0 && (
@@ -1603,7 +1617,23 @@ debounceTimeoutRef.current = setTimeout(() => {
                     </thead>
                     <tbody>
                       <SortableContext items={shotListItems.map(item => item.id)} strategy={verticalListSortingStrategy}>
-                        {shotListItems.map((item, index) => (<SortableRow key={item.id} id={item.id} item={item} index={index} {...{ imagePreviews, activeImageUploadId, setActiveImageUploadId, handleItemChange, handleImageUpload, removeShotItem, handleRemoveImage, focusedItemId, setFocusedItemId }} />))}
+                        {shotListItems.map((item, index) => (
+                          <SortableRow 
+                            key={item.id} 
+                            id={item.id} 
+                            item={item} 
+                            index={index} 
+                            imagePreviews={imagePreviews}
+                            activeImageUploadId={activeImageUploadId}
+                            setActiveImageUploadId={setActiveImageUploadId}
+                            handleItemChange={handleItemChange}
+                            handleImageUpload={handleImageUpload}
+                            removeShotItem={removeShotItem}
+                            handleRemoveImage={handleRemoveImage}
+                            isFocused={focusedItemId === item.id}
+                            setFocusedItemId={setFocusedItemId}
+                          />
+                        ))}
                       </SortableContext>
                     </tbody>
                   </table>
