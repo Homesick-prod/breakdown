@@ -3333,7 +3333,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     };
     setSaveStatus('saving');
     Promise.resolve()
-      .then(() => onSaveRef.current(dataToSave))
+      .then(() => onSaveRef.current(dataToSave, project))
       .then(() => {
         setSaveStatus('saved');
         return new Promise(resolve => setTimeout(resolve, 2500));
@@ -3343,7 +3343,28 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
         console.error(err);
         setSaveStatus('dirty');
       });
-  }, [headerInfo, timelineItems, imagePreviews, callSheetData]);
+  }, [project, headerInfo, timelineItems, imagePreviews, callSheetData]);
+
+  const handleBack = useCallback(async () => {
+    if (hasPendingSaveRef.current) {
+      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+      const dataToSave = {
+        headerInfo,
+        timelineItems,
+        imagePreviews,
+        callSheetData
+      };
+      setSaveStatus('saving');
+      try {
+        await onSaveRef.current(dataToSave, project);
+        hasPendingSaveRef.current = false;
+        setSaveStatus('saved');
+      } catch (err) {
+        console.error('Failed to save on back:', err);
+      }
+    }
+    onBack();
+  }, [onBack, project, headerInfo, timelineItems, imagePreviews, callSheetData]);
 
   const handleExportSchedulePDF = useCallback(async () => {
     const preparedItems = itemsToRender.map(item => {
@@ -3431,7 +3452,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
         if (isCallSheetOpen) {
           setIsCallSheetOpen(false);
         } else {
-          onBack();
+          handleBack();
         }
       },
       preventDefault: false,
@@ -3561,7 +3582,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
         }}>
           <div style={{ width: '100%', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <button onClick={onBack} style={{ padding: '8px', borderRadius: '8px', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: 'var(--text-secondary)', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-input)'; e.currentTarget.style.color = 'var(--text-primary)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}>
+              <button onClick={handleBack} style={{ padding: '8px', borderRadius: '8px', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: 'var(--text-secondary)', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-input)'; e.currentTarget.style.color = 'var(--text-primary)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}>
                 <ArrowLeft className="w-5 h-5" />
               </button>
               <div style={{ height: '28px', width: '1px', background: 'var(--border-subtle)' }} />

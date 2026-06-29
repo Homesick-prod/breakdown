@@ -1326,7 +1326,28 @@ debounceTimeoutRef.current = setTimeout(() => {
         console.error("Save failed:", err);
         setSaveStatus('dirty');
       });
-  }, [projectTitle, shotListItems]);
+  }, [project, projectTitle, shotListItems]);
+
+  const handleBack = useCallback(async () => {
+    if (hasPendingSaveRef.current) {
+      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+      const dataToSave = { 
+        name: projectTitle, 
+        shotListData: { 
+          shotListItems 
+        } 
+      };
+      setSaveStatus('saving');
+      try {
+        await onSaveRef.current(dataToSave, project);
+        hasPendingSaveRef.current = false;
+        setSaveStatus('saved');
+      } catch (err) {
+        console.error('Failed to save on back:', err);
+      }
+    }
+    onBack();
+  }, [onBack, project, projectTitle, shotListItems]);
 
   const handleDeleteShortcut = useCallback(() => {
     if (focusedItemId) {
@@ -1384,7 +1405,7 @@ debounceTimeoutRef.current = setTimeout(() => {
     },
     {
       key: 'Escape',
-      action: onBack,
+      action: handleBack,
       preventDefault: false,
     }
   ]);
@@ -1466,7 +1487,7 @@ debounceTimeoutRef.current = setTimeout(() => {
         }}>
           <div style={{ width: '100%', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <button onClick={onBack} style={{ padding: '8px', borderRadius: '8px', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: 'var(--text-secondary)', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-input)'; e.currentTarget.style.color = 'var(--text-primary)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}>
+              <button onClick={handleBack} style={{ padding: '8px', borderRadius: '8px', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: 'var(--text-secondary)', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-input)'; e.currentTarget.style.color = 'var(--text-primary)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}>
                 <ArrowLeft className="w-5 h-5" />
               </button>
               <div style={{ height: '28px', width: '1px', background: 'var(--border-subtle)' }} />
