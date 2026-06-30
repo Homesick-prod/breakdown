@@ -99,6 +99,34 @@ const getMealLabel = (timeStr?: string, defaultLabel = 'Meal') => {
   return 'Supper';
 };
 
+const THAI_TEXT_RE = /[\u0E00-\u0E7F]/;
+const ZERO_WIDTH_SPACE = '\u200B';
+
+const segmentThaiText = (value: string): string[] => {
+  if (!THAI_TEXT_RE.test(value)) return [value];
+
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    const segmenter = new Intl.Segmenter('th', { granularity: 'word' });
+    const segments = Array.from(segmenter.segment(value), part => part.segment).filter(Boolean);
+    if (segments.length > 0) return segments;
+  }
+
+  return Array.from(value);
+};
+
+Font.registerHyphenationCallback((word) => segmentThaiText(word));
+
+const normalizeInlineText = (value: any, fallback = '-') => {
+  const normalized = String(value ?? '').trim().replace(/,\s*/g, ', ');
+  return normalized || fallback;
+};
+
+const fmtWrapped = (value: any, fallback = '-') => {
+  const normalized = normalizeInlineText(value, fallback);
+  if (normalized === fallback) return normalized;
+  return segmentThaiText(normalized).join(ZERO_WIDTH_SPACE);
+};
+
 // ─── Colors & Sizes ───────────────────────────────────────────────────────
 
 const C = {
@@ -116,6 +144,40 @@ const C = {
   handheldBg: '#EFF6FF',
   handheldText: '#1D4ED8',
 };
+
+const COL = {
+  start: '5.5%',
+  end: '5.5%',
+  duration: '3.5%',
+  sceneShot: '6%',
+  storyboard: '7%',
+  setPeriod: '7%',
+  location: '9%',
+  size: '5.5%',
+  angle: '7.5%',
+  movement: '8.5%',
+  lens: '3.5%',
+  description: '22%',
+  cast: '10%',
+};
+
+const BREAK_SPAN = '85.5%';
+
+const TABLE_HEADERS = [
+  ['start', 'Start'],
+  ['end', 'End'],
+  ['duration', 'Dur.'],
+  ['sceneShot', 'Sc/Sh'],
+  ['storyboard', 'Storyboard'],
+  ['setPeriod', 'Set/Period'],
+  ['location', 'Location'],
+  ['size', 'Size'],
+  ['angle', 'Angle'],
+  ['movement', 'Movement'],
+  ['lens', 'Lens'],
+  ['description', 'Description'],
+  ['cast', 'Cast'],
+] as const;
 
 const styles = StyleSheet.create({
   page: {
@@ -193,18 +255,26 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 10,
     minHeight: 20,
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   cell: {
     fontSize: 7,
     color: C.black,
     paddingRight: 4,
+    lineHeight: 1.35,
   },
   cellMuted: {
     fontSize: 6,
     color: C.mid,
     marginTop: 1,
     paddingRight: 4,
+    lineHeight: 1.25,
+  },
+  cellBox: {
+    paddingRight: 4,
+  },
+  textColumn: {
+    paddingRight: 5,
   },
 
   // ── Footer ────────────────────────────────────────────────────────────────
@@ -236,6 +306,20 @@ const CrewRow = ({ role, name }: { role: string; name?: string }) => {
     </View>
   );
 };
+
+const TableCell = ({
+  width,
+  children,
+  style,
+}: {
+  width: string;
+  children: React.ReactNode;
+  style?: any;
+}) => (
+  <View style={[styles.cellBox, { width }, style]}>
+    {children}
+  </View>
+);
 
 // ─── Main Document ─────────────────────────────────────────────────────────────
 
@@ -285,37 +369,37 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
               {/* Col 1: Q (Day) */}
               <View style={{ flex: 1, flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'center', paddingTop: 1 }}>
                 <Text style={styles.label}>Shoot Day</Text>
-                <Text style={{ fontSize: 15, fontWeight: 600, color: C.black, lineHeight: 1, marginTop: -4.5, marginBottom: 5.5 }}>
+                <Text style={{ fontSize: 15, fontWeight: 600, color: C.black, lineHeight: 1.1, marginTop: 1, marginBottom: 2 }}>
                   Q{fmt(h.shootingDay)}
                 </Text>
-                <Text style={{ fontSize: 5.5, fontWeight: 600, color: C.mid, lineHeight: 1 }}>
+                <Text style={{ fontSize: 5.5, fontWeight: 600, color: C.mid, lineHeight: 1.25 }}>
                   Out of {fmt(h.totalDays)}
                 </Text>
               </View>
 
               {/* Col 2: Shooting Locations */}
-              <View style={{ flex: 1.5, flexDirection: 'column', alignItems: 'center', borderLeftWidth: 0.5, borderLeftColor: C.rule, borderRightWidth: 0.5, borderRightColor: C.rule, paddingHorizontal: 4, height: '100%' }}>
+              <View style={{ flex: 1.5, flexDirection: 'column', alignItems: 'center', borderLeftWidth: 0.5, borderLeftColor: C.rule, borderRightWidth: 0.5, borderRightColor: C.rule, paddingHorizontal: 5, height: '100%' }}>
                 <Text style={[styles.label, { textAlign: 'center', marginTop: 2 }]}>Locations</Text>
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%' }}>
                   {((h.location1 && !h.location2 && !h.location3) || (!h.location1 && !h.location2 && !h.location3 && h.location)) ? (
-                    <Text style={{ fontSize: 8.5, fontWeight: 600, color: C.black, textAlign: 'center' }}>
-                      {fmt(h.location1 || h.location)}
+                    <Text style={{ fontSize: 8, fontWeight: 600, color: C.black, textAlign: 'center', lineHeight: 1.25 }}>
+                      {fmtWrapped(h.location1 || h.location)}
                     </Text>
                   ) : (
-                    <View style={{ gap: 3, justifyContent: 'center', width: '100%' }}>
+                    <View style={{ gap: 2, justifyContent: 'center', width: '100%' }}>
                       {h.location1 && (
-                        <Text style={{ fontSize: 7, color: C.black, fontWeight: 600, textAlign: 'center' }}>
-                          L1: {fmt(h.location1)}
+                        <Text style={{ fontSize: 6.7, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.25 }}>
+                          L1: {fmtWrapped(h.location1)}
                         </Text>
                       )}
                       {h.location2 && (
-                        <Text style={{ fontSize: 7, color: C.black, fontWeight: 600, textAlign: 'center' }}>
-                          L2: {fmt(h.location2)}
+                        <Text style={{ fontSize: 6.7, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.25 }}>
+                          L2: {fmtWrapped(h.location2)}
                         </Text>
                       )}
                       {h.location3 && (
-                        <Text style={{ fontSize: 7, color: C.black, fontWeight: 600, textAlign: 'center' }}>
-                          L3: {fmt(h.location3)}
+                        <Text style={{ fontSize: 6.7, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.25 }}>
+                          L3: {fmtWrapped(h.location3)}
                         </Text>
                       )}
                       {!h.location1 && !h.location2 && !h.location3 && !h.location && (
@@ -329,10 +413,10 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
               {/* Col 3: General Call Time */}
               <View style={{ flex: 1, flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'center', paddingTop: 1 }}>
                 <Text style={styles.label}>Call Time</Text>
-                <Text style={{ fontSize: 15, fontWeight: 600, color: C.black, lineHeight: 1, marginTop: -4.5, marginBottom: 5.5 }}>
+                <Text style={{ fontSize: 15, fontWeight: 600, color: C.black, lineHeight: 1.1, marginTop: 1, marginBottom: 2 }}>
                   {fmt(h.callTime)}
                 </Text>
-                <Text style={{ fontSize: 5.5, fontWeight: 600, color: C.mid, lineHeight: 1 }}>
+                <Text style={{ fontSize: 5.5, fontWeight: 600, color: C.mid, lineHeight: 1.25 }}>
                   {formatDate(h.date)}
                 </Text>
               </View>
@@ -341,7 +425,7 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
 
           {/* Right: Times list, weather */}
           <View style={styles.hRight}>
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 4, width: '100%', marginBottom: 3 }}>
+            <View style={{ flexDirection: 'column', alignItems: 'flex-end', gap: 1.5, width: '100%', marginBottom: 3 }}>
               {/* Badge 1: Weather + Temp */}
               <View style={{ backgroundColor: '#F3F4F6', borderRadius: 2, paddingVertical: 1.5, paddingHorizontal: 3, flexDirection: 'row', alignItems: 'center', gap: 2 }}>
                 <Svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth="2.5">
@@ -397,19 +481,11 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
 
           {/* Table header */}
           <View style={styles.tableHead} fixed>
-            <Text style={[styles.tableHeadCell, { width: '6%' }]}>Start</Text>
-            <Text style={[styles.tableHeadCell, { width: '6%' }]}>End</Text>
-            <Text style={[styles.tableHeadCell, { width: '3%' }]}>Dur.</Text>
-            <Text style={[styles.tableHeadCell, { width: '6%' }]}>Sc/Sh</Text>
-            <Text style={[styles.tableHeadCell, { width: '12%' }]}>Storyboard</Text>
-            <Text style={[styles.tableHeadCell, { width: '7%' }]}>Set/Period</Text>
-            <Text style={[styles.tableHeadCell, { width: '9%' }]}>Location</Text>
-            <Text style={[styles.tableHeadCell, { width: '5%' }]}>Size</Text>
-            <Text style={[styles.tableHeadCell, { width: '7%' }]}>Angle</Text>
-            <Text style={[styles.tableHeadCell, { width: '7%' }]}>Movement</Text>
-            <Text style={[styles.tableHeadCell, { width: '4%' }]}>Lens</Text>
-            <Text style={[styles.tableHeadCell, { width: '20%' }]}>Description</Text>
-            <Text style={[styles.tableHeadCell, { width: '8%' }]}>Cast</Text>
+            {TABLE_HEADERS.map(([key, label]) => (
+              <Text key={key} style={[styles.tableHeadCell, { width: COL[key] }]}>
+                {label}
+              </Text>
+            ))}
           </View>
 
           {timelineItems.map((item, i) => {
@@ -431,28 +507,36 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
             }
 
             return (
-              <View key={item.id ?? i} style={[styles.tableRow, { backgroundColor: rowBg }]}>
-                <Text style={[styles.cell, { width: '6%', fontWeight: 600, color: textColor }]}>
-                  {item.start || '--:--'}
-                </Text>
-                <Text style={[styles.cell, { width: '6%', color: C.mid }]}>
-                  {item.end || '--:--'}
-                </Text>
-                <Text style={[styles.cell, { width: '3%', color: C.mid }]}>
-                  {item.duration ? `${item.duration}'` : ''}
-                </Text>
+              <View key={item.id ?? i} wrap={false} style={[styles.tableRow, { backgroundColor: rowBg }]}>
+                <TableCell width={COL.start}>
+                  <Text style={[styles.cell, { fontWeight: 600, color: textColor }]}>
+                    {item.start || '--:--'}
+                  </Text>
+                </TableCell>
+                <TableCell width={COL.end}>
+                  <Text style={[styles.cell, { color: C.mid }]}>
+                    {item.end || '--:--'}
+                  </Text>
+                </TableCell>
+                <TableCell width={COL.duration}>
+                  <Text style={[styles.cell, { color: C.mid }]}>
+                    {item.duration ? `${item.duration}'` : ''}
+                  </Text>
+                </TableCell>
 
                 {isBreak ? (
-                  <Text style={[styles.cell, { width: '85%', fontWeight: 600, color: textColor }]}>
-                    {item.description || 'Break'}
-                  </Text>
+                  <TableCell width={BREAK_SPAN}>
+                    <Text style={[styles.cell, { fontWeight: 600, color: textColor }]}>
+                      {fmtWrapped(item.description, 'Break')}
+                    </Text>
+                  </TableCell>
                 ) : (
                   <>
-                    <View style={{ width: '6%', paddingRight: 4 }}>
-                      <Text style={[styles.cell, { fontWeight: 600 }]}>Sc. {item.sceneNumber || '-'}</Text>
+                    <TableCell width={COL.sceneShot}>
+                      <Text style={[styles.cell, { fontWeight: 600 }]}>Sc. {normalizeInlineText(item.sceneNumber)}</Text>
                       <Text style={[styles.cellMuted, { fontSize: 5.5, marginTop: 1 }]}>Sh. {item.shotNumber || '-'}</Text>
-                    </View>
-                    <View style={{ width: '12%', justifyContent: 'center', alignItems: 'center', paddingRight: 4 }}>
+                    </TableCell>
+                    <TableCell width={COL.storyboard} style={{ justifyContent: 'center', alignItems: 'center' }}>
                       {imagePreviews && imagePreviews[item.id] ? (
                         <Image
                           src={imagePreviews[item.id]}
@@ -464,41 +548,47 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
                           }}
                         />
                       ) : null}
-                    </View>
-                    <View style={{ width: '7%', paddingRight: 4 }}>
-                      <Text style={styles.cell}>{item.intExt || '-'}</Text>
-                      <Text style={[styles.cellMuted, { fontSize: 5.5, marginTop: 1 }]}>{item.dayNight || '-'}</Text>
-                    </View>
-                    <Text style={[styles.cell, { width: '9%' }]}>
-                      {item.location || '-'}
-                    </Text>
-                    <Text style={[styles.cell, { width: '5%' }]}>
-                      {formatSelectValueList(item.shotSize)}
-                    </Text>
-                    <Text style={[styles.cell, { width: '7%' }]}>
-                      {item.angle || '-'}
-                    </Text>
-                    <Text style={[styles.cell, { width: '7%', color: isHandheld ? C.handheldText : C.black }]}>
-                      {movement}
-                    </Text>
-                    <Text style={[styles.cell, { width: '4%' }]}>
-                      {item.lens ? `${String(item.lens).replace(/mm/g, '')}mm` : '-'}
-                    </Text>
-                    <View style={{ width: '20%', paddingRight: 4 }}>
-                      <Text style={styles.cell}>{item.description || '-'}</Text>
+                    </TableCell>
+                    <TableCell width={COL.setPeriod}>
+                      <Text style={styles.cell}>{fmtWrapped(item.intExt)}</Text>
+                      <Text style={[styles.cellMuted, { fontSize: 5.5, marginTop: 1 }]}>{fmtWrapped(item.dayNight)}</Text>
+                    </TableCell>
+                    <TableCell width={COL.location}>
+                      <Text style={styles.cell}>{fmtWrapped(item.location)}</Text>
+                    </TableCell>
+                    <TableCell width={COL.size}>
+                      <Text style={styles.cell}>{fmtWrapped(formatSelectValueList(item.shotSize))}</Text>
+                    </TableCell>
+                    <TableCell width={COL.angle}>
+                      <Text style={[styles.cell, { fontSize: String(item.angle || '').includes(',') ? 6.5 : 7 }]}>
+                        {fmtWrapped(item.angle)}
+                      </Text>
+                    </TableCell>
+                    <TableCell width={COL.movement}>
+                      <Text style={[styles.cell, { color: isHandheld ? C.handheldText : C.black, fontSize: movement.includes('/') ? 6.5 : 7 }]}>
+                        {fmtWrapped(movement)}
+                      </Text>
+                    </TableCell>
+                    <TableCell width={COL.lens}>
+                      <Text style={styles.cell}>
+                        {item.lens ? `${String(item.lens).replace(/mm/g, '')}mm` : '-'}
+                      </Text>
+                    </TableCell>
+                    <TableCell width={COL.description} style={styles.textColumn}>
+                      <Text style={styles.cell}>{fmtWrapped(item.description)}</Text>
                       {(item.props || item.costume || item.notes) ? (
                         <Text style={[styles.cellMuted, { fontSize: 5.5, color: C.mid, marginTop: 2 }]}>
-                          {[
-                            item.props ? `Props: ${item.props}` : '',
-                            item.costume ? `Costume: ${item.costume}` : '',
-                            item.notes ? `Notes: ${item.notes}` : '',
-                          ].filter(Boolean).join(' | ')}
+                          {fmtWrapped([
+                            item.props ? `Props: ${normalizeInlineText(item.props)}` : '',
+                            item.costume ? `Costume: ${normalizeInlineText(item.costume)}` : '',
+                            item.notes ? `Notes: ${normalizeInlineText(item.notes)}` : '',
+                          ].filter(Boolean).join(' | '))}
                         </Text>
                       ) : null}
-                    </View>
-                    <Text style={[styles.cell, { width: '8%' }]}>
-                      {item.cast || '-'}
-                    </Text>
+                    </TableCell>
+                    <TableCell width={COL.cast}>
+                      <Text style={styles.cell}>{fmtWrapped(item.cast)}</Text>
+                    </TableCell>
                   </>
                 )}
               </View>
