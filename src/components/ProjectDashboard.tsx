@@ -5,17 +5,19 @@ import { Film, Upload, Plus, Folder, MoreVertical, Edit2, Copy, FileDown, Trash2
 import { exportProject, importProject } from '../utils/file';
 import { generateId } from '../utils/id';
 import { deleteImage } from '../utils/db';
-import { db, logAnalyticsEvent, logActivity, isFirebaseEnabled, auth, logOut, deleteImageFromStorage } from '../lib/firebase';
+import { db as dbVal, logAnalyticsEvent, logActivity, isFirebaseEnabled, auth, logOut, deleteImageFromStorage } from '../lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import AuthModal from './AuthModal';
 import { collection, query, where, getDocs, doc, setDoc, deleteDoc, updateDoc, getDoc } from 'firebase/firestore';
 import Footer from './Footer';
 import { useTheme } from './ThemeProvider';
 
+const db = dbVal as any;
+
 // ────────────────────────────────────────────────
 // Empty State
 // ────────────────────────────────────────────────
-function EmptyState({ onCreateProject, onImportProject }) {
+function EmptyState({ onCreateProject, onImportProject }: { onCreateProject: () => void; onImportProject: (e: any) => void; }) {
   return (
     <div className="dashboard-empty-state text-center py-24 animate-fade-in-up">
       <div className="empty-state-icon animate-float" style={{ width: '68px', height: '68px', borderRadius: '18px', background: 'var(--accent-glow-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}>
@@ -44,7 +46,7 @@ function EmptyState({ onCreateProject, onImportProject }) {
 // ────────────────────────────────────────────────
 // Project Card Dropdown Menu
 // ────────────────────────────────────────────────
-function ProjectCardMenu({ project, onEdit, onDuplicate, onExport, onShare, onDelete }) {
+function ProjectCardMenu({ project, onEdit, onDuplicate, onExport, onShare, onDelete }: { project: any; onEdit: () => void; onDuplicate: () => void; onExport: () => void; onShare: () => void; onDelete: () => void; }) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -156,7 +158,7 @@ function sanitizeForFirestore(proj: any) {
 // ────────────────────────────────────────────────
 // Main Dashboard
 // ────────────────────────────────────────────────
-export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
+export default function ProjectDashboard({ onSelectProject, onCreateProject }: { onSelectProject: (p: any, editorType?: any) => void | Promise<any>; onCreateProject: () => void; }) {
   const { theme, toggleTheme } = useTheme();
   const [projects, setProjects] = useState<any[]>([]);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
@@ -376,7 +378,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
     };
   }, [user, visitorId, authInitialized]);
 
-  const handleOpenEditModal = (project) => {
+  const handleOpenEditModal = (project: any) => {
     setEditingProject(project);
     setEditedName(project.name);
     setEditedDescription(project.description || '');
@@ -468,7 +470,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
     setProjectToOpen({ id: newProjectId, ...newProject });
   };
 
-  const handleDeleteProject = async (projectId) => {
+  const handleDeleteProject = async (projectId: any) => {
     const projectToDelete = projects.find(p => p.id === projectId);
     const isShared = projectToDelete?.isShared;
 
@@ -519,7 +521,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
     }
   };
 
-  const handleDuplicateProject = async (project) => {
+  const handleDuplicateProject = async (project: any) => {
     const newProjectId = generateId();
     const activeOwnerId = user ? user.uid : visitorId;
     const duplicatedProject = {
@@ -548,7 +550,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
     }
   };
 
-  const handleShareProject = (project) => {
+  const handleShareProject = (project: any) => {
     if (!isFirebaseEnabled) {
       alert('Sharing is not available in local storage fallback mode. Please configure Firebase to share projects.');
       return;
@@ -563,7 +565,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
     });
   };
 
-  const handleExportProject = async (project) => {
+  const handleExportProject = async (project: any) => {
     alert('Preparing project for export. This may take a moment...');
     try {
       await exportProject(project);
@@ -575,7 +577,7 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
     catch (error) { console.error('Export failed:', error); alert('Export failed.'); }
   };
 
-  const handleImportProject = async (e) => {
+  const handleImportProject = async (e: any) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
@@ -613,14 +615,14 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }) {
         localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
       }
       alert('Project imported successfully!');
-    } catch (error) {
+    } catch (error: any) {
       alert(error.message || 'Import failed. The file may be corrupt or not a valid project file.');
     }
     if (e.target) e.target.value = null;
   };
 
   // ── Inline styles ──
-  const S = {
+  const S: any = {
     page: {
       minHeight: '100vh',
       background: 'var(--bg-base)',

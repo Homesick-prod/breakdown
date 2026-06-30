@@ -105,7 +105,8 @@ const encodeWithinBudget = async (
       if (blob.size <= options.targetBytes) return blobToFile(blob, sourceFile);
     }
 
-    if (!bestBlob || bestBlob.size <= options.hardMaxBytes || Math.max(currentDimensions.width, currentDimensions.height) <= 900) {
+    if (!bestBlob) return sourceFile;
+    if (bestBlob.size <= options.hardMaxBytes || Math.max(currentDimensions.width, currentDimensions.height) <= 900) {
       return blobToFile(bestBlob, sourceFile);
     }
 

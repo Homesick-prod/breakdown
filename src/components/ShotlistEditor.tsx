@@ -26,6 +26,7 @@ import {
   Undo2, Redo2
 } from 'lucide-react';
 import { useUndoRedo } from '../hooks/useUndoRedo';
+import { DeferredTextField } from './DeferredTextField';
 import { DarkSelect, findOption, SHOT_SIZE_OPTIONS, ANGLE_OPTIONS, MOVEMENT_OPTIONS, SelectOption } from './DarkSelect';
 // --- Important: Make sure the path to your db helper and pdf utility is correct ---
 import { exportShotListToPDF } from '../utils/shotpdf';
@@ -98,6 +99,7 @@ type Project = {
   id: string;
   name: string;
   data?: ProjectData;
+  ownerId?: string;
 };
 
 type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved';
@@ -135,92 +137,7 @@ const exportProject = (project: Project) => console.log('Exporting project:', pr
 //==============================================================================
 // CHILD COMPONENTS (No changes needed)
 //==============================================================================
-type DeferredTextFieldProps = {
-  value?: string | number | null;
-  onCommit: (value: string) => void;
-  as?: 'input' | 'textarea';
-  commitDelay?: number;
-  className?: string;
-  style?: React.CSSProperties;
-  placeholder?: string;
-  type?: string;
-  rows?: number;
-  disabled?: boolean;
-  title?: string;
-  onFocus?: (e: any) => void;
-  onBlur?: (e: any) => void;
-};
 
-const DeferredTextField = React.memo(function DeferredTextField({
-  value,
-  onCommit,
-  as = 'input',
-  commitDelay = 250,
-  ...props
-}: DeferredTextFieldProps) {
-  const [draft, setDraft] = useState(value == null ? '' : String(value));
-  const draftRef = useRef(draft);
-  const committedRef = useRef(value == null ? '' : String(value));
-  const onCommitRef = useRef(onCommit);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isFocusedRef = useRef(false);
-
-  useEffect(() => {
-    onCommitRef.current = onCommit;
-  }, [onCommit]);
-
-  useEffect(() => {
-    const nextValue = value == null ? '' : String(value);
-    committedRef.current = nextValue;
-    if (!isFocusedRef.current && nextValue !== draftRef.current) {
-      draftRef.current = nextValue;
-      setDraft(nextValue);
-    }
-  }, [value]);
-
-  const clearPendingCommit = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  }, []);
-
-  const commit = useCallback((nextValue = draftRef.current) => {
-    clearPendingCommit();
-    if (nextValue === committedRef.current) return;
-    committedRef.current = nextValue;
-    onCommitRef.current(nextValue);
-  }, [clearPendingCommit]);
-
-  const handleChange = useCallback((event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const nextValue = event.target.value;
-    draftRef.current = nextValue;
-    setDraft(nextValue);
-    clearPendingCommit();
-    timeoutRef.current = setTimeout(() => commit(nextValue), commitDelay);
-  }, [clearPendingCommit, commit, commitDelay]);
-
-  useEffect(() => () => clearPendingCommit(), [clearPendingCommit]);
-
-  const sharedProps = {
-    ...props,
-    value: draft,
-    onChange: handleChange,
-    onFocus: (e: any) => {
-      isFocusedRef.current = true;
-      if (props.onFocus) props.onFocus(e);
-    },
-    onBlur: (e: any) => {
-      isFocusedRef.current = false;
-      commit();
-      if (props.onBlur) props.onBlur(e);
-    },
-  };
-
-  return as === 'textarea'
-    ? <textarea {...sharedProps as any} />
-    : <input {...sharedProps as any} />;
-});
 
 const SaveStatusIndicator: React.FC<{ status: SaveStatus }> = ({ status }) => {
   const getStatusDisplay = () => {
@@ -941,7 +858,7 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
   const shotListItems = docState.shotListItems;
   const imagePreviews = docState.imagePreviews;
 
-  const setProjectTitle = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
+  const setProjectTitle = useCallback((newValOrFn: string | ((prev: string) => string), options?: { isContinuous?: boolean }) => {
     setDocState(prev => {
       const projectTitleVal = typeof newValOrFn === 'function' ? newValOrFn(prev.projectTitle) : newValOrFn;
       return {
@@ -951,7 +868,7 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
     }, options);
   }, [setDocState]);
 
-  const setShotListItems = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
+  const setShotListItems = useCallback((newValOrFn: ShotItem[] | ((prev: ShotItem[]) => ShotItem[]), options?: { isContinuous?: boolean }) => {
     setDocState(prev => {
       const shotListItemsVal = typeof newValOrFn === 'function' ? newValOrFn(prev.shotListItems) : newValOrFn;
       return {
@@ -961,7 +878,7 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
     }, options);
   }, [setDocState]);
 
-  const setImagePreviews = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
+  const setImagePreviews = useCallback((newValOrFn: ImagePreviews | ((prev: ImagePreviews) => ImagePreviews), options?: { isContinuous?: boolean }) => {
     setDocState(prev => {
       const imagePreviewsVal = typeof newValOrFn === 'function' ? newValOrFn(prev.imagePreviews) : newValOrFn;
       return {

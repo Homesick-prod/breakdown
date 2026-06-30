@@ -24,10 +24,10 @@ const isCurrentManagedStorageUrl = (value?: string | null) => {
   if (!isHttpUrl(value)) return false;
 
   try {
-    const decoded = decodeURIComponent(value);
+    const decoded = decodeURIComponent(value || '');
     return decoded.includes('/o/projects/') && decoded.includes('/images/');
   } catch {
-    return value.includes('%2Fimages%2F');
+    return (value || '').includes('%2Fimages%2F');
   }
 };
 

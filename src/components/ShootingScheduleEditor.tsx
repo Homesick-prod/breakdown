@@ -11,6 +11,7 @@ import {
   Undo2, Redo2, ClipboardList, FileText
 } from 'lucide-react';
 import { useUndoRedo } from '../hooks/useUndoRedo';
+import { DeferredTextField } from './DeferredTextField';
 import { generateId } from '../utils/id';
 import { calculateEndTime, calculateDuration } from '../utils/time';
 import { exportProject } from '../utils/file';
@@ -232,7 +233,7 @@ function LocationAutocomplete({ value, onChange, onSelectLocation, placeholder, 
 }
 
 // Save status indicator component
-function SaveStatusIndicator({ status }) {
+function SaveStatusIndicator({ status }: { status: string }) {
   const getStatusDisplay = () => {
     switch (status) {
       case 'saving': return { icon: <Loader2 className="w-4 h-4 animate-spin" />, text: 'Saving...', style: { color: 'var(--text-muted)' } };
@@ -255,88 +256,7 @@ const SCENE_GROUP_TIMING_FIELDS = new Set(['start', 'end', 'duration']);
 const SHOT_LINKED_FIELDS = new Set(['sceneNumber', 'shotNumber', 'shotSize', 'angle', 'movement', 'lens', 'shotDescription', 'cast', 'notes']);
 const isDefaultZoom = (value: number) => Math.abs(value - 1) < 0.001;
 
-type DeferredTextFieldProps = {
-  value?: string | number | null;
-  onCommit: (value: string) => void;
-  as?: 'input' | 'textarea';
-  commitDelay?: number;
-  className?: string;
-  style?: React.CSSProperties;
-  placeholder?: string;
-  type?: string;
-  rows?: number;
-  disabled?: boolean;
-  title?: string;
-};
 
-const DeferredTextField = React.memo(function DeferredTextField({
-  value,
-  onCommit,
-  as = 'input',
-  commitDelay = 250,
-  ...props
-}: DeferredTextFieldProps) {
-  const [draft, setDraft] = useState(value == null ? '' : String(value));
-  const draftRef = useRef(draft);
-  const committedRef = useRef(value == null ? '' : String(value));
-  const onCommitRef = useRef(onCommit);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isFocusedRef = useRef(false);
-
-  useEffect(() => {
-    onCommitRef.current = onCommit;
-  }, [onCommit]);
-
-  useEffect(() => {
-    const nextValue = value == null ? '' : String(value);
-    committedRef.current = nextValue;
-    if (!isFocusedRef.current && nextValue !== draftRef.current) {
-      draftRef.current = nextValue;
-      setDraft(nextValue);
-    }
-  }, [value]);
-
-  const clearPendingCommit = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  }, []);
-
-  const commit = useCallback((nextValue = draftRef.current) => {
-    clearPendingCommit();
-    if (nextValue === committedRef.current) return;
-    committedRef.current = nextValue;
-    onCommitRef.current(nextValue);
-  }, [clearPendingCommit]);
-
-  const handleChange = useCallback((event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const nextValue = event.target.value;
-    draftRef.current = nextValue;
-    setDraft(nextValue);
-    clearPendingCommit();
-    timeoutRef.current = setTimeout(() => commit(nextValue), commitDelay);
-  }, [clearPendingCommit, commit, commitDelay]);
-
-  useEffect(() => () => clearPendingCommit(), [clearPendingCommit]);
-
-  const sharedProps = {
-    ...props,
-    value: draft,
-    onChange: handleChange,
-    onFocus: () => {
-      isFocusedRef.current = true;
-    },
-    onBlur: () => {
-      isFocusedRef.current = false;
-      commit();
-    },
-  };
-
-  return as === 'textarea'
-    ? <textarea {...sharedProps as any} />
-    : <input {...sharedProps as any} />;
-});
 
 // Static placeholder rendered when a row is actively being dragged
 const SortableItemDraggingPlaceholder = ({ item, viewMode, sceneCast }: any) => {
@@ -1569,9 +1489,9 @@ const SortableMobileCard = React.memo(function SortableMobileCard({
   );
 });;
 
-function ShotImportModal({ isOpen, onClose, shotList, imagePreviews, onImport }) {
+function ShotImportModal({ isOpen, onClose, shotList, imagePreviews, onImport }: { isOpen: boolean; onClose: () => void; shotList: any[]; imagePreviews: Record<string, string>; onImport: (selectedShots: string[]) => void; }) {
   // Hooks are now at the top level
-  const [selectedShots, setSelectedShots] = useState(new Set());
+  const [selectedShots, setSelectedShots] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -1581,21 +1501,21 @@ function ShotImportModal({ isOpen, onClose, shotList, imagePreviews, onImport })
     }
   }, [isOpen]);
 
-  const groupedAndFilteredShots = useMemo(() => {
-    const filtered = shotList.filter(shot =>
+  const groupedAndFilteredShots = useMemo((): Record<string, any[]> => {
+    const filtered = shotList.filter((shot: any) =>
       shot.sceneNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       shot.shotNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       shot.description?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    const groups = filtered.reduce((acc, shot) => {
+    const groups = filtered.reduce((acc: Record<string, any[]>, shot: any) => {
       const sceneKey = shot.sceneNumber || 'Uncategorized';
       if (!acc[sceneKey]) {
         acc[sceneKey] = [];
       }
       acc[sceneKey].push(shot);
       return acc;
-    }, {});
+    }, {} as Record<string, any[]>);
 
     return Object.keys(groups)
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
@@ -1612,7 +1532,7 @@ function ShotImportModal({ isOpen, onClose, shotList, imagePreviews, onImport })
   };
 
   const handleSelectAllFiltered = () => {
-    const allFilteredIds = Object.values(groupedAndFilteredShots).flat().map(s => s.id);
+    const allFilteredIds = Object.values(groupedAndFilteredShots).flat().map((s: any) => s.id);
     if (selectedShots.size === allFilteredIds.length) {
       setSelectedShots(new Set());
     } else {
@@ -1620,16 +1540,16 @@ function ShotImportModal({ isOpen, onClose, shotList, imagePreviews, onImport })
     }
   };
 
-  const handleSelectScene = (sceneShots) => {
-    const sceneShotIds = sceneShots.map(s => s.id);
-    const allCurrentlySelected = sceneShotIds.every(id => selectedShots.has(id));
+  const handleSelectScene = (sceneShots: any[]) => {
+    const sceneShotIds = sceneShots.map((s: any) => s.id);
+    const allCurrentlySelected = sceneShotIds.every((id: any) => selectedShots.has(id));
 
     setSelectedShots(prev => {
       const newSet = new Set(prev);
       if (allCurrentlySelected) {
-        sceneShotIds.forEach(id => newSet.delete(id));
+        sceneShotIds.forEach((id: any) => newSet.delete(id));
       } else {
-        sceneShotIds.forEach(id => newSet.add(id));
+        sceneShotIds.forEach((id: any) => newSet.add(id));
       }
       return newSet;
     });
@@ -1711,7 +1631,7 @@ function ShotImportModal({ isOpen, onClose, shotList, imagePreviews, onImport })
                 background: 'var(--bg-input)',
               }}
             >
-              {Object.entries(groupedAndFilteredShots).length > 0 ? Object.entries(groupedAndFilteredShots).map(([sceneKey, shots]) => (
+              {Object.entries(groupedAndFilteredShots).length > 0 ? Object.entries(groupedAndFilteredShots).map(([sceneKey, shots]: [string, any]) => (
                 <div key={sceneKey} style={{ borderBottom: '1px solid var(--border-default)' }}>
                   <div
                     style={{
@@ -1751,7 +1671,7 @@ function ShotImportModal({ isOpen, onClose, shotList, imagePreviews, onImport })
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    {shots.map(shot => (
+                    {shots.map((shot: any) => (
                       <div
                         key={shot.id}
                         onClick={() => setSelectedShots(prev => { const n = new Set(prev); n.has(shot.id) ? n.delete(shot.id) : n.add(shot.id); return n; })}
@@ -2102,7 +2022,15 @@ function CallSheetBuilderModal({ isOpen, onClose, headerInfo, timelineItems, sta
 }
 
 // Main editor component
-export default function ShootingScheduleEditor({ project, onBack, onSave }) {
+export default function ShootingScheduleEditor({
+  project,
+  onBack,
+  onSave
+}: {
+  project?: any;
+  onBack: () => void;
+  onSave: (data: any, projectObj?: any) => void | Promise<void>;
+}) {
   const [docState, setDocState, { undo, redo, canUndo, canRedo }] = useUndoRedo(() => {
     const defaultHeader = { projectTitle: project?.name || '', episodeNumber: '', shootingDay: '', totalDays: '', date: new Date().toISOString().split('T')[0], callTime: '', sunrise: '06:30', sunset: '18:30', weather: '', location1: '', location2: '', location3: '', director: '', producer: '', dop: '', firstAD: '', secondAD: '', pd: '', artTime: '', lunchTime: '', dinnerTime: '', precipProb: '', temp: '', realFeel: '', firstShotTime: '', firstmealTime: '', secondmealTime: '', thirdmealTime: '', wrapTime: '' };
     
@@ -2526,7 +2454,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
           if (parts[1]) sunsetTime = parts[1].slice(0, 5);
         }
 
-        const mapWeatherCode = (c) => {
+        const mapWeatherCode = (c: any) => {
           if (c === 0) return 'Clear sky';
           if (c >= 1 && c <= 3) return 'Partly cloudy';
           if (c === 45 || c === 48) return 'Foggy';
@@ -2538,7 +2466,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
           return 'Overcast';
         };
 
-        setHeaderInfo(prev => ({
+        setHeaderInfo((prev: any) => ({
           ...prev,
           weather: mapWeatherCode(code),
           temp: tempMax !== '' ? `${Math.round(tempMax)}°` : prev.temp,
@@ -2704,8 +2632,8 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
 
   // Deselect active row/image upload when clicking outside the table
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (tableRef.current && !tableRef.current.contains(event.target)) {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (tableRef.current && !tableRef.current.contains(event.target as Node)) {
         setActiveImageUploadId(null);
         setFocusedItemId(null);
       }
@@ -2727,7 +2655,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   }, []);
 
   const handleFirstShotChange = useCallback((val: string) => {
-    setHeaderInfo(prev => ({
+    setHeaderInfo((prev: any) => ({
       ...prev,
       firstShotTime: val,
       callTime: addHours(val, -1)
@@ -2735,7 +2663,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   }, [setHeaderInfo, addHours]);
 
   const handleCallTimeChange = useCallback((val: string) => {
-    setHeaderInfo(prev => {
+    setHeaderInfo((prev: any) => {
       const firstShot = prev.firstShotTime || '09:00';
       if (val > firstShot) {
         return { ...prev, callTime: firstShot };
@@ -2744,9 +2672,9 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     });
   }, [setHeaderInfo]);
 
-  const recalculateAndUpdateTimes = useCallback((items) => {
+  const recalculateAndUpdateTimes = useCallback((items: any[]) => {
     let lastEndTime = headerInfo.firstShotTime || '09:00';
-    const updatedItems = items.map(item => {
+    const updatedItems = items.map((item: any) => {
       const newStart = lastEndTime;
       const newEnd = calculateEndTime(newStart, item.duration);
       lastEndTime = newEnd || lastEndTime;
@@ -2767,7 +2695,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     handleFirstShotChangeRef.current = handleFirstShotChange;
   }, [timelineItems, groupedTimelineItems, viewMode, handleFirstShotChange]);
 
-  const handleItemChange = useCallback((itemId, field, value) => {
+  const handleItemChange = useCallback((itemId: any, field: any, value: any) => {
     let newItems = [...timelineItemsRef.current];
     let itemsToUpdate: string[] = [];
     const isSceneGroupUpdate = String(itemId).startsWith('scene-group-');
@@ -2910,13 +2838,13 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     } else {
       if (headerInfo.callTime) {
         newStartTime = addHours(headerInfo.callTime, 1);
-        setHeaderInfo(prev => ({
+        setHeaderInfo((prev: any) => ({
           ...prev,
           firstShotTime: newStartTime
         }));
       } else {
         newStartTime = headerInfo.firstShotTime || '09:00';
-        setHeaderInfo(prev => ({
+        setHeaderInfo((prev: any) => ({
           ...prev,
           firstShotTime: newStartTime,
           callTime: addHours(newStartTime, -1)
@@ -2926,7 +2854,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
 
     const newShot = { id: generateId(), type: 'shot', start: newStartTime, duration: 10, end: '', sceneNumber: '', shotNumber: '', intExt: 'INT', dayNight: 'DAY', location: '', description: '', cast: '', shotSize: '', angle: '', movement: '', lens: '', props: '', costume: '', notes: '', imageUrl: '' };
     newShot.end = calculateEndTime(newShot.start, newShot.duration);
-    setTimelineItems(prev => [...prev, newShot]);
+    setTimelineItems((prev: any[]) => [...prev, newShot]);
   }, [timelineItems, headerInfo.callTime, headerInfo.firstShotTime, setHeaderInfo, addHours]);
 
   const addBreak = useCallback(() => {
@@ -2938,13 +2866,13 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     } else {
       if (headerInfo.callTime) {
         newStartTime = addHours(headerInfo.callTime, 1);
-        setHeaderInfo(prev => ({
+        setHeaderInfo((prev: any) => ({
           ...prev,
           firstShotTime: newStartTime
         }));
       } else {
         newStartTime = headerInfo.firstShotTime || '09:00';
-        setHeaderInfo(prev => ({
+        setHeaderInfo((prev: any) => ({
           ...prev,
           firstShotTime: newStartTime,
           callTime: addHours(newStartTime, -1)
@@ -2954,10 +2882,10 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
 
     const newBreak = { id: generateId(), type: 'break', start: newStartTime, duration: 30, end: '', description: 'Meal Break' };
     newBreak.end = calculateEndTime(newBreak.start, newBreak.duration);
-    setTimelineItems(prev => [...prev, newBreak]);
+    setTimelineItems((prev: any[]) => [...prev, newBreak]);
   }, [timelineItems, headerInfo.callTime, headerInfo.firstShotTime, setHeaderInfo, addHours]);
 
-  const removeTimelineItem = useCallback((itemId) => {
+  const removeTimelineItem = useCallback((itemId: any) => {
     let idsToRemove = [itemId];
     if (String(itemId).startsWith('scene-group-')) {
       const group = groupedTimelineItems.find(g => g.id === itemId);
@@ -2968,8 +2896,8 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
 
     const newPreviews = { ...imagePreviews };
     let hasPreviewDeleted = false;
-    const itemsToRemove = timelineItems.filter(item => idsToRemove.includes(item.id));
-    const storageUrls = Array.from(new Set(
+    const itemsToRemove = timelineItems.filter((item: any) => idsToRemove.includes(item.id));
+    const storageUrls: string[] = Array.from(new Set(
       itemsToRemove
         .map((item: any) => item.imageUrl)
         .filter((url: any): url is string => !!url && url.startsWith('http'))
@@ -2977,7 +2905,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
 
     void Promise.all([
       ...idsToRemove.map(id => deleteImage(id)),
-      ...storageUrls.map(url => deleteImageFromStorage(url).catch(err => {
+      ...storageUrls.map((url: string) => deleteImageFromStorage(url).catch(err => {
         console.error('Failed to delete image from Firebase Storage:', err);
       })),
     ]);
@@ -2995,10 +2923,10 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       setImagePreviews(newPreviews);
     }
     
-    recalculateAndUpdateTimes(timelineItems.filter(item => !idsToRemove.includes(item.id)));
+    recalculateAndUpdateTimes(timelineItems.filter((item: any) => !idsToRemove.includes(item.id)));
   }, [timelineItems, recalculateAndUpdateTimes, imagePreviews, groupedTimelineItems]);
 
-  const handleImageUpload = useCallback(async (itemId, file) => {
+  const handleImageUpload = useCallback(async (itemId: any, file: any) => {
     if (!file || !file.type.startsWith('image/')) return;
     const sourceItem = timelineItemsRef.current.find((item: any) => item.id === itemId);
     const linkKey = getScheduleShotLinkKey(sourceItem);
@@ -3025,7 +2953,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       idsToUpdate.includes(item.id) ? { ...item, imageUrl: finalImageUrl } : item
     )));
 
-    setImagePreviews(prev => {
+    setImagePreviews((prev: any) => {
       const prevVal = prev || {};
       const next = { ...prevVal };
       idsToUpdate.forEach((id: string) => {
@@ -3044,7 +2972,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     setActiveImageUploadId(null);
   }, [project?.id, setImagePreviews, setTimelineItems]);
 
-  const handleRemoveImage = useCallback(async (itemId) => {
+  const handleRemoveImage = useCallback(async (itemId: any) => {
     const sourceItem = timelineItemsRef.current.find((item: any) => item.id === itemId);
     const linkKey = getScheduleShotLinkKey(sourceItem);
     const idsToUpdate = linkKey
@@ -3053,7 +2981,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
           .map((item: any) => item.id)
       : [itemId];
 
-    const storageUrls = Array.from(new Set(
+    const storageUrls: string[] = Array.from(new Set(
       timelineItemsRef.current
         .filter((item: any) => idsToUpdate.includes(item.id))
         .map((item: any) => item.imageUrl)
@@ -3070,7 +2998,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       idsToUpdate.includes(item.id) ? { ...item, imageUrl: '' } : item
     )));
 
-    setImagePreviews(prev => {
+    setImagePreviews((prev: any) => {
       const newPreviews = { ...prev };
       idsToUpdate.forEach((id: string) => {
         if (newPreviews[id]) {
@@ -3084,7 +3012,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     });
   }, [setImagePreviews, setTimelineItems]);
 
-  const handlePasteImage = useCallback(async (e, targetItemId) => {
+  const handlePasteImage = useCallback(async (e: any, targetItemId?: any) => {
     const itemIdToUse = targetItemId || activeImageUploadId;
     if (!itemIdToUse) return;
 
@@ -3121,7 +3049,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     }
 
     if (clipboardData.files && clipboardData.files.length > 0) {
-      const file = Array.from(clipboardData.files).find(f => f.type.startsWith('image/'));
+      const file = Array.from(clipboardData.files).find((f: any) => f.type.startsWith('image/'));
       if (file) {
         await handleImageUpload(itemIdToUse, file);
         return;
@@ -3130,7 +3058,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   }, [activeImageUploadId, handleImageUpload]);
 
   useEffect(() => {
-    const globalPasteHandler = (e) => {
+    const globalPasteHandler = (e: any) => {
       if (activeImageUploadId) {
         handlePasteImage(e, activeImageUploadId);
       }
@@ -3219,14 +3147,14 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
     };
   }, []);
 
-  const handleImportShots = useCallback((shotIdsToImport) => {
+  const handleImportShots = useCallback((shotIdsToImport: any[]) => {
     const shotsToAdd = shotIdsToImport
-      .map(shotId => shotList.find(s => s.id === shotId))
+      .map((shotId: any) => shotList.find((s: any) => s.id === shotId))
       .filter(Boolean);
 
     const breakdownScenes = project?.data?.breakdownData?.scenes || [];
 
-    const newTimelineItems = shotsToAdd.map(shot => {
+    const newTimelineItems = shotsToAdd.map((shot: any) => {
       const correspondingScene = breakdownScenes.find(
         (s: any) => s.sceneNumber && s.sceneNumber.trim().toLowerCase() === shot.sceneNumber.trim().toLowerCase()
       );
@@ -3266,10 +3194,10 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
       if (preview) acc[item.id] = preview;
       else if (typeof imageUrl === 'string' && imageUrl.startsWith('http')) acc[item.id] = imageUrl;
       return acc;
-    }, {});
+    }, {} as Record<string, string>);
 
     if (Object.keys(importedImagePreviews).length > 0) {
-      setImagePreviews(prev => ({ ...prev, ...importedImagePreviews }));
+      setImagePreviews((prev: any) => ({ ...prev, ...importedImagePreviews }));
     }
 
     recalculateAndUpdateTimes([...timelineItems, ...newTimelineItems]);
@@ -3277,9 +3205,9 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   }, [shotList, shotListImagePreviews, timelineItems, recalculateAndUpdateTimes, project, setImagePreviews]);
 
   const stats = useMemo(() => {
-    const totalDuration = timelineItems.reduce((sum, item) => sum + (item.duration || 0), 0);
-    const shotCount = timelineItems.filter(item => item.type === 'shot').length;
-    const breakTime = timelineItems.filter(item => item.type === 'break').reduce((sum, item) => sum + (item.duration || 0), 0);
+    const totalDuration = timelineItems.reduce((sum: number, item: any) => sum + (item.duration || 0), 0);
+    const shotCount = timelineItems.filter((item: any) => item.type === 'shot').length;
+    const breakTime = timelineItems.filter((item: any) => item.type === 'break').reduce((sum: number, item: any) => sum + (item.duration || 0), 0);
     return { totalHours: Math.floor(totalDuration / 60), totalMinutes: totalDuration % 60, shotCount, breakHours: Math.floor(breakTime / 60), breakMinutes: breakTime % 60 };
   }, [timelineItems]);
 
@@ -3367,7 +3295,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   }, [onBack, project, headerInfo, timelineItems, imagePreviews, callSheetData]);
 
   const handleExportSchedulePDF = useCallback(async () => {
-    const preparedItems = itemsToRender.map(item => {
+    const preparedItems = itemsToRender.map((item: any) => {
       if (viewMode === 'shot') {
         return {
           ...item,
@@ -3534,7 +3462,7 @@ export default function ShootingScheduleEditor({ project, onBack, onSave }) {
   useEffect(() => {
     if (timelineItems.length > 0) {
       const lastItemEnd = timelineItems[timelineItems.length - 1].end;
-      setHeaderInfo(prev => {
+      setHeaderInfo((prev: any) => {
         if (prev.wrapTime === lastItemEnd) return prev;
         return { ...prev, wrapTime: lastItemEnd };
       });
