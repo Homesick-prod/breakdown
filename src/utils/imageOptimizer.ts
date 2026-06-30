@@ -169,17 +169,38 @@ export const fileToDataUrl = (file: File): Promise<string> => (
   })
 );
 
-export async function fetchImageUrlAsDataUrl(url: string): Promise<string | null> {
-  if (!url || !url.startsWith('http')) return null;
+export function fetchImageUrlAsDataUrl(url: string): Promise<string | null> {
+  if (!url || !url.startsWith('http')) return Promise.resolve(null);
 
-  try {
-    const response = await fetch(url, { mode: 'cors' });
-    if (!response.ok) return null;
-    const blob = await response.blob();
-    if (!blob.type.startsWith('image/')) return null;
-    return fileToDataUrl(new File([blob], 'remote-image', { type: blob.type }));
-  } catch (err) {
-    console.error('Failed to fetch remote image for export:', err);
-    return null;
-  }
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        resolve(dataUrl);
+      } catch (err) {
+        console.warn('Canvas conversion failed (likely CORS tainted canvas):', err);
+        resolve(null);
+      }
+    };
+
+    img.onerror = (err) => {
+      console.warn('Image element failed to load for export (likely CORS or network block):', err);
+      resolve(null);
+    };
+
+    const separator = url.includes('?') ? '&' : '?';
+    img.src = `${url}${separator}cors_bust=${Date.now()}`;
+  });
 }

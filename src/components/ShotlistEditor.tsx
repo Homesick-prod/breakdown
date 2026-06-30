@@ -850,7 +850,7 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
     return {
       projectTitle: project?.name || 'Untitled Project',
       shotListItems: (project?.data?.shotListData?.shotListItems || []) as ShotItem[],
-      imagePreviews: {} as ImagePreviews
+      imagePreviews: ((project?.data as any)?.imagePreviews || {}) as ImagePreviews
     };
   });
 
@@ -924,6 +924,11 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
     isDraggingShotListItemRef.current = isDraggingShotListItem;
   }, [isDraggingShotListItem]);
 
+  const imagePreviewsRef = useRef(imagePreviews);
+  useEffect(() => {
+    imagePreviewsRef.current = imagePreviews;
+  }, [imagePreviews]);
+
   useEffect(() => {
     if (legacyImageMigrationRunRef.current) return;
     legacyImageMigrationRunRef.current = true;
@@ -932,7 +937,7 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
     const objectUrlsToRevoke: string[] = [];
 
     const loadAndMigrateImages = async () => {
-      const previews: ImagePreviews = {};
+      const previews: ImagePreviews = { ...imagePreviewsRef.current };
       const migratedUrls: Record<string, string> = {};
 
       for (const item of shotListItems) {
@@ -943,6 +948,46 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
         }
 
         try {
+          // 1. Helper to search IndexedDB by shot ID, linked timeline ID, or matching scene/shot
+          const resolveImageFile = async (shotItem: ShotItem) => {
+            let file = await getImage(shotItem.id);
+            if (file) return file;
+
+            const timelineItems = (project?.data as any)?.timelineItems || [];
+            const linkedTimelineItem = timelineItems.find((t: any) => t.linkedShotId === shotItem.id);
+            if (linkedTimelineItem) {
+              file = await getImage(linkedTimelineItem.id);
+              if (file) return file;
+            }
+
+            const sceneStr = String(shotItem.sceneNumber || '').trim().toLowerCase();
+            const shotStr = String(shotItem.shotNumber || '').trim().toLowerCase();
+            if (sceneStr && shotStr) {
+              const matchedTimeline = timelineItems.find((t: any) =>
+                String(t.sceneNumber || '').trim().toLowerCase() === sceneStr &&
+                String(t.shotNumber || '').trim().toLowerCase() === shotStr
+              );
+              if (matchedTimeline) {
+                file = await getImage(matchedTimeline.id);
+                if (file) return file;
+              }
+            }
+            return undefined;
+          };
+
+          const file = await resolveImageFile(item);
+          if (file) {
+            // Save local cache under item.id if it wasn't there
+            const localExists = await getImage(item.id);
+            if (!localExists) {
+              await setImage(item.id, file);
+            }
+            const objectUrl = URL.createObjectURL(file);
+            objectUrlsToRevoke.push(objectUrl);
+            previews[item.id] = objectUrl;
+            continue; // Skip migrateLegacyStoredImage
+          }
+
           const migratedImage = await migrateLegacyStoredImage({
             projectId: project?.id,
             itemId: item.id,
@@ -952,12 +997,12 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
           if (!migratedImage) continue;
 
           migratedUrls[item.id] = migratedImage.imageUrl;
-          if (migratedImage.imageUrl.startsWith('http')) {
-            previews[item.id] = migratedImage.imageUrl;
-          } else {
+          if (migratedImage.file) {
             const objectUrl = URL.createObjectURL(migratedImage.file);
             objectUrlsToRevoke.push(objectUrl);
             previews[item.id] = objectUrl;
+          } else if (migratedImage.imageUrl.startsWith('http')) {
+            previews[item.id] = migratedImage.imageUrl;
           }
         } catch (error) {
           console.error(`Failed to migrate image for shot ${item.id}:`, error);
@@ -983,6 +1028,7 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
     return () => {
       cancelled = true;
       objectUrlsToRevoke.forEach(url => URL.revokeObjectURL(url));
+      legacyImageMigrationRunRef.current = false;
     };
   }, []);
 
@@ -1102,7 +1148,7 @@ debounceTimeoutRef.current = setTimeout(() => {
         }
       });
 
-      const previewUrl = finalImageUrl.startsWith('http') ? finalImageUrl : URL.createObjectURL(optimizedFile);
+      const previewUrl = URL.createObjectURL(optimizedFile);
       idsToUpdate.forEach(id => {
         next[id] = previewUrl;
       });

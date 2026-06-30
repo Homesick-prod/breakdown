@@ -72,6 +72,10 @@ export type CallSheetDocumentProps = {
   callSheetData: {
     generalCall?: string;
     castCalls?: CastCall[];
+    emergencyContact?: string;
+    nearestHospital?: string;
+    hospitalAddress?: string;
+    parkingNotes?: string;
     departmentNotes?: string;
     transportNotes?: string;
     safetyNotes?: string;
@@ -87,6 +91,34 @@ export type CallSheetDocumentProps = {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const fmt = (v: any, fallback = '-') => String(v ?? '').trim() || fallback;
+
+const THAI_TEXT_RE = /[\u0E00-\u0E7F]/;
+const ZERO_WIDTH_SPACE = '\u200B';
+
+const segmentThaiText = (value: string): string[] => {
+  if (!THAI_TEXT_RE.test(value)) return [value];
+
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    const segmenter = new Intl.Segmenter('th', { granularity: 'word' });
+    const segments = Array.from(segmenter.segment(value), part => part.segment).filter(Boolean);
+    if (segments.length > 0) return segments;
+  }
+
+  return Array.from(value);
+};
+
+Font.registerHyphenationCallback((word) => segmentThaiText(word));
+
+const normalizeInlineText = (value: any, fallback = '-') => {
+  const normalized = String(value ?? '').trim().replace(/,\s*/g, ', ');
+  return normalized || fallback;
+};
+
+const fmtWrapped = (value: any, fallback = '-') => {
+  const normalized = normalizeInlineText(value, fallback);
+  if (normalized === fallback) return normalized;
+  return segmentThaiText(normalized).join(ZERO_WIDTH_SPACE);
+};
 
 const formatDate = (dateStr?: string) => {
   if (!dateStr) return '-';
@@ -106,6 +138,15 @@ const summarizeScenes = (items: any[]) => {
   return Array.from(s).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(', ') || '-';
 };
 
+const summarizeAction = (item: any) => {
+  const descriptions = item?.underlyingItems?.length
+    ? item.underlyingItems.map((shot: any) => shot.description).filter(Boolean)
+    : [item?.description].filter(Boolean);
+  const unique = Array.from(new Set(descriptions.map((desc: string) => normalizeInlineText(desc, '')))).filter(Boolean);
+  if (unique.length <= 2) return unique.join(' | ') || '-';
+  return `${unique.slice(0, 2).join(' | ')} +${unique.length - 2} shots`;
+};
+
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const C = {
@@ -114,12 +155,15 @@ const C = {
   midGray: '#6B7280',
   lightGray: '#9CA3AF',
   rule: '#D1D5DB',
-  bg: '#F9FAFB',
+  bg: '#F2F4F7',
+  softBg: '#F9FAFB',
   white: '#FFFFFF',
   amber: '#D97706',
-  breakBg: '#FFFBEB',
-  breakText: '#92400E',
-  wrapBg: '#F3F4F6',
+  breakBg: '#FFF8E8',
+  breakText: '#7C4A03',
+  wrapBg: '#EEF0F3',
+  danger: '#DC2626',
+  blue: '#2563B8',
 };
 
 const F = {
@@ -141,16 +185,16 @@ const styles = StyleSheet.create({
     fontSize: F.size.sm,
     color: C.black,
     backgroundColor: C.white,
-    paddingTop: 28,
+    paddingTop: 24,
     paddingBottom: 28,
-    paddingHorizontal: 28,
+    paddingHorizontal: 26,
   },
 
   // ── Header ────────────────────────────────────────────────────────────────
   header: {
     flexDirection: 'row',
-    marginBottom: 20,
-    paddingBottom: 12,
+    marginBottom: 12,
+    paddingBottom: 9,
     borderBottomWidth: 1,
     borderBottomColor: C.rule,
   },
@@ -195,7 +239,7 @@ const styles = StyleSheet.create({
 
   // ── Section ───────────────────────────────────────────────────────────────
   section: {
-    marginBottom: 12,
+    marginBottom: 10,
   },
   sectionTitle: {
     fontSize: F.size.base,
@@ -203,16 +247,16 @@ const styles = StyleSheet.create({
     color: C.black,
     borderBottomWidth: 1.5,
     borderBottomColor: C.black,
-    paddingBottom: 3,
-    marginBottom: 6,
+    paddingBottom: 2,
+    marginBottom: 5,
   },
 
   // ── Table ─────────────────────────────────────────────────────────────────
   tableHead: {
     flexDirection: 'row',
     backgroundColor: C.black,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+    paddingVertical: 3.2,
+    paddingHorizontal: 8,
   },
   tableHeadCell: {
     fontSize: F.size.xs,
@@ -225,20 +269,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     borderBottomWidth: 0.5,
     borderBottomColor: C.rule,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+    paddingVertical: 3.5,
+    paddingHorizontal: 8,
   },
   tableRowAlt: {
     backgroundColor: C.bg,
   },
   tableCell: {
-    fontSize: F.size.sm,
+    fontSize: 7.1,
     color: C.black,
+    lineHeight: 1.3,
   },
   tableCellMuted: {
-    fontSize: F.size.xs,
+    fontSize: 6.1,
     color: C.midGray,
     marginTop: 1,
+    lineHeight: 1.25,
   },
 
   // ── Mini row (crew/time grids) ────────────────────────────────────────────
@@ -264,13 +310,13 @@ const styles = StyleSheet.create({
     borderWidth: 0.5,
     borderColor: C.rule,
     borderRadius: 3,
-    padding: 6,
-    minHeight: 50,
+    padding: 5,
+    minHeight: 42,
   },
   noteText: {
     fontSize: F.size.xs,
     color: C.darkGray,
-    lineHeight: 1.5,
+    lineHeight: 1.4,
   },
 
   // ── Footer ────────────────────────────────────────────────────────────────
@@ -354,7 +400,8 @@ const groupTimelineItemsForCallSheet = (items: any[]) => {
           currentGroup.props = unionCSV(currentGroup.props, item.props);
           currentGroup.costume = unionCSV(currentGroup.costume, item.costume);
           
-          if (item.description && !currentGroup.description.includes(item.description)) {
+          const currentDescription = String(currentGroup.description || '');
+          if (item.description && !currentDescription.includes(item.description)) {
             currentGroup.description = currentGroup.description 
               ? `${currentGroup.description} | ${item.description}` 
               : item.description;
@@ -364,7 +411,8 @@ const groupTimelineItemsForCallSheet = (items: any[]) => {
             const val = field === 'shotSize' || field === 'movement'
               ? formatSelectValueList(item[field], '')
               : item[field];
-            if (val && !currentGroup[field].includes(val)) {
+            const currentValue = String(currentGroup[field] || '');
+            if (val && !currentValue.includes(val)) {
               currentGroup[field] = currentGroup[field] ? `${currentGroup[field]} · ${val}` : val;
             }
           };
@@ -373,12 +421,14 @@ const groupTimelineItemsForCallSheet = (items: any[]) => {
           combineCamera('movement');
           if (item.lens) {
             const lensVal = String(item.lens).replace(/mm/g, '') + 'mm';
-            if (!currentGroup.lens.includes(lensVal)) {
+            const currentLens = String(currentGroup.lens || '');
+            if (!currentLens.includes(lensVal)) {
               currentGroup.lens = currentGroup.lens ? `${currentGroup.lens} · ${lensVal}` : lensVal;
             }
           }
 
-          if (item.notes && !currentGroup.notes.includes(item.notes)) {
+          const currentNotes = String(currentGroup.notes || '');
+          if (item.notes && !currentNotes.includes(item.notes)) {
             currentGroup.notes = currentGroup.notes 
               ? `${currentGroup.notes} | ${item.notes}` 
               : item.notes;
@@ -420,15 +470,15 @@ const CallSheetDocument = ({ headerInfo, timelineItems, callSheetData, stats }: 
   const generalCall = fmt(cs.generalCall || h.callTime);
   const loc1 = fmt(h.location1 || h.location);
   const loc2 = h.location2 ? fmt(h.location2) : null;
+  const loc3 = h.location3 ? fmt(h.location3) : null;
   const scenes = summarizeScenes(timelineItems);
   const shots = timelineItems.filter(i => i?.type === 'shot');
   const firstShot = shots[0];
   const shootingCall = fmt(h.firstShotTime || firstShot?.start || h.callTime);
+  const hasEmergencyInfo = Boolean(cs.emergencyContact || cs.nearestHospital || cs.hospitalAddress || cs.safetyNotes);
+  const hasProductionNotes = Boolean(cs.departmentNotes || cs.transportNotes || cs.parkingNotes || cs.lineRemarks);
 
   const groupedItems = React.useMemo(() => groupTimelineItemsForCallSheet(timelineItems), [timelineItems]);
-
-  const now = new Date().toLocaleString('en-GB');
-  const pageCount = { n: 1 }; // simple ref
 
   return (
     <Document title={`Call Sheet - ${fmt(h.projectTitle)}`}>
@@ -451,8 +501,8 @@ const CallSheetDocument = ({ headerInfo, timelineItems, callSheetData, stats }: 
           {/* Center: Title + Huge General Call */}
           <View style={styles.headerCenter}>
             <Text style={styles.label}>Production Call Sheet</Text>
-            <Text style={{ fontSize: F.size.lg, fontWeight: 600, color: C.black, marginTop: 2, textAlign: 'center' }}>
-              {fmt(h.projectTitle, 'Untitled Project')}
+            <Text style={{ fontSize: F.size.lg, fontWeight: 600, color: C.black, marginTop: 2, textAlign: 'center', lineHeight: 1.15 }}>
+              {fmtWrapped(h.projectTitle, 'Untitled Project')}
             </Text>
             <Text style={[styles.label, { marginTop: 8 }]}>General Call Time</Text>
             <Text style={{ fontSize: F.size.hero, fontWeight: 600, color: C.black, lineHeight: 1 }}>
@@ -469,13 +519,13 @@ const CallSheetDocument = ({ headerInfo, timelineItems, callSheetData, stats }: 
               {formatDate(h.date)}
             </Text>
             <Text style={[styles.muted, { textAlign: 'right', marginTop: 2 }]}>
-              {fmt(h.weather, 'Clear')}
+              {fmtWrapped(h.weather, 'Clear')}
             </Text>
             <Text style={[styles.muted, { textAlign: 'right' }]}>
               {fmt(h.temp)} / Feels {fmt(h.realFeel)}
             </Text>
             <Text style={[styles.muted, { textAlign: 'right', marginBottom: 2 }]}>
-              Rain {fmt(h.precipProb)}  ·  ☀ {fmt(h.sunrise)} – {fmt(h.sunset)}
+              Rain {fmt(h.precipProb)} · Sun {fmt(h.sunrise)} - {fmt(h.sunset)}
             </Text>
           </View>
         </View>
@@ -500,7 +550,7 @@ const CallSheetDocument = ({ headerInfo, timelineItems, callSheetData, stats }: 
                 paddingVertical: 5,
                 paddingHorizontal: 6,
                 alignItems: 'center',
-                backgroundColor: C.bg,
+                backgroundColor: C.softBg,
               }}>
                 <Text style={{ fontSize: 5.5, color: C.midGray, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 2 }}>{item.label}</Text>
                 <Text style={{ fontSize: 11, fontWeight: 600, color: item.color }}>{item.val}</Text>
@@ -512,7 +562,7 @@ const CallSheetDocument = ({ headerInfo, timelineItems, callSheetData, stats }: 
         {/* ── ANNOUNCEMENT BANNER ──────────────────────────────────────────── */}
         {(cs.safetyNotes || cs.departmentNotes) && (
           <View style={{
-            backgroundColor: C.bg,
+            backgroundColor: C.softBg,
             borderLeftWidth: 3,
             borderLeftColor: C.amber,
             paddingHorizontal: 10,
@@ -524,7 +574,7 @@ const CallSheetDocument = ({ headerInfo, timelineItems, callSheetData, stats }: 
               Important Notice
             </Text>
             <Text style={[styles.noteText, { color: C.darkGray }]}>
-              {cs.safetyNotes || cs.departmentNotes}
+              {fmtWrapped(cs.safetyNotes || cs.departmentNotes)}
             </Text>
           </View>
         )}
@@ -543,50 +593,62 @@ const CallSheetDocument = ({ headerInfo, timelineItems, callSheetData, stats }: 
           {/* Row 1 */}
           <View style={styles.tableRow}>
             <Text style={[styles.tableCell, { width: '5%', fontWeight: 600 }]}>1</Text>
-            <Text style={[styles.tableCell, { width: '47%' }]}>{loc1}</Text>
-            <Text style={[styles.tableCell, { width: '48%' }]}>{fmt(cs.transportNotes, 'See production for parking details.')}</Text>
+            <Text style={[styles.tableCell, { width: '47%' }]}>{fmtWrapped(loc1)}</Text>
+            <Text style={[styles.tableCell, { width: '48%' }]}>{fmtWrapped(cs.parkingNotes || cs.transportNotes, '')}</Text>
           </View>
 
           {/* Row 2 if exists */}
           {loc2 && (
             <View style={[styles.tableRow, styles.tableRowAlt]}>
               <Text style={[styles.tableCell, { width: '5%', fontWeight: 600 }]}>2</Text>
-              <Text style={[styles.tableCell, { width: '47%' }]}>{loc2}</Text>
-              <Text style={[styles.tableCell, { width: '48%' }]}>Secondary location</Text>
+              <Text style={[styles.tableCell, { width: '47%' }]}>{fmtWrapped(loc2)}</Text>
+              <Text style={[styles.tableCell, { width: '48%' }]}>{fmtWrapped(cs.transportNotes, '')}</Text>
             </View>
           )}
 
           {/* Row 3 if exists */}
-          {h.location3 && (
+          {loc3 && (
             <View style={[styles.tableRow, !loc2 ? styles.tableRowAlt : {}]}>
               <Text style={[styles.tableCell, { width: '5%', fontWeight: 600 }]}>3</Text>
-              <Text style={[styles.tableCell, { width: '47%' }]}>{fmt(h.location3)}</Text>
-              <Text style={[styles.tableCell, { width: '48%' }]}>Location 3</Text>
+              <Text style={[styles.tableCell, { width: '47%' }]}>{fmtWrapped(loc3)}</Text>
+              <Text style={[styles.tableCell, { width: '48%' }]}>{fmtWrapped(cs.transportNotes, '')}</Text>
             </View>
           )}
         </View>
 
         {/* ── EMERGENCY & HOSPITAL INFO ────────────────────────────────────── */}
-        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
-          <View style={[styles.noteCard, { flex: 1, borderLeftWidth: 3, borderLeftColor: '#EF4444' }]}>
-            <Text style={[styles.label, { color: '#EF4444', marginBottom: 2 }]}>Nearest Hospital (Emergency)</Text>
-            <Text style={{ fontSize: F.size.xs, fontWeight: 600, color: C.black }}>
-              Vajira Hospital (or nearest local emergency facility)
-            </Text>
-            <Text style={{ fontSize: F.size.xs, color: C.midGray, marginTop: 1 }}>
-              Address: 683 Samsen Rd, Wachira Phayaban, Dusit District, Bangkok 10300
-            </Text>
+        {hasEmergencyInfo && (
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+            {(cs.nearestHospital || cs.hospitalAddress) && (
+              <View style={[styles.noteCard, { flex: 1, borderLeftWidth: 3, borderLeftColor: C.danger }]}>
+                <Text style={[styles.label, { color: C.danger, marginBottom: 2 }]}>Nearest Hospital</Text>
+                <Text style={{ fontSize: F.size.xs, fontWeight: 600, color: C.black }}>
+                  {fmtWrapped(cs.nearestHospital, '')}
+                </Text>
+                {cs.hospitalAddress ? (
+                  <Text style={{ fontSize: F.size.xs, color: C.midGray, marginTop: 1, lineHeight: 1.35 }}>
+                    {fmtWrapped(cs.hospitalAddress, '')}
+                  </Text>
+                ) : null}
+              </View>
+            )}
+            {(cs.emergencyContact || cs.safetyNotes) && (
+              <View style={[styles.noteCard, { flex: 1, borderLeftWidth: 3, borderLeftColor: C.blue }]}>
+                <Text style={[styles.label, { color: C.blue, marginBottom: 2 }]}>Emergency / Safety</Text>
+                {cs.emergencyContact ? (
+                  <Text style={{ fontSize: F.size.xs, fontWeight: 600, color: C.black, lineHeight: 1.35 }}>
+                    {fmtWrapped(cs.emergencyContact, '')}
+                  </Text>
+                ) : null}
+                {cs.safetyNotes ? (
+                  <Text style={{ fontSize: F.size.xs, color: C.midGray, marginTop: 1, lineHeight: 1.35 }}>
+                    {fmtWrapped(cs.safetyNotes, '')}
+                  </Text>
+                ) : null}
+              </View>
+            )}
           </View>
-          <View style={[styles.noteCard, { flex: 1, borderLeftWidth: 3, borderLeftColor: '#3B82F6' }]}>
-            <Text style={[styles.label, { color: '#3B82F6', marginBottom: 2 }]}>Emergency Contacts</Text>
-            <Text style={{ fontSize: F.size.xs, fontWeight: 600, color: C.black }}>
-              Production Mgr: +66 81 234 5678  |  Set Medic: +66 89 876 5432
-            </Text>
-            <Text style={{ fontSize: F.size.xs, color: C.midGray, marginTop: 1 }}>
-              National Emergency Services: 191 (Police) · 1669 (Medical/Ambulance)
-            </Text>
-          </View>
-        </View>
+        )}
 
         {/* ── SCHEDULE ─────────────────────────────────────────────────────── */}
         <View style={styles.section}>
@@ -596,13 +658,13 @@ const CallSheetDocument = ({ headerInfo, timelineItems, callSheetData, stats }: 
 
           {/* Table head */}
           <View style={styles.tableHead}>
-            <Text style={[styles.tableHeadCell, { width: '10%' }]}>Start</Text>
-            <Text style={[styles.tableHeadCell, { width: '7%' }]}>Dur.</Text>
-            <Text style={[styles.tableHeadCell, { width: '12%' }]}>Scene / Shot</Text>
-            <Text style={[styles.tableHeadCell, { width: '14%' }]}>Set / Period</Text>
-            <Text style={[styles.tableHeadCell, { width: '30%' }]}>Description / Action</Text>
+            <Text style={[styles.tableHeadCell, { width: '8%' }]}>Start</Text>
+            <Text style={[styles.tableHeadCell, { width: '6%' }]}>Dur.</Text>
+            <Text style={[styles.tableHeadCell, { width: '10%' }]}>Sc/Sh</Text>
+            <Text style={[styles.tableHeadCell, { width: '12%' }]}>Set</Text>
+            <Text style={[styles.tableHeadCell, { width: '36%' }]}>Action</Text>
             <Text style={[styles.tableHeadCell, { width: '14%' }]}>Cast</Text>
-            <Text style={[styles.tableHeadCell, { width: '13%' }]}>Notes</Text>
+            <Text style={[styles.tableHeadCell, { width: '14%' }]}>Notes</Text>
           </View>
 
           {groupedItems.map((item, i) => {
@@ -632,36 +694,36 @@ const CallSheetDocument = ({ headerInfo, timelineItems, callSheetData, stats }: 
             ].filter(Boolean).join(' · ');
 
             return (
-              <View key={item.id ?? i} style={[styles.tableRow, { backgroundColor: rowBg }]}>
-                <Text style={[styles.tableCell, { width: '10%', fontWeight: 600, color: textColor }]}>
+              <View key={item.id ?? i} wrap={false} style={[styles.tableRow, { backgroundColor: rowBg }]}>
+                <Text style={[styles.tableCell, { width: '8%', fontWeight: 600, color: textColor }]}>
                   {item.start || '--:--'}
                 </Text>
-                <Text style={[styles.tableCell, { width: '7%', color: C.midGray }]}>
+                <Text style={[styles.tableCell, { width: '6%', color: C.midGray }]}>
                   {item.duration ? `${item.duration}'` : ''}
                 </Text>
 
                 {isBreak ? (
-                  <Text style={[styles.tableCell, { width: '83%', fontWeight: 600, color: textColor }]}>
-                    {item.description || 'Break'}
+                  <Text style={[styles.tableCell, { width: '86%', fontWeight: 600, color: textColor }]}>
+                    {fmtWrapped(item.description, 'Break')}
                   </Text>
                 ) : (
                   <>
+                    <View style={{ width: '10%' }}>
+                      <Text style={[styles.tableCell, { fontWeight: 600 }]}>Sc. {normalizeInlineText(item.sceneNumber)}</Text>
+                      <Text style={styles.tableCellMuted}>Sh. {item.shotNumber || '-'}</Text>
+                    </View>
                     <View style={{ width: '12%' }}>
-                      <Text style={[styles.tableCell, { fontWeight: 600 }]}>Sc. {item.sceneNumber || '-'}</Text>
-                      <Text style={styles.tableCellMuted}>Shot {item.shotNumber || '-'}</Text>
+                      <Text style={styles.tableCell}>{fmtWrapped(item.location || loc1)}</Text>
+                      <Text style={styles.tableCellMuted}>{fmtWrapped(shotMeta, '')}</Text>
                     </View>
+                    <View style={{ width: '36%', paddingRight: 5 }}>
+                      <Text style={styles.tableCell}>{fmtWrapped(summarizeAction(item))}</Text>
+                      {cameraMeta ? <Text style={styles.tableCellMuted}>{fmtWrapped(cameraMeta, '')}</Text> : null}
+                    </View>
+                    <Text style={[styles.tableCell, { width: '14%' }]}>{fmtWrapped(item.cast)}</Text>
                     <View style={{ width: '14%' }}>
-                      <Text style={styles.tableCell}>{item.location || loc1}</Text>
-                      <Text style={styles.tableCellMuted}>{shotMeta}</Text>
-                    </View>
-                    <View style={{ width: '30%' }}>
-                      <Text style={styles.tableCell}>{item.description || '-'}</Text>
-                      {cameraMeta ? <Text style={styles.tableCellMuted}>{cameraMeta}</Text> : null}
-                    </View>
-                    <Text style={[styles.tableCell, { width: '14%' }]}>{item.cast || '-'}</Text>
-                    <View style={{ width: '13%' }}>
-                      <Text style={styles.tableCellMuted}>{item.notes || ''}</Text>
-                      {item.props ? <Text style={styles.tableCellMuted}>Props: {item.props}</Text> : null}
+                      <Text style={styles.tableCellMuted}>{fmtWrapped(item.notes, '')}</Text>
+                      {item.props ? <Text style={styles.tableCellMuted}>Props: {fmtWrapped(item.props, '')}</Text> : null}
                     </View>
                   </>
                 )}
@@ -689,28 +751,45 @@ const CallSheetDocument = ({ headerInfo, timelineItems, callSheetData, stats }: 
                 <Text style={[styles.tableCell, { width: '6%', color: C.lightGray, fontWeight: 600 }]}>
                   {String(i + 1).padStart(2, '0')}
                 </Text>
-                <Text style={[styles.tableCell, { width: '28%', fontWeight: 600 }]}>{fmt(c.name)}</Text>
-                <Text style={[styles.tableCell, { width: '26%' }]}>{fmt(c.role)}</Text>
+                <Text style={[styles.tableCell, { width: '28%', fontWeight: 600 }]}>{fmtWrapped(c.name)}</Text>
+                <Text style={[styles.tableCell, { width: '26%' }]}>{fmtWrapped(c.role)}</Text>
                 <Text style={[styles.tableCell, { width: '14%', fontWeight: 600 }]}>{fmt(c.callTime)}</Text>
-                <Text style={[styles.tableCell, { width: '26%' }]}>{fmt(c.notes, '')}</Text>
+                <Text style={[styles.tableCell, { width: '26%' }]}>{fmtWrapped(c.notes, '')}</Text>
               </View>
             ))}
           </View>
         )}
 
         {/* ── DAILY NOTES ──────────────────────────────────────────────────── */}
-        {cs.lineRemarks && (
+        {hasProductionNotes && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Remarks & Notes</Text>
-            <View style={[styles.noteCard, { borderLeftWidth: 2, borderLeftColor: C.darkGray }]}>
-              <Text style={styles.noteText}>{cs.lineRemarks}</Text>
+            <Text style={styles.sectionTitle}>Production Notes</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {cs.departmentNotes ? (
+                <View style={[styles.noteCard, { borderLeftWidth: 2, borderLeftColor: C.darkGray }]}>
+                  <Text style={[styles.label, { marginBottom: 2 }]}>Departments</Text>
+                  <Text style={styles.noteText}>{fmtWrapped(cs.departmentNotes, '')}</Text>
+                </View>
+              ) : null}
+              {(cs.parkingNotes || cs.transportNotes) ? (
+                <View style={[styles.noteCard, { borderLeftWidth: 2, borderLeftColor: C.blue }]}>
+                  <Text style={[styles.label, { marginBottom: 2 }]}>Parking / Transport</Text>
+                  <Text style={styles.noteText}>{fmtWrapped([cs.parkingNotes, cs.transportNotes].filter(Boolean).join(' | '), '')}</Text>
+                </View>
+              ) : null}
+              {cs.lineRemarks ? (
+                <View style={[styles.noteCard, { borderLeftWidth: 2, borderLeftColor: C.amber }]}>
+                  <Text style={[styles.label, { marginBottom: 2 }]}>LINE Remarks</Text>
+                  <Text style={styles.noteText}>{fmtWrapped(cs.lineRemarks, '')}</Text>
+                </View>
+              ) : null}
             </View>
           </View>
         )}
 
         {/* ── FOOTER ───────────────────────────────────────────────────────── */}
         <View style={styles.footer} fixed>
-          <Text style={styles.footerText}>Generated {now}</Text>
+          <Text style={styles.footerText}>Made with MentalBreakdown · Tawich P.</Text>
           <Text style={[styles.footerText, { textAlign: 'center' }]}>
             {fmt(h.projectTitle)} · Day {fmt(h.shootingDay)}
           </Text>

@@ -205,7 +205,7 @@ function syncShotListIntoSchedule(projectData: any) {
   });
 }
 
-function syncScheduleIntoShotList(projectData: any) {
+function syncScheduleIntoShotList(projectData: any, originalProjectData?: any) {
   projectData = normalizeProjectData(projectData);
   const shotListItems = projectData?.shotListData?.shotListItems;
   const timelineItems = projectData?.timelineItems;
@@ -252,6 +252,25 @@ function syncScheduleIntoShotList(projectData: any) {
     const linkedItem = pickTimelineCandidate(shot);
     if (!linkedItem) return shot;
 
+    let nextImageUrl = shot.imageUrl ?? '';
+    if (linkedItem.imageUrl) {
+      nextImageUrl = linkedItem.imageUrl;
+    } else if (linkedItem.imageUrl === '') {
+      // The timeline item has an empty image URL.
+      // We check if it was previously synced with this shot's image.
+      const originalTimelineItems = originalProjectData?.timelineItems || [];
+      const originalTimelineItem = originalTimelineItems.find((t: any) => t.id === linkedItem.id);
+      const wasPreviouslySynced = originalTimelineItem && originalTimelineItem.imageUrl && originalTimelineItem.imageUrl === shot.imageUrl;
+
+      if (wasPreviouslySynced) {
+        // Explicit deletion by the user in the schedule editor
+        nextImageUrl = '';
+      } else {
+        // Newly linked or unsynced item - preserve the shot's image
+        nextImageUrl = shot.imageUrl ?? '';
+      }
+    }
+
     const nextShot = {
       ...shot,
       sceneNumber: linkedItem.sceneNumber ?? '',
@@ -262,7 +281,7 @@ function syncScheduleIntoShotList(projectData: any) {
       lens: linkedItem.lens ?? '',
       description: hasOwn(linkedItem, 'shotDescription') ? (linkedItem.shotDescription ?? '') : (shot.description ?? ''),
       notes: linkedItem.notes ?? '',
-      imageUrl: linkedItem.imageUrl ?? shot.imageUrl ?? '',
+      imageUrl: nextImageUrl,
     };
 
     if (JSON.stringify(nextShot) !== JSON.stringify(shot)) changed = true;
@@ -280,13 +299,13 @@ function syncScheduleIntoShotList(projectData: any) {
   };
 }
 
-function syncLinkedShotData(projectData: any, incomingData: any) {
+function syncLinkedShotData(projectData: any, incomingData: any, originalProjectData?: any) {
   let nextData = normalizeProjectData(projectData);
   if (hasOwn(incomingData, 'shotListData')) {
     nextData = syncShotListIntoSchedule(nextData);
   }
   if (hasOwn(incomingData, 'timelineItems')) {
-    nextData = syncScheduleIntoShotList(nextData);
+    nextData = syncScheduleIntoShotList(nextData, originalProjectData);
     nextData = syncShotListIntoSchedule(nextData);
   }
   return nextData;
@@ -681,7 +700,7 @@ function App() {
       ...activeProject.data,
       ...data
     });
-    const updatedData = syncLinkedShotData(mergedData, data);
+    const updatedData = syncLinkedShotData(mergedData, data, activeProject.data);
 
     const projectName = data.headerInfo?.projectTitle || data.scheduleData?.headerInfo?.projectTitle || activeProject.name;
     const updatedAt = new Date().toISOString();

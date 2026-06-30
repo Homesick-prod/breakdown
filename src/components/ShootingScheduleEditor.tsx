@@ -22,9 +22,9 @@ import EditorMobileCommandBar from './EditorMobileCommandBar';
 import { DarkSelect, findOption, SHOT_SIZE_OPTIONS, ANGLE_OPTIONS, MOVEMENT_OPTIONS, INT_EXT_OPTIONS, PERIOD_OPTIONS, SelectOption } from './DarkSelect';
 import { DarkDatePicker, DarkTimePicker } from './DarkDatePicker';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
-import { setImage, deleteImage } from '../utils/db';
+import { setImage, deleteImage, getImage } from '../utils/db';
 import { isFirebaseEnabled, uploadImageToStorage, deleteImageFromStorage, logActivity } from '../lib/firebase';
-import { fetchImageUrlAsDataUrl, optimizeImageFile } from '../utils/imageOptimizer';
+import { fetchImageUrlAsDataUrl, fileToDataUrl, optimizeImageFile } from '../utils/imageOptimizer';
 import { migrateLegacyStoredImage } from '../utils/imageMigration';
 
 const toTranslateOnlyTransform = (transform: any) => {
@@ -1786,6 +1786,10 @@ type CastCall = {
 type CallSheetData = {
   generalCall: string;
   castCalls: CastCall[];
+  emergencyContact: string;
+  nearestHospital: string;
+  hospitalAddress: string;
+  parkingNotes: string;
   departmentNotes: string;
   transportNotes: string;
   safetyNotes: string;
@@ -1811,6 +1815,10 @@ const createDefaultCallSheetData = (headerInfo: any, timelineItems: any[]): Call
       callTime: headerInfo.callTime || '',
       notes: ''
     })),
+    emergencyContact: '',
+    nearestHospital: '',
+    hospitalAddress: '',
+    parkingNotes: '',
     departmentNotes: '',
     transportNotes: '',
     safetyNotes: '',
@@ -1818,17 +1826,34 @@ const createDefaultCallSheetData = (headerInfo: any, timelineItems: any[]): Call
   };
 };
 
-const mergeCallSheetData = (base: CallSheetData, saved?: Partial<CallSheetData> | null): CallSheetData => ({
-  ...base,
-  ...(saved || {}),
-  castCalls: (saved?.castCalls && saved.castCalls.length > 0 ? saved.castCalls : base.castCalls).map(call => ({
+const mergeCallSheetData = (base: CallSheetData, saved?: Partial<CallSheetData> | null): CallSheetData => {
+  const normalizeName = (name: string) => name.trim().toLowerCase();
+  const savedCalls = (saved?.castCalls || []).map(call => ({
     id: call.id || generateId(),
     role: call.role || '',
     name: call.name || '',
-    callTime: call.callTime || '',
+    callTime: call.callTime || base.generalCall || '',
     notes: call.notes || ''
-  }))
-});
+  }));
+  const savedByName = new Map(savedCalls.map(call => [normalizeName(call.name), call]));
+  const missingBaseCalls = base.castCalls
+    .filter(call => call.name && !savedByName.has(normalizeName(call.name)))
+    .map(call => ({ ...call, callTime: call.callTime || base.generalCall || '' }));
+
+  return {
+    ...base,
+    ...(saved || {}),
+    emergencyContact: saved?.emergencyContact || base.emergencyContact,
+    nearestHospital: saved?.nearestHospital || base.nearestHospital,
+    hospitalAddress: saved?.hospitalAddress || base.hospitalAddress,
+    parkingNotes: saved?.parkingNotes || base.parkingNotes,
+    departmentNotes: saved?.departmentNotes || base.departmentNotes,
+    transportNotes: saved?.transportNotes || base.transportNotes,
+    safetyNotes: saved?.safetyNotes || base.safetyNotes,
+    lineRemarks: saved?.lineRemarks || base.lineRemarks,
+    castCalls: [...savedCalls, ...missingBaseCalls]
+  };
+};
 
 type CallSheetBuilderModalProps = {
   isOpen: boolean;
@@ -1947,6 +1972,10 @@ function CallSheetBuilderModal({ isOpen, onClose, headerInfo, timelineItems, sta
                   <input type="text" value={headerInfo.location1 || ''} readOnly style={{ ...inputStyle, color: 'var(--text-secondary)' }} />
                 </div>
                 <div>
+                  <label style={labelStyle}>Location 2 / 3</label>
+                  <input type="text" value={[headerInfo.location2, headerInfo.location3].filter(Boolean).join(' / ')} readOnly style={{ ...inputStyle, color: 'var(--text-secondary)' }} />
+                </div>
+                <div>
                   <label style={labelStyle}>Weather</label>
                   <input type="text" value={headerInfo.weather || ''} readOnly style={{ ...inputStyle, color: 'var(--text-secondary)' }} />
                 </div>
@@ -1994,12 +2023,28 @@ function CallSheetBuilderModal({ isOpen, onClose, headerInfo, timelineItems, sta
                   <textarea value={callSheetData.departmentNotes} onChange={(e) => updateField('departmentNotes', e.target.value)} placeholder="Art, camera, wardrobe, makeup..." style={textareaStyle} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Parking / Transport / Access</label>
-                  <textarea value={callSheetData.transportNotes} onChange={(e) => updateField('transportNotes', e.target.value)} placeholder="Parking gate, shuttle, route, access timing..." style={textareaStyle} />
+                  <label style={labelStyle}>Parking / Access</label>
+                  <textarea value={callSheetData.parkingNotes} onChange={(e) => updateField('parkingNotes', e.target.value)} placeholder="Parking gate, entrance, access timing..." style={textareaStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Transport / Shuttle</label>
+                  <textarea value={callSheetData.transportNotes} onChange={(e) => updateField('transportNotes', e.target.value)} placeholder="Shuttle plan, route, pickup notes..." style={textareaStyle} />
                 </div>
                 <div>
                   <label style={labelStyle}>Safety / Emergency</label>
                   <textarea value={callSheetData.safetyNotes} onChange={(e) => updateField('safetyNotes', e.target.value)} placeholder="Emergency contact, hospital, safety reminders..." style={textareaStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Emergency Contact</label>
+                  <textarea value={callSheetData.emergencyContact} onChange={(e) => updateField('emergencyContact', e.target.value)} placeholder="Production manager, medic, emergency numbers..." style={textareaStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Nearest Hospital</label>
+                  <textarea value={callSheetData.nearestHospital} onChange={(e) => updateField('nearestHospital', e.target.value)} placeholder="Hospital / clinic name..." style={textareaStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Hospital Address</label>
+                  <textarea value={callSheetData.hospitalAddress} onChange={(e) => updateField('hospitalAddress', e.target.value)} placeholder="Address, route note, phone..." style={textareaStyle} />
                 </div>
                 <div>
                   <label style={labelStyle}>LINE Remarks</label>
@@ -2962,7 +3007,7 @@ export default function ShootingScheduleEditor({
         }
       });
 
-      const previewUrl = finalImageUrl.startsWith('http') ? finalImageUrl : URL.createObjectURL(optimizedFile);
+      const previewUrl = URL.createObjectURL(optimizedFile);
       idsToUpdate.forEach((id: string) => {
         next[id] = previewUrl;
       });
@@ -3098,6 +3143,47 @@ export default function ShootingScheduleEditor({
         }
 
         try {
+          // 1. Helper to search IndexedDB by timeline ID, linked shot ID, or matching scene/shot list ID
+          const resolveImageFile = async (timelineItem: any) => {
+            let file = await getImage(timelineItem.id);
+            if (file) return file;
+
+            if (timelineItem.linkedShotId) {
+              file = await getImage(timelineItem.linkedShotId);
+              if (file) return file;
+            }
+
+            const shotList = project?.data?.shotListData?.shotListItems || [];
+            const sceneStr = String(timelineItem.sceneNumber || '').trim().toLowerCase();
+            const shotStr = String(timelineItem.shotNumber || '').trim().toLowerCase();
+
+            if (sceneStr && shotStr) {
+              const matchingShot = shotList.find((s: any) =>
+                String(s.sceneNumber || '').trim().toLowerCase() === sceneStr &&
+                String(s.shotNumber || '').trim().toLowerCase() === shotStr
+              );
+              if (matchingShot) {
+                file = await getImage(matchingShot.id);
+                if (file) return file;
+              }
+            }
+            return undefined;
+          };
+
+          const file = await resolveImageFile(item);
+          if (file) {
+            // Save local cache under item.id if it wasn't there
+            const localExists = await getImage(itemId);
+            if (!localExists) {
+              await setImage(itemId, file);
+            }
+            const objectUrl = URL.createObjectURL(file);
+            objectUrlsToRevoke.push(objectUrl);
+            previews[itemId] = objectUrl;
+            previewsChanged = true;
+            continue; // Skip migrateLegacyStoredImage
+          }
+
           const migratedImage = await migrateLegacyStoredImage({
             projectId: project?.id,
             itemId,
@@ -3108,14 +3194,14 @@ export default function ShootingScheduleEditor({
           if (!migratedImage) continue;
 
           migratedUrls[itemId] = migratedImage.imageUrl;
-          if (migratedImage.imageUrl.startsWith('http')) {
-            if (previews[itemId] !== migratedImage.imageUrl) previewsChanged = true;
-            previews[itemId] = migratedImage.imageUrl;
-          } else {
+          if (migratedImage.file) {
             const objectUrl = URL.createObjectURL(migratedImage.file);
             objectUrlsToRevoke.push(objectUrl);
             previews[itemId] = objectUrl;
             previewsChanged = true;
+          } else if (migratedImage.imageUrl.startsWith('http')) {
+            if (previews[itemId] !== migratedImage.imageUrl) previewsChanged = true;
+            previews[itemId] = migratedImage.imageUrl;
           }
         } catch (error) {
           console.error(`Failed to migrate image for schedule item ${itemId}:`, error);
@@ -3144,6 +3230,7 @@ export default function ShootingScheduleEditor({
     return () => {
       cancelled = true;
       objectUrlsToRevoke.forEach(url => URL.revokeObjectURL(url));
+      legacyImageMigrationRunRef.current = false;
     };
   }, []);
 
@@ -3311,18 +3398,74 @@ export default function ShootingScheduleEditor({
       };
     });
 
-    const pdfImagePreviews = { ...imagePreviews };
-    await Promise.all(Object.entries(pdfImagePreviews).map(async ([itemId, url]) => {
-      if (typeof url !== 'string' || !url.startsWith('http')) return;
-      const dataUrl = await fetchImageUrlAsDataUrl(url);
-      if (dataUrl) pdfImagePreviews[itemId] = dataUrl;
-    }));
+    const pdfImagePreviews: { [key: string]: string } = {};
+    const itemIds = Array.from(new Set([
+      ...preparedItems.map((item: any) => item.id),
+      ...Object.keys(imagePreviews || {})
+    ])).filter(Boolean);
 
-    await Promise.all(preparedItems.map(async (item: any) => {
-      if (!item?.id || pdfImagePreviews[item.id]) return;
-      if (!item.imageUrl?.startsWith?.('http')) return;
-      const dataUrl = await fetchImageUrlAsDataUrl(item.imageUrl);
-      if (dataUrl) pdfImagePreviews[item.id] = dataUrl;
+    await Promise.all(itemIds.map(async (itemId) => {
+      try {
+        const timelineItem = preparedItems.find((item: any) => item.id === itemId);
+
+        // 1. Helper to search IndexedDB by timeline ID, linked shot ID, or matching scene/shot list ID
+        const resolveImageFromDB = async () => {
+          // Direct timeline item ID check
+          let file = await getImage(itemId);
+          if (file) return file;
+
+          if (timelineItem) {
+            // Linked shot ID check
+            if (timelineItem.linkedShotId) {
+              file = await getImage(timelineItem.linkedShotId);
+              if (file) return file;
+            }
+
+            // Match by scene & shot number in the project's shot list
+            const shotList = project?.data?.shotListData?.shotListItems || [];
+            const sceneStr = String(timelineItem.sceneNumber || '').trim().toLowerCase();
+            const shotStr = String(timelineItem.shotNumber || '').trim().toLowerCase();
+
+            if (sceneStr && shotStr) {
+              const matchingShot = shotList.find((s: any) =>
+                String(s.sceneNumber || '').trim().toLowerCase() === sceneStr &&
+                String(s.shotNumber || '').trim().toLowerCase() === shotStr
+              );
+              if (matchingShot?.id && matchingShot.id !== itemId && matchingShot.id !== timelineItem.linkedShotId) {
+                file = await getImage(matchingShot.id);
+                if (file) return file;
+              }
+            }
+          }
+          return undefined;
+        };
+
+        const imageFile = await resolveImageFromDB();
+        if (imageFile) {
+          const dataUrl = await fileToDataUrl(imageFile);
+          pdfImagePreviews[itemId] = dataUrl;
+          return;
+        }
+
+        // 2. Fallback to remote download URL (prioritizing imagePreviews, then timelineItem, then linked shot list item)
+        let url = imagePreviews[itemId] || timelineItem?.imageUrl;
+        if ((!url || !url.startsWith('http')) && timelineItem && timelineItem.linkedShotId) {
+          const shotList = project?.data?.shotListData?.shotListItems || [];
+          const matchedShot = shotList.find((s: any) => s.id === timelineItem.linkedShotId);
+          if (matchedShot?.imageUrl?.startsWith('http')) {
+            url = matchedShot.imageUrl;
+          }
+        }
+
+        if (typeof url === 'string' && url.startsWith('http')) {
+          const dataUrl = await fetchImageUrlAsDataUrl(url);
+          if (dataUrl) {
+            pdfImagePreviews[itemId] = dataUrl;
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to resolve PDF image preview for ID ${itemId}:`, err);
+      }
     }));
 
     exportToPDF(headerInfo, preparedItems, stats, pdfImagePreviews);

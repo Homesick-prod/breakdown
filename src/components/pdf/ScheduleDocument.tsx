@@ -127,6 +127,107 @@ const fmtWrapped = (value: any, fallback = '-') => {
   return segmentThaiText(normalized).join(ZERO_WIDTH_SPACE);
 };
 
+type BreakCategory = 'meal' | 'wrap' | 'setup' | 'break';
+
+const getBreakCategory = (description: string): BreakCategory => {
+  const value = (description || '').toLowerCase();
+  
+  // 1. Wrap (เลิกกอง)
+  const wrapKeywords = [
+    'wrap', 'end', 'finished', 'dismiss', 'packup', 'pack up', 'clean up', 'cleanup',
+    'เลิก', 'ปิดกล้อง', 'กลับบ้าน', 'แยกย้าย', 'แร็ป', 'แรป'
+  ];
+  if (wrapKeywords.some(kw => value.includes(kw))) return 'wrap';
+
+  // 2. Meal (พักทานอาหาร)
+  const mealKeywords = [
+    'lunch', 'dinner', 'breakfast', 'meal', 'snack', 'catering', 'brunch', 'supper', 'food', 'eating',
+    'กินข้าว', 'อาหาร', 'มื้อ', 'ทานข้าว', 'พักเที่ยง', 'พักกิน', 'ข้าวเช้า', 'ข้าวเที่ยง', 'ข้าวเย็น', 'อาหารเช้า', 'อาหารกลางวัน', 'อาหารเย็น'
+  ];
+  if (mealKeywords.some(kw => value.includes(kw))) return 'meal';
+
+  // 3. Setup (เซ็ตฉาก / ย้ายกอง)
+  const setupKeywords = [
+    'set', 'setup', 'prep', 'company move', 'move', 'travel', 'transit', 'prepare', 'block', 'blocking',
+    'ย้ายกอง', 'ย้าย', 'เตรียม', 'บล็อก', 'เซ็ต', 'บล็อค', 'เดินทาง'
+  ];
+  if (setupKeywords.some(kw => value.includes(kw))) return 'setup';
+
+  return 'break';
+};
+
+const getBreakLabel = (category: BreakCategory): string => {
+  switch (category) {
+    case 'wrap': return 'Wrap';
+    case 'meal': return 'Meal';
+    case 'setup': return 'Setup';
+    case 'break': return 'Break';
+  }
+};
+
+const BREAK_THEMES = {
+  wrap: {
+    bg: '#FEF2F2',
+    text: '#991B1B',
+    badgeBg: '#FEE2E2',
+    badgeText: '#DC2626'
+  },
+  meal: {
+    bg: '#FFFBEB',
+    text: '#78350F',
+    badgeBg: '#FEF3C7',
+    badgeText: '#B45309'
+  },
+  setup: {
+    bg: '#EFF6FF',
+    text: '#1E40AF',
+    badgeBg: '#DBEAFE',
+    badgeText: '#2563EB'
+  },
+  break: {
+    bg: '#F9FAFB',
+    text: '#374151',
+    badgeBg: '#F3F4F6',
+    badgeText: '#4B5563'
+  }
+};
+
+type MovementRig = 'handheld' | 'gimbal' | 'steadicam' | 'drone' | 'crane' | 'dolly' | 'default';
+
+const getMovementRig = (movementStr: string): MovementRig => {
+  const value = (movementStr || '').toLowerCase();
+  
+  if (value.includes('drone') || value.includes('aerial') || value.includes('โดรน') || value.includes('มุมสูง')) {
+    return 'drone';
+  }
+  if (value.includes('steadicam') || value.includes('steadi') || value.includes('สเตดิแคม') || value.includes('สเตดิ')) {
+    return 'steadicam';
+  }
+  if (value.includes('gimbal') || value.includes('ronin') || value.includes('กิมบอล') || value.includes('กิมบัล')) {
+    return 'gimbal';
+  }
+  if (value.includes('crane') || value.includes('jib') || value.includes('เครน') || value.includes('จิ๊บ')) {
+    return 'crane';
+  }
+  if (value.includes('handheld') || value.includes('hand') || value.includes('ถือกล้อง') || value.includes('ถือ')) {
+    return 'handheld';
+  }
+  if (value.includes('dolly') || value.includes('ดอลลี่') || value.includes('ดอลลี') || value.includes('track')) {
+    return 'dolly';
+  }
+  return 'default';
+};
+
+const RIG_THEMES = {
+  handheld: { bg: '#FFF1F2', text: '#BE123C' },
+  gimbal: { bg: '#F0FDFA', text: '#0D9488' },
+  steadicam: { bg: '#EEF2FF', text: '#4F46E5' },
+  drone: { bg: '#FFFBEB', text: '#D97706' },
+  crane: { bg: '#FDF4FF', text: '#9D174D' },
+  dolly: { bg: '#F0FDF4', text: '#16A34A' },
+  default: { bg: '', text: '#0A0A0A' }
+};
+
 // ─── Colors & Sizes ───────────────────────────────────────────────────────
 
 const C = {
@@ -135,33 +236,41 @@ const C = {
   mid: '#6B7280',
   light: '#9CA3AF',
   rule: '#D1D5DB',
-  bg: '#F9FAFB',
+  bg: '#F6F7F9',
   white: '#FFFFFF',
-  amber: '#D97706',
-  breakBg: '#FFFBEB',
-  breakText: '#92400E',
-  wrapBg: '#F3F4F6',
-  handheldBg: '#EFF6FF',
-  handheldText: '#1D4ED8',
 };
 
-const COL = {
-  start: '5.5%',
-  end: '5.5%',
-  duration: '3.5%',
-  sceneShot: '6%',
-  storyboard: '7%',
-  setPeriod: '7%',
+const COL_WITH_STORYBOARD = {
+  start: '4.3%',
+  end: '4.3%',
+  duration: '2.8%',
+  sceneShot: '3.6%',
+  storyboard: '10.0%',
+  setPeriod: '3.0%',
+  location: '6.8%',
+  size: '5.2%',
+  angle: '7.3%',
+  movement: '8.4%',
+  lens: '3%',
+  description: '31.2%',
+  cast: '10.1%',
+};
+
+const COL_WITHOUT_STORYBOARD = {
+  start: '4.6%',
+  end: '4.6%',
+  duration: '3.2%',
+  sceneShot: '5.8%',
+  storyboard: '0%',
+  setPeriod: '5.4%',
   location: '9%',
-  size: '5.5%',
-  angle: '7.5%',
-  movement: '8.5%',
-  lens: '3.5%',
-  description: '22%',
-  cast: '10%',
+  size: '5.2%',
+  angle: '7.3%',
+  movement: '8.6%',
+  lens: '2.8%',
+  description: '33.3%',
+  cast: '10.2%',
 };
-
-const BREAK_SPAN = '85.5%';
 
 const TABLE_HEADERS = [
   ['start', 'Start'],
@@ -169,7 +278,7 @@ const TABLE_HEADERS = [
   ['duration', 'Dur.'],
   ['sceneShot', 'Sc/Sh'],
   ['storyboard', 'Storyboard'],
-  ['setPeriod', 'Set/Period'],
+  ['setPeriod', 'SET'],
   ['location', 'Location'],
   ['size', 'Size'],
   ['angle', 'Angle'],
@@ -179,22 +288,32 @@ const TABLE_HEADERS = [
   ['cast', 'Cast'],
 ] as const;
 
+type ColumnKey = typeof TABLE_HEADERS[number][0];
+type ColumnMap = Record<ColumnKey, string>;
+
+const getBreakSpan = (columns: ColumnMap) => {
+  const used = [columns.start, columns.end, columns.duration, columns.cast]
+    .map((value) => parseFloat(String(value ?? '0')))
+    .reduce((sum, value) => sum + value, 0);
+  return `${Math.max(0, 100 - used).toFixed(1)}%`;
+};
+
 const styles = StyleSheet.create({
   page: {
     fontFamily: 'IBMPlexSansThai',
     fontSize: 7,
     color: C.black,
     backgroundColor: C.white,
-    paddingTop: 30,
-    paddingBottom: 30,
+    paddingTop: 24,
+    paddingBottom: 28,
     paddingHorizontal: 24,
   },
 
   // ── Header ────────────────────────────────────────────────────────────────
   header: {
     flexDirection: 'row',
-    marginBottom: 20,
-    paddingBottom: 10,
+    marginBottom: 13,
+    paddingBottom: 6,
   },
   hLeft: {
     width: '18%',
@@ -238,7 +357,7 @@ const styles = StyleSheet.create({
   tableHead: {
     flexDirection: 'row',
     backgroundColor: C.black,
-    paddingVertical: 4,
+    paddingVertical: 3.2,
     paddingHorizontal: 10,
     alignItems: 'center',
   },
@@ -252,19 +371,19 @@ const styles = StyleSheet.create({
   },
   tableRow: {
     flexDirection: 'row',
-    paddingVertical: 4,
+    paddingVertical: 3.1,
     paddingHorizontal: 10,
-    minHeight: 20,
+    minHeight: 17,
     alignItems: 'flex-start',
   },
   cell: {
-    fontSize: 7,
+    fontSize: 6.8,
     color: C.black,
     paddingRight: 4,
-    lineHeight: 1.35,
+    lineHeight: 1.28,
   },
   cellMuted: {
-    fontSize: 6,
+    fontSize: 5.7,
     color: C.mid,
     marginTop: 1,
     paddingRight: 4,
@@ -275,6 +394,23 @@ const styles = StyleSheet.create({
   },
   textColumn: {
     paddingRight: 5,
+  },
+  breakContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 3,
+  },
+  breakBadge: {
+    fontSize: 5,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 3,
+    textAlign: 'center',
   },
 
   // ── Footer ────────────────────────────────────────────────────────────────
@@ -325,7 +461,10 @@ const TableCell = ({
 
 const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: ScheduleDocumentProps) => {
   const h = headerInfo;
-  const now = new Date().toLocaleString('en-GB');
+  const hasStoryboardImages = timelineItems.some((item) => item?.id && imagePreviews?.[item.id]);
+  const columns = hasStoryboardImages ? COL_WITH_STORYBOARD : COL_WITHOUT_STORYBOARD;
+  const tableHeaders = TABLE_HEADERS.filter(([key]) => hasStoryboardImages || key !== 'storyboard');
+  const breakSpan = getBreakSpan(columns);
 
   return (
     <Document title={`Schedule - ${fmt(h.projectTitle)}`}>
@@ -355,50 +494,50 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
           {/* Center: Project Title (58% height) & Bottom Row (42% height) split into 3 columns */}
           <View style={[styles.hCenter, { justifyContent: 'space-between', alignItems: 'stretch' }]}>
             {/* Top row: Project Title (flex: 58) */}
-            <View style={{ flex: 58, justifyContent: 'center', alignItems: 'center', borderBottomWidth: 0.5, borderBottomColor: C.rule, paddingBottom: 2 }}>
-              <Text style={[styles.label, { fontSize: 6, letterSpacing: 0.8, marginBottom: 1 }]}>
+            <View style={{ flex: 52, justifyContent: 'center', alignItems: 'center', borderBottomWidth: 0.5, borderBottomColor: C.rule, paddingBottom: 1 }}>
+              <Text style={[styles.label, { fontSize: 5.8, letterSpacing: 0.8, marginBottom: 0.5 }]}>
                 Shooting Schedule
               </Text>
-              <Text style={{ fontSize: 24, fontWeight: 600, color: C.black, textAlign: 'center' }}>
+              <Text style={{ fontSize: 21, fontWeight: 600, color: C.black, textAlign: 'center', lineHeight: 1.08 }}>
                 {fmt(h.projectTitle, 'UNTITLED PROJECT')}
               </Text>
             </View>
 
             {/* Bottom row: 3 columns (flex: 42) */}
-            <View style={{ flex: 42, flexDirection: 'row', alignItems: 'stretch', gap: 6, paddingTop: 3 }}>
+            <View style={{ flex: 40, flexDirection: 'row', alignItems: 'stretch', gap: 5, paddingTop: 2 }}>
               {/* Col 1: Q (Day) */}
-              <View style={{ flex: 1, flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'center', paddingTop: 1 }}>
-                <Text style={styles.label}>Shoot Day</Text>
-                <Text style={{ fontSize: 15, fontWeight: 600, color: C.black, lineHeight: 1.1, marginTop: 1, marginBottom: 2 }}>
+              <View style={{ flex: 1, flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'center', paddingBottom: 2 }}>
+                <Text style={[styles.label, { marginBottom: 0 }]}>Shoot Day</Text>
+                <Text style={{ fontSize: 14, fontWeight: 600, color: C.black, lineHeight: 0.95, marginTop: -4, marginBottom: 5 }}>
                   Q{fmt(h.shootingDay)}
                 </Text>
-                <Text style={{ fontSize: 5.5, fontWeight: 600, color: C.mid, lineHeight: 1.25 }}>
+                <Text style={{ fontSize: 5.3, fontWeight: 600, color: C.mid, lineHeight: 1, marginTop: 0 }}>
                   Out of {fmt(h.totalDays)}
                 </Text>
               </View>
 
               {/* Col 2: Shooting Locations */}
               <View style={{ flex: 1.5, flexDirection: 'column', alignItems: 'center', borderLeftWidth: 0.5, borderLeftColor: C.rule, borderRightWidth: 0.5, borderRightColor: C.rule, paddingHorizontal: 5, height: '100%' }}>
-                <Text style={[styles.label, { textAlign: 'center', marginTop: 2 }]}>Locations</Text>
+                <Text style={[styles.label, { textAlign: 'center', marginTop: 1 }]}>Locations</Text>
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%' }}>
                   {((h.location1 && !h.location2 && !h.location3) || (!h.location1 && !h.location2 && !h.location3 && h.location)) ? (
-                    <Text style={{ fontSize: 8, fontWeight: 600, color: C.black, textAlign: 'center', lineHeight: 1.25 }}>
+                    <Text style={{ fontSize: 7.7, fontWeight: 600, color: C.black, textAlign: 'center', lineHeight: 1.18 }}>
                       {fmtWrapped(h.location1 || h.location)}
                     </Text>
                   ) : (
-                    <View style={{ gap: 2, justifyContent: 'center', width: '100%' }}>
+                    <View style={{ gap: 1.3, justifyContent: 'center', width: '100%' }}>
                       {h.location1 && (
-                        <Text style={{ fontSize: 6.7, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.25 }}>
+                        <Text style={{ fontSize: 6.4, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.18 }}>
                           L1: {fmtWrapped(h.location1)}
                         </Text>
                       )}
                       {h.location2 && (
-                        <Text style={{ fontSize: 6.7, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.25 }}>
+                        <Text style={{ fontSize: 6.4, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.18 }}>
                           L2: {fmtWrapped(h.location2)}
                         </Text>
                       )}
                       {h.location3 && (
-                        <Text style={{ fontSize: 6.7, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.25 }}>
+                        <Text style={{ fontSize: 6.4, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.18 }}>
                           L3: {fmtWrapped(h.location3)}
                         </Text>
                       )}
@@ -411,12 +550,12 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
               </View>
 
               {/* Col 3: General Call Time */}
-              <View style={{ flex: 1, flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'center', paddingTop: 1 }}>
-                <Text style={styles.label}>Call Time</Text>
-                <Text style={{ fontSize: 15, fontWeight: 600, color: C.black, lineHeight: 1.1, marginTop: 1, marginBottom: 2 }}>
+              <View style={{ flex: 1, flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'center', paddingBottom: 2 }}>
+                <Text style={[styles.label, { marginBottom: 0 }]}>Call Time</Text>
+                <Text style={{ fontSize: 14, fontWeight: 600, color: C.black, lineHeight: 0.95, marginTop: -4, marginBottom: 5 }}>
                   {fmt(h.callTime)}
                 </Text>
-                <Text style={{ fontSize: 5.5, fontWeight: 600, color: C.mid, lineHeight: 1.25 }}>
+                <Text style={{ fontSize: 5.3, fontWeight: 600, color: C.mid, lineHeight: 1, marginTop: 0 }}>
                   {formatDate(h.date)}
                 </Text>
               </View>
@@ -425,9 +564,9 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
 
           {/* Right: Times list, weather */}
           <View style={styles.hRight}>
-            <View style={{ flexDirection: 'column', alignItems: 'flex-end', gap: 1.5, width: '100%', marginBottom: 3 }}>
+            <View style={{ flexDirection: 'column', alignItems: 'flex-end', gap: 1, width: '100%', marginBottom: 2 }}>
               {/* Badge 1: Weather + Temp */}
-              <View style={{ backgroundColor: '#F3F4F6', borderRadius: 2, paddingVertical: 1.5, paddingHorizontal: 3, flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+              <View style={{ backgroundColor: '#F3F4F6', borderRadius: 2, paddingVertical: 1.2, paddingHorizontal: 3, flexDirection: 'row', alignItems: 'center', gap: 2 }}>
                 <Svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth="2.5">
                   <Circle cx="12" cy="12" r="4" />
                   <Path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
@@ -438,7 +577,7 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
               </View>
 
               {/* Badge 2: Sunrise/Sunset */}
-              <View style={{ backgroundColor: '#F3F4F6', borderRadius: 2, paddingVertical: 1.5, paddingHorizontal: 3, flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+              <View style={{ backgroundColor: '#F3F4F6', borderRadius: 2, paddingVertical: 1.2, paddingHorizontal: 3, flexDirection: 'row', alignItems: 'center', gap: 2 }}>
                 <Svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth="2.5">
                   <Path d="M17 18a5 5 0 0 0-10 0M12 2v7M9 5l3-3 3 3M2 22h20M12 13V9" />
                 </Svg>
@@ -448,7 +587,7 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
               </View>
 
               {/* Badge 3: Rain probability */}
-              <View style={{ backgroundColor: '#F3F4F6', borderRadius: 2, paddingVertical: 1.5, paddingHorizontal: 3, flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+              <View style={{ backgroundColor: '#F3F4F6', borderRadius: 2, paddingVertical: 1.2, paddingHorizontal: 3, flexDirection: 'row', alignItems: 'center', gap: 2 }}>
                 <Svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth="2.5">
                   <Path d="M12 22a7 7 0 0 0 7-7c0-4.3-7-11-7-11S5 10.7 5 15a7 7 0 0 0 7 7z" />
                 </Svg>
@@ -458,7 +597,7 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
               </View>
             </View>
 
-            <View style={{ borderTopWidth: 0.5, borderTopColor: C.rule, marginTop: 5, paddingTop: 4, width: '100%' }}>
+            <View style={{ borderTopWidth: 0.5, borderTopColor: C.rule, marginTop: 3, paddingTop: 3, width: '100%' }}>
               {[
                 ['Crew Call', h.callTime, 'crewCall'],
                 ['First Shot', h.firstShotTime, 'firstShot'],
@@ -481,8 +620,8 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
 
           {/* Table header */}
           <View style={styles.tableHead} fixed>
-            {TABLE_HEADERS.map(([key, label]) => (
-              <Text key={key} style={[styles.tableHeadCell, { width: COL[key] }]}>
+            {tableHeaders.map(([key, label]) => (
+              <Text key={key} style={[styles.tableHeadCell, { width: columns[key] }]}>
                 {label}
               </Text>
             ))}
@@ -490,91 +629,127 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
 
           {timelineItems.map((item, i) => {
             const isBreak = item.type === 'break';
-            const desc = (item.description || '').toLowerCase();
             const movement = formatSelectValueList(item.movement);
-            const isHandheld = !isBreak && movement.toLowerCase().includes('hand');
+            const rig = !isBreak ? getMovementRig(movement) : 'default';
             const isAlt = i % 2 !== 0;
 
             let rowBg = isAlt ? C.bg : C.white;
             let textColor = C.black;
+            let theme = BREAK_THEMES.break;
+            let category: BreakCategory = 'break';
 
             if (isBreak) {
-              if (desc.includes('wrap')) { rowBg = C.wrapBg; textColor = C.dark; }
-              else if (desc.includes('lunch') || desc.includes('dinner')) { rowBg = C.breakBg; textColor = C.breakText; }
-              else { rowBg = C.bg; }
-            } else if (isHandheld) {
-              rowBg = C.handheldBg;
+              category = getBreakCategory(item.description || '');
+              theme = BREAK_THEMES[category];
+              rowBg = theme.bg;
+              textColor = theme.text;
+            }
+
+            const rowStyle: any = [styles.tableRow, { backgroundColor: rowBg }];
+            if (isBreak) {
+              rowStyle.push({
+                borderTopWidth: 0.5,
+                borderTopColor: '#D1D5DB',
+                borderBottomWidth: 0.5,
+                borderBottomColor: '#D1D5DB',
+                alignItems: 'center',
+              });
             }
 
             return (
-              <View key={item.id ?? i} wrap={false} style={[styles.tableRow, { backgroundColor: rowBg }]}>
-                <TableCell width={COL.start}>
+              <View key={item.id ?? i} wrap={false} style={rowStyle}>
+                <TableCell width={columns.start!}>
                   <Text style={[styles.cell, { fontWeight: 600, color: textColor }]}>
                     {item.start || '--:--'}
                   </Text>
                 </TableCell>
-                <TableCell width={COL.end}>
+                <TableCell width={columns.end!}>
                   <Text style={[styles.cell, { color: C.mid }]}>
                     {item.end || '--:--'}
                   </Text>
                 </TableCell>
-                <TableCell width={COL.duration}>
+                <TableCell width={columns.duration!}>
                   <Text style={[styles.cell, { color: C.mid }]}>
                     {item.duration ? `${item.duration}'` : ''}
                   </Text>
                 </TableCell>
 
                 {isBreak ? (
-                  <TableCell width={BREAK_SPAN}>
-                    <Text style={[styles.cell, { fontWeight: 600, color: textColor }]}>
-                      {fmtWrapped(item.description, 'Break')}
-                    </Text>
-                  </TableCell>
+                  <>
+                    <TableCell width={breakSpan}>
+                      <View style={styles.breakContent}>
+                        <Text style={[styles.cell, { fontWeight: 600, color: textColor, textAlign: 'center', flex: 1 }]}>
+                          {fmtWrapped(item.description, 'Break')}
+                        </Text>
+                      </View>
+                    </TableCell>
+                    <TableCell width={columns.cast!}><Text /></TableCell>
+                  </>
                 ) : (
                   <>
-                    <TableCell width={COL.sceneShot}>
+                    <TableCell width={columns.sceneShot!}>
                       <Text style={[styles.cell, { fontWeight: 600 }]}>Sc. {normalizeInlineText(item.sceneNumber)}</Text>
                       <Text style={[styles.cellMuted, { fontSize: 5.5, marginTop: 1 }]}>Sh. {item.shotNumber || '-'}</Text>
                     </TableCell>
-                    <TableCell width={COL.storyboard} style={{ justifyContent: 'center', alignItems: 'center' }}>
-                      {imagePreviews && imagePreviews[item.id] ? (
-                        <Image
-                          src={imagePreviews[item.id]}
-                          style={{
-                            width: '100%',
-                            height: 24,
-                            borderRadius: 2,
-                            objectFit: 'cover',
-                          }}
-                        />
-                      ) : null}
-                    </TableCell>
-                    <TableCell width={COL.setPeriod}>
+                    {hasStoryboardImages ? (
+                      <TableCell width={columns.storyboard!} style={{ justifyContent: 'center', alignItems: 'flex-start' }}>
+                        {imagePreviews && imagePreviews[item.id] ? (
+                          <Image
+                            src={imagePreviews[item.id]}
+                            style={{
+                              width: '93%',
+                            }}
+                          />
+                        ) : null}
+                      </TableCell>
+                    ) : null}
+                    <TableCell width={columns.setPeriod!}>
                       <Text style={styles.cell}>{fmtWrapped(item.intExt)}</Text>
                       <Text style={[styles.cellMuted, { fontSize: 5.5, marginTop: 1 }]}>{fmtWrapped(item.dayNight)}</Text>
                     </TableCell>
-                    <TableCell width={COL.location}>
+                    <TableCell width={columns.location!}>
                       <Text style={styles.cell}>{fmtWrapped(item.location)}</Text>
                     </TableCell>
-                    <TableCell width={COL.size}>
+                    <TableCell width={columns.size!}>
                       <Text style={styles.cell}>{fmtWrapped(formatSelectValueList(item.shotSize))}</Text>
                     </TableCell>
-                    <TableCell width={COL.angle}>
+                    <TableCell width={columns.angle!}>
                       <Text style={[styles.cell, { fontSize: String(item.angle || '').includes(',') ? 6.5 : 7 }]}>
                         {fmtWrapped(item.angle)}
                       </Text>
                     </TableCell>
-                    <TableCell width={COL.movement}>
-                      <Text style={[styles.cell, { color: isHandheld ? C.handheldText : C.black, fontSize: movement.includes('/') ? 6.5 : 7 }]}>
-                        {fmtWrapped(movement)}
-                      </Text>
+                    <TableCell width={columns.movement!} style={{ justifyContent: 'center' }}>
+                      <View style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 3.5,
+                      }}>
+                        {RIG_THEMES[rig].bg ? (
+                          <View style={{
+                            width: 2.2,
+                            height: 9,
+                            backgroundColor: RIG_THEMES[rig].text,
+                            borderRadius: 0.8,
+                          }} />
+                        ) : null}
+                        <Text style={[
+                          styles.cell,
+                          {
+                            color: RIG_THEMES[rig].bg ? RIG_THEMES[rig].text : C.black,
+                            fontSize: movement.includes('/') ? 6.5 : 7,
+                            flex: 1
+                          }
+                        ]}>
+                          {fmtWrapped(movement)}
+                        </Text>
+                      </View>
                     </TableCell>
-                    <TableCell width={COL.lens}>
+                    <TableCell width={columns.lens!}>
                       <Text style={styles.cell}>
                         {item.lens ? `${String(item.lens).replace(/mm/g, '')}mm` : '-'}
                       </Text>
                     </TableCell>
-                    <TableCell width={COL.description} style={styles.textColumn}>
+                    <TableCell width={columns.description!} style={styles.textColumn}>
                       <Text style={styles.cell}>{fmtWrapped(item.description)}</Text>
                       {(item.props || item.costume || item.notes) ? (
                         <Text style={[styles.cellMuted, { fontSize: 5.5, color: C.mid, marginTop: 2 }]}>
@@ -586,7 +761,7 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
                         </Text>
                       ) : null}
                     </TableCell>
-                    <TableCell width={COL.cast}>
+                    <TableCell width={columns.cast!}>
                       <Text style={styles.cell}>{fmtWrapped(item.cast)}</Text>
                     </TableCell>
                   </>
@@ -598,7 +773,7 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
 
         {/* ── FOOTER ──────────────────────────────────────────────────────── */}
         <View style={styles.footer} fixed>
-          <Text style={styles.footerText}>Generated {now}</Text>
+          <Text style={styles.footerText}>Made with MentalBreakdown · Tawich P.</Text>
           <Text style={styles.footerText} render={({ pageNumber, totalPages }) =>
             `Page ${pageNumber} / ${totalPages}`
           } />
