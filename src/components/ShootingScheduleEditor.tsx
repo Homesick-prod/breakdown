@@ -3399,74 +3399,138 @@ export default function ShootingScheduleEditor({
     });
 
     const pdfImagePreviews: { [key: string]: string } = {};
-    const itemIds = Array.from(new Set([
-      ...preparedItems.map((item: any) => item.id),
-      ...Object.keys(imagePreviews || {})
-    ])).filter(Boolean);
+    const shotList = project?.data?.shotListData?.shotListItems || [];
+    const shotListPreviews = project?.data?.shotListData?.imagePreviews || {};
+    const diagnostics: Array<Record<string, any>> = [];
 
-    await Promise.all(itemIds.map(async (itemId) => {
-      try {
-        const timelineItem = preparedItems.find((item: any) => item.id === itemId);
+    const findMatchingShot = (timelineItem: any) => {
+      if (!timelineItem) return null;
 
-        // 1. Helper to search IndexedDB by timeline ID, linked shot ID, or matching scene/shot list ID
-        const resolveImageFromDB = async () => {
-          // Direct timeline item ID check
-          let file = await getImage(itemId);
-          if (file) return file;
-
-          if (timelineItem) {
-            // Linked shot ID check
-            if (timelineItem.linkedShotId) {
-              file = await getImage(timelineItem.linkedShotId);
-              if (file) return file;
-            }
-
-            // Match by scene & shot number in the project's shot list
-            const shotList = project?.data?.shotListData?.shotListItems || [];
-            const sceneStr = String(timelineItem.sceneNumber || '').trim().toLowerCase();
-            const shotStr = String(timelineItem.shotNumber || '').trim().toLowerCase();
-
-            if (sceneStr && shotStr) {
-              const matchingShot = shotList.find((s: any) =>
-                String(s.sceneNumber || '').trim().toLowerCase() === sceneStr &&
-                String(s.shotNumber || '').trim().toLowerCase() === shotStr
-              );
-              if (matchingShot?.id && matchingShot.id !== itemId && matchingShot.id !== timelineItem.linkedShotId) {
-                file = await getImage(matchingShot.id);
-                if (file) return file;
-              }
-            }
-          }
-          return undefined;
-        };
-
-        const imageFile = await resolveImageFromDB();
-        if (imageFile) {
-          const dataUrl = await fileToDataUrl(imageFile);
-          pdfImagePreviews[itemId] = dataUrl;
-          return;
-        }
-
-        // 2. Fallback to remote download URL (prioritizing imagePreviews, then timelineItem, then linked shot list item)
-        let url = imagePreviews[itemId] || timelineItem?.imageUrl;
-        if ((!url || !url.startsWith('http')) && timelineItem && timelineItem.linkedShotId) {
-          const shotList = project?.data?.shotListData?.shotListItems || [];
-          const matchedShot = shotList.find((s: any) => s.id === timelineItem.linkedShotId);
-          if (matchedShot?.imageUrl?.startsWith('http')) {
-            url = matchedShot.imageUrl;
-          }
-        }
-
-        if (typeof url === 'string' && url.startsWith('http')) {
-          const dataUrl = await fetchImageUrlAsDataUrl(url);
-          if (dataUrl) {
-            pdfImagePreviews[itemId] = dataUrl;
-          }
-        }
-      } catch (err) {
-        console.error(`Failed to resolve PDF image preview for ID ${itemId}:`, err);
+      if (timelineItem.linkedShotId) {
+        const linkedShot = shotList.find((shot: any) => shot.id === timelineItem.linkedShotId);
+        if (linkedShot) return linkedShot;
       }
-    }));
+
+      const sceneStr = String(timelineItem.sceneNumber || '').trim().toLowerCase();
+      const shotStr = String(timelineItem.shotNumber || '').trim().toLowerCase();
+      if (!sceneStr || !shotStr) return null;
+
+      return shotList.find((shot: any) =>
+        String(shot.sceneNumber || '').trim().toLowerCase() === sceneStr &&
+        String(shot.shotNumber || '').trim().toLowerCase() === shotStr
+      ) || null;
+    };
+
+    const resolveImageFromDB = async (timelineItem: any) => {
+      const itemId = timelineItem?.id;
+      if (!itemId) return undefined;
+
+      let file = await getImage(itemId);
+      if (file) return { file, source: 'indexeddb:item' };
+
+      if (timelineItem.linkedShotId) {
+        file = await getImage(timelineItem.linkedShotId);
+        if (file) return { file, source: 'indexeddb:linked-shot' };
+      }
+
+      const matchingShot = findMatchingShot(timelineItem);
+      if (matchingShot?.id && matchingShot.id !== itemId && matchingShot.id !== timelineItem.linkedShotId) {
+        file = await getImage(matchingShot.id);
+        if (file) return { file, source: 'indexeddb:scene-shot-match' };
+      }
+
+      return undefined;
+    };
+
+    const previewToDataUrl = async (value: any) => {
+      if (typeof value !== 'string' || !value) return null;
+      if (value.startsWith('data:image')) return value;
+
+      if (value.startsWith('blob:')) {
+        const response = await fetch(value);
+        if (!response.ok) throw new Error(`Blob URL fetch failed: HTTP ${response.status}`);
+        const blob = await response.blob();
+        const file = new File([blob], 'schedule-preview-image', { type: blob.type || 'image/jpeg' });
+        return fileToDataUrl(file);
+      }
+
+      if (value.startsWith('http')) {
+        return fetchImageUrlAsDataUrl(value);
+      }
+
+      return null;
+    };
+
+    const resolvePdfImage = async (timelineItem: any) => {
+      const itemId = timelineItem?.id;
+      if (!itemId) return;
+
+      const dbImage = await resolveImageFromDB(timelineItem);
+      if (dbImage?.file) {
+        pdfImagePreviews[itemId] = await fileToDataUrl(dbImage.file);
+        diagnostics.push({ itemId, source: dbImage.source, status: 'ok' });
+        return;
+      }
+
+      const matchingShot = findMatchingShot(timelineItem);
+      const sourceCandidates = [
+        { source: 'preview:item', value: imagePreviews?.[itemId] },
+        { source: 'timeline:imageUrl', value: timelineItem?.imageUrl },
+        { source: 'preview:linked-shot', value: timelineItem?.linkedShotId ? shotListPreviews?.[timelineItem.linkedShotId] : null },
+        { source: 'shotlist:linked-imageUrl', value: timelineItem?.linkedShotId ? shotList.find((shot: any) => shot.id === timelineItem.linkedShotId)?.imageUrl : null },
+        { source: 'preview:scene-shot-match', value: matchingShot?.id ? shotListPreviews?.[matchingShot.id] : null },
+        { source: 'shotlist:scene-shot-match-imageUrl', value: matchingShot?.imageUrl },
+      ];
+
+      const seen = new Set<string>();
+      for (const candidate of sourceCandidates) {
+        const value = typeof candidate.value === 'string' ? candidate.value : '';
+        if (!value || value === 'true' || seen.has(value)) continue;
+        seen.add(value);
+
+        try {
+          const dataUrl = await previewToDataUrl(value);
+          if (dataUrl?.startsWith('data:image')) {
+            pdfImagePreviews[itemId] = dataUrl;
+            diagnostics.push({ itemId, source: candidate.source, status: 'ok' });
+            return;
+          }
+        } catch (error) {
+          diagnostics.push({
+            itemId,
+            source: candidate.source,
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      if (sourceCandidates.some(candidate => typeof candidate.value === 'string' && candidate.value && candidate.value !== 'true')) {
+        diagnostics.push({ itemId, source: 'all-candidates', status: 'missing-data-url' });
+      }
+    };
+
+    const imageItemsForPdf = preparedItems.filter((item: any) => item?.type !== 'break');
+    const imageResults = await Promise.allSettled(
+      imageItemsForPdf.map((item: any) => resolvePdfImage(item))
+    );
+
+    imageResults.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        diagnostics.push({
+          itemId: imageItemsForPdf[index]?.id,
+          source: 'resolver',
+          status: 'failed',
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+      }
+    });
+
+    const failures = diagnostics.filter(entry => entry.status !== 'ok');
+    if (failures.length > 0) {
+      console.warn(`Schedule PDF image export skipped ${failures.length} image source(s).`);
+      console.table(failures);
+    }
 
     exportToPDF(headerInfo, preparedItems, stats, pdfImagePreviews);
     if (project.ownerId) {

@@ -172,35 +172,24 @@ export const fileToDataUrl = (file: File): Promise<string> => (
 export function fetchImageUrlAsDataUrl(url: string): Promise<string | null> {
   if (!url || !url.startsWith('http')) return Promise.resolve(null);
 
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          resolve(null);
-          return;
-        }
-        ctx.drawImage(img, 0, 0);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        resolve(dataUrl);
-      } catch (err) {
-        console.warn('Canvas conversion failed (likely CORS tainted canvas):', err);
-        resolve(null);
+  return fetch(url, { mode: 'cors', cache: 'no-store' })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
-    };
 
-    img.onerror = (err) => {
-      console.warn('Image element failed to load for export (likely CORS or network block):', err);
-      resolve(null);
-    };
+      const blob = await response.blob();
+      const contentType = blob.type || response.headers.get('content-type') || '';
+      if (contentType && !contentType.startsWith('image/')) {
+        throw new Error(`Unexpected content type: ${contentType}`);
+      }
 
-    const separator = url.includes('?') ? '&' : '?';
-    img.src = `${url}${separator}cors_bust=${Date.now()}`;
-  });
+      const extension = contentType.split('/')[1]?.split(';')[0] || 'jpg';
+      const file = new File([blob], `remote-image.${extension}`, { type: contentType || 'image/jpeg' });
+      return fileToDataUrl(file);
+    })
+    .catch((err) => {
+      console.warn('Failed to fetch remote image for PDF export (likely CORS, service worker, or network):', err);
+      return null;
+    });
 }

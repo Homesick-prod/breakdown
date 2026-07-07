@@ -197,22 +197,45 @@ type MovementRig = 'handheld' | 'gimbal' | 'steadicam' | 'drone' | 'crane' | 'do
 const getMovementRig = (movementStr: string): MovementRig => {
   const value = (movementStr || '').toLowerCase();
   
-  if (value.includes('drone') || value.includes('aerial') || value.includes('โดรน') || value.includes('มุมสูง')) {
+  if (
+    value.includes('drone') || value.includes('aerial') || value.includes('flycam') ||
+    value.includes('โดรน') || value.includes('บิน') || value.includes('มุมสูง')
+  ) {
     return 'drone';
   }
-  if (value.includes('steadicam') || value.includes('steadi') || value.includes('สเตดิแคม') || value.includes('สเตดิ')) {
+  if (
+    value.includes('steadicam') || value.includes('steadi') ||
+    value.includes('สเตดิแคม') || value.includes('สเตดิ') ||
+    value.includes('สเตดี้แคม') || value.includes('สเตดี้')
+  ) {
     return 'steadicam';
   }
-  if (value.includes('gimbal') || value.includes('ronin') || value.includes('กิมบอล') || value.includes('กิมบัล')) {
+  if (
+    value.includes('gimbal') || value.includes('ronin') || value.includes('stabilizer') ||
+    value.includes('กิมบอล') || value.includes('กิมบัล') || value.includes('กันสั่น')
+  ) {
     return 'gimbal';
   }
-  if (value.includes('crane') || value.includes('jib') || value.includes('เครน') || value.includes('จิ๊บ')) {
+  if (
+    value.includes('crane') || value.includes('jib') || value.includes('boom') ||
+    value.includes('เครน') || value.includes('จิ๊บ') || value.includes('บูม') ||
+    value.includes('เครนจิ๊บ') || value.includes('จิ๊บอาร์ม')
+  ) {
     return 'crane';
   }
-  if (value.includes('handheld') || value.includes('hand') || value.includes('ถือกล้อง') || value.includes('ถือ')) {
+  if (
+    value.includes('handheld') || value.includes('hand') || value.includes('shoulder') ||
+    value.includes('ถือกล้อง') || value.includes('ถือ') ||
+    value.includes('แฮนด์เฮลด์') || value.includes('แฮนด์เฮล')
+  ) {
     return 'handheld';
   }
-  if (value.includes('dolly') || value.includes('ดอลลี่') || value.includes('ดอลลี') || value.includes('track')) {
+  if (
+    value.includes('dolly') || value.includes('ดอลลี่') || value.includes('ดอลลี') ||
+    value.includes('track') || value.includes('แทร็ค') || value.includes('แทรค') ||
+    value.includes('truck') || value.includes('ทรัค') ||
+    value.includes('slider') || value.includes('สไลเดอร์')
+  ) {
     return 'dolly';
   }
   return 'default';
@@ -245,15 +268,15 @@ const COL_WITH_STORYBOARD = {
   end: '4.3%',
   duration: '2.8%',
   sceneShot: '3.6%',
-  storyboard: '10.0%',
+  storyboard: '9.0%',
   setPeriod: '3.0%',
   location: '6.8%',
   size: '5.2%',
   angle: '7.3%',
   movement: '8.4%',
-  lens: '3%',
+  lens: '5%',
   description: '31.2%',
-  cast: '10.1%',
+  cast: '9.1%',
 };
 
 const COL_WITHOUT_STORYBOARD = {
@@ -361,6 +384,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     alignItems: 'center',
   },
+  tableHeadContinuationGap: {
+    height: 3.2,
+  },
   tableHeadCell: {
     fontSize: 6,
     color: C.white,
@@ -461,7 +487,9 @@ const TableCell = ({
 
 const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: ScheduleDocumentProps) => {
   const h = headerInfo;
-  const hasStoryboardImages = timelineItems.some((item) => item?.id && imagePreviews?.[item.id]);
+  const hasStoryboardImages = timelineItems.some((item) => (
+    item?.id && typeof imagePreviews?.[item.id] === 'string' && imagePreviews[item.id].startsWith('data:image')
+  ));
   const columns = hasStoryboardImages ? COL_WITH_STORYBOARD : COL_WITHOUT_STORYBOARD;
   const tableHeaders = TABLE_HEADERS.filter(([key]) => hasStoryboardImages || key !== 'storyboard');
   const breakSpan = getBreakSpan(columns);
@@ -508,36 +536,36 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
               {/* Col 1: Q (Day) */}
               <View style={{ flex: 1, flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'center', paddingBottom: 2 }}>
                 <Text style={[styles.label, { marginBottom: 0 }]}>Shoot Day</Text>
-                <Text style={{ fontSize: 14, fontWeight: 600, color: C.black, lineHeight: 0.95, marginTop: -4, marginBottom: 5 }}>
+                <Text style={{ fontSize: 14, fontWeight: 600, color: C.black, lineHeight: 0.95, marginTop: -2, marginBottom: 5 }}>
                   Q{fmt(h.shootingDay)}
                 </Text>
-                <Text style={{ fontSize: 5.3, fontWeight: 600, color: C.mid, lineHeight: 1, marginTop: 0 }}>
+                <Text style={{ fontSize: 5.5, fontWeight: 600, color: C.dark, lineHeight: 1, marginTop: 3.5 }}>
                   Out of {fmt(h.totalDays)}
                 </Text>
               </View>
 
               {/* Col 2: Shooting Locations */}
               <View style={{ flex: 1.5, flexDirection: 'column', alignItems: 'center', borderLeftWidth: 0.5, borderLeftColor: C.rule, borderRightWidth: 0.5, borderRightColor: C.rule, paddingHorizontal: 5, height: '100%' }}>
-                <Text style={[styles.label, { textAlign: 'center', marginTop: 1 }]}>Locations</Text>
+                <Text style={[styles.label, { textAlign: 'center', marginTop: 4 }]}>Locations</Text>
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%' }}>
                   {((h.location1 && !h.location2 && !h.location3) || (!h.location1 && !h.location2 && !h.location3 && h.location)) ? (
-                    <Text style={{ fontSize: 7.7, fontWeight: 600, color: C.black, textAlign: 'center', lineHeight: 1.18 }}>
+                    <Text style={{ fontSize: 7.9, fontWeight: 600, color: C.black, textAlign: 'center', lineHeight: 1.16 }}>
                       {fmtWrapped(h.location1 || h.location)}
                     </Text>
                   ) : (
-                    <View style={{ gap: 1.3, justifyContent: 'center', width: '100%' }}>
+                    <View style={{ gap: 1.3, justifyContent: 'center', width: '100%',marginBottom: '4' }}>
                       {h.location1 && (
-                        <Text style={{ fontSize: 6.4, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.18 }}>
+                        <Text style={{ fontSize: 6.6, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.16 }}>
                           L1: {fmtWrapped(h.location1)}
                         </Text>
                       )}
                       {h.location2 && (
-                        <Text style={{ fontSize: 6.4, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.18 }}>
+                        <Text style={{ fontSize: 6.6, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.16 }}>
                           L2: {fmtWrapped(h.location2)}
                         </Text>
                       )}
                       {h.location3 && (
-                        <Text style={{ fontSize: 6.4, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.18 }}>
+                        <Text style={{ fontSize: 6.6, color: C.black, fontWeight: 600, textAlign: 'center', lineHeight: 1.16 }}>
                           L3: {fmtWrapped(h.location3)}
                         </Text>
                       )}
@@ -552,10 +580,10 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
               {/* Col 3: General Call Time */}
               <View style={{ flex: 1, flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'center', paddingBottom: 2 }}>
                 <Text style={[styles.label, { marginBottom: 0 }]}>Call Time</Text>
-                <Text style={{ fontSize: 14, fontWeight: 600, color: C.black, lineHeight: 0.95, marginTop: -4, marginBottom: 5 }}>
+                <Text style={{ fontSize: 14, fontWeight: 600, color: C.black, lineHeight: 0.95, marginTop: -2, marginBottom: 5 }}>
                   {fmt(h.callTime)}
                 </Text>
-                <Text style={{ fontSize: 5.3, fontWeight: 600, color: C.mid, lineHeight: 1, marginTop: 0 }}>
+                <Text style={{ fontSize: 5.5, fontWeight: 600, color: C.dark, lineHeight: 1, marginTop: 3.5 }}>
                   {formatDate(h.date)}
                 </Text>
               </View>
@@ -607,8 +635,8 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
                 ['Est. Wrap', h.wrapTime, 'wrapTime'],
               ].map(([label, val, originalKey]) => val ? (
                 <View key={originalKey} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 1.5 }}>
-                  <Text style={{ fontSize: 6, color: C.mid, fontWeight: 600 }}>{label}</Text>
-                  <Text style={{ fontSize: 6, color: C.black, fontWeight: 600 }}>{val}</Text>
+                  <Text style={{ fontSize: 6.1, color: C.dark, fontWeight: 600 }}>{label}</Text>
+                  <Text style={{ fontSize: 6.1, color: C.black, fontWeight: 600 }}>{val}</Text>
                 </View>
               ) : null)}
             </View>
@@ -626,6 +654,12 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
               </Text>
             ))}
           </View>
+          <View
+            fixed
+            render={({ pageNumber }) => (
+              pageNumber > 1 ? <View style={styles.tableHeadContinuationGap} /> : null
+            )}
+          />
 
           {timelineItems.map((item, i) => {
             const isBreak = item.type === 'break';
@@ -693,9 +727,10 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
                     </TableCell>
                     {hasStoryboardImages ? (
                       <TableCell width={columns.storyboard!} style={{ justifyContent: 'center', alignItems: 'flex-start' }}>
-                        {imagePreviews && imagePreviews[item.id] ? (
+                        {typeof imagePreviews?.[item.id] === 'string' && imagePreviews[item.id].startsWith('data:image') ? (
                           <Image
                             src={imagePreviews[item.id]}
+                            cache={false}
                             style={{
                               width: '93%',
                             }}
