@@ -255,9 +255,9 @@ const RIG_THEMES = {
 
 const C = {
   black: '#0A0A0A',
-  dark: '#374151',
-  mid: '#6B7280',
-  light: '#9CA3AF',
+  dark: '#191b1d',
+  mid: '#84868c',
+  light: '#abb1bb',
   rule: '#D1D5DB',
   bg: '#F6F7F9',
   white: '#FFFFFF',
@@ -314,6 +314,12 @@ const TABLE_HEADERS = [
 type ColumnKey = typeof TABLE_HEADERS[number][0];
 type ColumnMap = Record<ColumnKey, string>;
 
+const PAGE_BOTTOM_PADDING = 44;
+const PAGE_HORIZONTAL_PADDING = 24;
+const NORMAL_FOOTER_BOTTOM = 16 - PAGE_BOTTOM_PADDING;
+const FINAL_AD_FOOTER_BOTTOM = 12;
+const FOOTER_SIDE_OFFSET = 0;
+
 const getBreakSpan = (columns: ColumnMap) => {
   const used = [columns.start, columns.end, columns.duration, columns.cast]
     .map((value) => parseFloat(String(value ?? '0')))
@@ -328,8 +334,8 @@ const styles = StyleSheet.create({
     color: C.black,
     backgroundColor: C.white,
     paddingTop: 24,
-    paddingBottom: 28,
-    paddingHorizontal: 24,
+    paddingBottom: PAGE_BOTTOM_PADDING,
+    paddingHorizontal: PAGE_HORIZONTAL_PADDING,
   },
 
   // ── Header ────────────────────────────────────────────────────────────────
@@ -442,18 +448,61 @@ const styles = StyleSheet.create({
   // ── Footer ────────────────────────────────────────────────────────────────
   footer: {
     position: 'absolute',
-    bottom: 16,
-    left: 24,
-    right: 24,
+    bottom: NORMAL_FOOTER_BOTTOM,
+    left: FOOTER_SIDE_OFFSET,
+    right: FOOTER_SIDE_OFFSET,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    borderTopWidth: 0.5,
-    borderTopColor: C.rule,
-    paddingTop: 3,
   },
   footerText: {
     fontSize: 6,
     color: C.light,
+  },
+  finalAdFooter: {
+    position: 'absolute',
+    bottom: FINAL_AD_FOOTER_BOTTOM,
+    left: FOOTER_SIDE_OFFSET,
+    right: FOOTER_SIDE_OFFSET,
+    height: 42,
+  },
+  finalAdLockup: {
+    height: 42,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginHorizontal: PAGE_HORIZONTAL_PADDING,
+  },
+  finalAdFooterSpacer: {
+    height: 44,
+  },
+  finalAdLeft: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 6,
+    flex: 1,
+  },
+  finalAdQr: {
+    width: 32,
+    height: 32,
+  },
+  finalAdBrand: {
+    fontSize: 10.3,
+    color: C.dark,
+    fontWeight: 600,
+    lineHeight: 1.07,
+  },
+  finalAdUrl: {
+    fontSize: 6.7,
+    color: C.mid,
+    fontWeight: 500,
+    letterSpacing: 0.2,
+    marginTop: 4.3,
+  },
+  finalAdRight: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    paddingLeft: 12,
+    minWidth: 54,
   },
 });
 
@@ -481,6 +530,56 @@ const TableCell = ({
   <View style={[styles.cellBox, { width }, style]}>
     {children}
   </View>
+);
+
+const ScheduleFooter = () => (
+  <View
+    fixed
+    render={({ pageNumber, totalPages }) => {
+      const isLastPage = pageNumber === totalPages;
+
+      if (isLastPage) {
+        return null;
+      }
+
+      return (
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>Made with MentalBreakdown · Tawich P.</Text>
+          <Text style={styles.footerText}>Page {pageNumber} / {totalPages}</Text>
+        </View>
+      );
+    }}
+  />
+);
+
+const FinalAdFooter = () => (
+  <View
+    style={styles.finalAdFooter}
+    fixed
+    render={({ pageNumber, totalPages }) => {
+      if (pageNumber !== totalPages) return null;
+
+      return (
+        <View style={styles.finalAdLockup}>
+          <View style={styles.finalAdLeft}>
+            <Image src={getFontPath('mentalbreakdown-qr.png')} style={styles.finalAdQr} />
+            <View>
+              <Text style={styles.finalAdBrand}>Made With</Text>
+              <Text style={styles.finalAdBrand}>MentalBreakdown</Text>
+              <Text style={styles.finalAdUrl}>mentalbreakdown.web.app</Text>
+            </View>
+          </View>
+          <View style={styles.finalAdRight}>
+            <Text style={styles.footerText}>Page {pageNumber} / {totalPages}</Text>
+          </View>
+        </View>
+      );
+    }}
+  />
+);
+
+const FinalAdFooterSpacer = () => (
+  <View style={styles.finalAdFooterSpacer} wrap={false} />
 );
 
 // ─── Main Document ─────────────────────────────────────────────────────────────
@@ -806,13 +905,10 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
           })}
         </View>
 
-        {/* ── FOOTER ──────────────────────────────────────────────────────── */}
-        <View style={styles.footer} fixed>
-          <Text style={styles.footerText}>Made with MentalBreakdown · Tawich P.</Text>
-          <Text style={styles.footerText} render={({ pageNumber, totalPages }) =>
-            `Page ${pageNumber} / ${totalPages}`
-          } />
-        </View>
+        <FinalAdFooterSpacer />
+
+        <ScheduleFooter />
+        <FinalAdFooter />
 
       </Page>
     </Document>
