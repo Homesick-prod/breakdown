@@ -7,7 +7,7 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, v
 import { CSS } from '@dnd-kit/utilities';
 import {
   GripVertical, Clock, Film, Plus, Save, ChevronDown, Trash2, Download, Settings,
-  FileDown, CloudRain, ListPlus, Search, Layers, Github, ArrowLeft, Users, MapPin, Sunrise, Sunset, Thermometer,
+  FileDown, CloudRain, ListPlus, Search, Layers, Github, ArrowLeft, Users, Sunrise, Sunset, Thermometer,
   CloudDrizzle, Coffee, Moon, Loader2, Check, CloudOff, Image as ImageIcon, X, Minus, ChevronsRight,
   Undo2, Redo2, ClipboardList, FileText, MoreVertical
 } from 'lucide-react';
@@ -27,6 +27,15 @@ import { setImage, deleteImage, getImage } from '../utils/db';
 import { isFirebaseEnabled, uploadImageToStorage, deleteImageFromStorage, logActivity } from '../lib/firebase';
 import { fetchImageUrlAsDataUrl, fileToDataUrl, optimizeImageFile } from '../utils/imageOptimizer';
 import { migrateLegacyStoredImage } from '../utils/imageMigration';
+
+type ProductionDetailsTab = 'day' | 'project' | 'weather' | 'crew';
+
+const PRODUCTION_DETAILS_TABS = [
+  { id: 'day', label: 'Day', icon: Clock },
+  { id: 'project', label: 'Project', icon: Film },
+  { id: 'weather', label: 'Weather', icon: CloudRain },
+  { id: 'crew', label: 'Crew', icon: Users },
+] as const;
 
 const toTranslateOnlyTransform = (transform: any) => {
   if (!transform) return undefined;
@@ -2295,10 +2304,13 @@ export default function ShootingScheduleEditor({
   const dragLockedScrollLeftRef = useRef<number | null>(null);
   const legacyImageMigrationRunRef = useRef(false);
   const tableRef = useRef<HTMLTableElement | null>(null);
+  const productionDetailsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const productionDetailsWindowRef = useRef<HTMLElement | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const [hoveredScheduleDayId, setHoveredScheduleDayId] = useState<string | null>(null);
   const [scheduleDayMenu, setScheduleDayMenu] = useState<null | { dayId: string; x: number; y: number }>(null);
+  const [productionDetailsTab, setProductionDetailsTab] = useState<ProductionDetailsTab>('day');
   
   const unscheduledScenes = useMemo(() => {
     const breakdownScenes = project?.data?.breakdownData?.scenes || [];
@@ -3894,7 +3906,10 @@ export default function ShootingScheduleEditor({
     {
       key: 'Escape',
       action: () => {
-        if (isCallSheetOpen) {
+        if (showProductionDetails) {
+          setShowProductionDetails(false);
+          window.requestAnimationFrame(() => productionDetailsButtonRef.current?.focus());
+        } else if (isCallSheetOpen) {
           setIsCallSheetOpen(false);
         } else {
           handleBack();
@@ -3985,6 +4000,62 @@ export default function ShootingScheduleEditor({
       });
     }
   }, [timelineItems, setHeaderInfo]);
+
+  const closeProductionDetails = useCallback(() => {
+    setShowProductionDetails(false);
+    window.requestAnimationFrame(() => productionDetailsButtonRef.current?.focus());
+  }, []);
+
+  const toggleProductionDetails = useCallback(() => {
+    setShowProductionDetails((open) => {
+      if (open) {
+        window.requestAnimationFrame(() => productionDetailsButtonRef.current?.focus());
+        return false;
+      }
+      setProductionDetailsTab('day');
+      return true;
+    });
+  }, []);
+
+  const handleProductionBackdropClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const buttonRect = productionDetailsButtonRef.current?.getBoundingClientRect();
+
+    if (!buttonRect) {
+      return;
+    }
+
+    const clickedProductionButton =
+      event.clientX >= buttonRect.left &&
+      event.clientX <= buttonRect.right &&
+      event.clientY >= buttonRect.top &&
+      event.clientY <= buttonRect.bottom;
+
+    if (clickedProductionButton) {
+      closeProductionDetails();
+    }
+  }, [closeProductionDetails]);
+
+  useEffect(() => {
+    if (!showProductionDetails) return;
+    window.requestAnimationFrame(() => productionDetailsWindowRef.current?.focus());
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      closeProductionDetails();
+    };
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => document.removeEventListener('keydown', handleKeyDown, true);
+  }, [closeProductionDetails, showProductionDetails]);
+
+  const productionDateSummary = useMemo(() => {
+    if (!headerInfo.date) return 'No date set';
+    const date = new Date(headerInfo.date);
+    if (Number.isNaN(date.getTime())) return headerInfo.date;
+    return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  }, [headerInfo.date]);
 
   const dragModifiers = useMemo(
     () => [({ transform }: any) => ({ ...transform, x: transform.x / zoomLevel, y: transform.y / zoomLevel })],
@@ -4113,105 +4184,432 @@ export default function ShootingScheduleEditor({
         />
 
         <main className="editor-main" style={{ flex: 1, padding: '24px', paddingTop: '88px' }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '12px',
-            marginBottom: '16px',
-            flexWrap: 'wrap',
-          }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              overflowX: 'auto',
-              maxWidth: '100%',
-              paddingBottom: '2px',
-            }}>
-              {scheduleDays.map((day: any, index: number) => {
-                const isActive = day.id === activeScheduleDayId;
-                const isHovered = hoveredScheduleDayId === day.id;
-                const isMenuOpen = scheduleDayMenu?.dayId === day.id;
-                const isExpanded = isHovered || isMenuOpen;
-                return (
-                  <div
-                    key={day.id}
-                    onClick={() => handleSelectScheduleDay(day.id)}
-                    onMouseEnter={() => setHoveredScheduleDayId(day.id)}
-                    onMouseLeave={() => setHoveredScheduleDayId(prev => prev === day.id ? null : prev)}
-                    style={{
-                      position: 'relative',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: isExpanded ? '8px' : '0px',
-                      height: '34px',
-                      padding: isExpanded ? '0 6px 0 14px' : '0 14px',
-                      fontSize: '13px',
-                      fontWeight: 700,
-                      whiteSpace: 'nowrap',
-                      borderRadius: '8px',
-                      background: isActive
-                        ? (isHovered ? 'var(--accent-primary-h)' : 'var(--accent-primary)')
-                        : (isHovered ? 'var(--bg-input-hover)' : 'var(--bg-input)'),
-                      border: `1px solid ${isActive ? 'var(--accent-primary)' : 'var(--border-default)'}`,
-                      color: isActive ? 'var(--bg-input)' : 'var(--text-primary)',
-                      cursor: 'pointer',
-                      transition: 'padding 190ms cubic-bezier(0.2, 0.8, 0.2, 1), gap 190ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 190ms ease, background 190ms ease, color 190ms ease, box-shadow 190ms ease',
-                      boxShadow: isActive
-                        ? '0 2px 8px var(--accent-glow-sm)'
-                        : (isHovered ? '0 8px 18px rgba(0,0,0,0.20)' : 'none'),
-                    }}
-                  >
-                    <span>Day {index + 1}</span>
-                    <button
-                      type="button"
-                      aria-label={`Open Day ${index + 1} menu`}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        const rect = event.currentTarget.getBoundingClientRect();
-                        setScheduleDayMenu({
-                          dayId: day.id,
-                          x: Math.max(12, rect.right - 150),
-                          y: rect.bottom + 8,
-                        });
-                      }}
+          <div className="schedule-command-bar">
+            <div className="schedule-command-top">
+              <div className="schedule-day-tabs">
+                {scheduleDays.map((day: any, index: number) => {
+                  const isActive = day.id === activeScheduleDayId;
+                  const isHovered = hoveredScheduleDayId === day.id;
+                  const isMenuOpen = scheduleDayMenu?.dayId === day.id;
+                  const isExpanded = isHovered || isMenuOpen;
+                  return (
+                    <div
+                      key={day.id}
+                      onClick={() => handleSelectScheduleDay(day.id)}
+                      onMouseEnter={() => setHoveredScheduleDayId(day.id)}
+                      onMouseLeave={() => setHoveredScheduleDayId(prev => prev === day.id ? null : prev)}
                       style={{
-                        width: isExpanded ? '24px' : '0px',
-                        height: '24px',
-                        padding: 0,
-                        opacity: isExpanded ? 1 : 0,
-                        pointerEvents: isExpanded ? 'auto' : 'none',
-                        overflow: 'hidden',
-                        border: isActive ? '1px solid rgba(13,15,15,0.26)' : '1px solid var(--border-default)',
-                        borderRadius: '7px',
-                        background: isActive
-                          ? 'rgba(13,15,15,0.10)'
-                          : (isHovered ? 'var(--bg-input-hover)' : 'var(--bg-input)'),
-                        color: isActive ? 'var(--bg-input)' : 'var(--text-primary)',
+                        position: 'relative',
                         display: 'inline-flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
+                        gap: isExpanded ? '8px' : '0px',
+                        height: '34px',
+                        padding: isExpanded ? '0 6px 0 14px' : '0 14px',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        whiteSpace: 'nowrap',
+                        borderRadius: '8px',
+                        background: isActive
+                          ? (isHovered ? 'var(--accent-primary-h)' : 'var(--accent-primary)')
+                          : (isHovered ? 'var(--bg-input-hover)' : 'var(--bg-input)'),
+                        border: `1px solid ${isActive ? 'var(--accent-primary)' : 'var(--border-default)'}`,
+                        color: isActive ? 'var(--bg-input)' : 'var(--text-primary)',
                         cursor: 'pointer',
-                        boxShadow: isExpanded ? 'inset 0 1px 0 rgba(255,255,255,0.06)' : 'none',
-                        transition: 'width 190ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 140ms ease, background 190ms ease, border-color 190ms ease, box-shadow 190ms ease',
+                        transition: 'padding 190ms cubic-bezier(0.2, 0.8, 0.2, 1), gap 190ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 190ms ease, background 190ms ease, color 190ms ease, box-shadow 190ms ease',
+                        boxShadow: isActive
+                          ? '0 2px 8px var(--accent-glow-sm)'
+                          : (isHovered ? '0 8px 18px rgba(0,0,0,0.20)' : 'none'),
                       }}
                     >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
-                  </div>
-                );
-              })}
+                      <span>Day {index + 1}</span>
+                      <button
+                        type="button"
+                        aria-label={`Open Day ${index + 1} menu`}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          setScheduleDayMenu({
+                            dayId: day.id,
+                            x: Math.max(12, rect.right - 150),
+                            y: rect.bottom + 8,
+                          });
+                        }}
+                        style={{
+                          width: isExpanded ? '24px' : '0px',
+                          height: '24px',
+                          padding: 0,
+                          opacity: isExpanded ? 1 : 0,
+                          pointerEvents: isExpanded ? 'auto' : 'none',
+                          overflow: 'hidden',
+                          border: isActive ? '1px solid rgba(13,15,15,0.26)' : '1px solid var(--border-default)',
+                          borderRadius: '7px',
+                          background: isActive
+                            ? 'rgba(13,15,15,0.10)'
+                            : (isHovered ? 'var(--bg-input-hover)' : 'var(--bg-input)'),
+                          color: isActive ? 'var(--bg-input)' : 'var(--text-primary)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          boxShadow: isExpanded ? 'inset 0 1px 0 rgba(255,255,255,0.06)' : 'none',
+                          transition: 'width 190ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 140ms ease, background 190ms ease, border-color 190ms ease, box-shadow 190ms ease',
+                        }}
+                      >
+                        <MoreVertical className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={handleAddScheduleDay}
+                  className="btn-secondary schedule-add-day-button"
+                >
+                  <Plus className="w-4 h-4" /> Add Day
+                </button>
+              </div>
+
               <button
-                type="button"
-                onClick={handleAddScheduleDay}
-                className="btn-secondary"
-                style={{ height: '34px', padding: '0 12px', fontSize: '13px', gap: '6px', borderRadius: '8px' }}
+                ref={productionDetailsButtonRef}
+                onClick={toggleProductionDetails}
+                className="btn-secondary schedule-production-toggle"
+                aria-expanded={showProductionDetails}
+                aria-controls="production-details-window"
               >
-                <Plus className="w-4 h-4" /> Add Day
+                <Settings className="w-4 h-4" />
+                <span>Production Details</span>
+                <ChevronDown style={{ width: '14px', height: '14px', transform: showProductionDetails ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
               </button>
             </div>
+
+            <div className="schedule-command-bottom">
+              <div className="schedule-command-actions">
+                <button onClick={addShot} className="btn-primary" style={{ fontSize: '13px' }}><Plus className="w-4 h-4" />Add Shot</button>
+                <button onClick={addBreak} className="btn-secondary schedule-break-action"><Coffee className="w-4 h-4" />Add Break</button>
+                <button onClick={() => setIsImportModalOpen(true)} className="schedule-import-action"><ListPlus className="w-4 h-4" />Import from Shot List</button>
+                {unscheduledScenes.length > 0 && (
+                  <button
+                    onClick={() => setShowSidebar(!showSidebar)}
+                    className="btn-secondary schedule-holding-pen-chip"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>{showSidebar ? 'Hide Unscheduled' : 'Unscheduled'}</span>
+                    <span className="schedule-holding-count">{unscheduledScenes.length}</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="schedule-status-strip" aria-label="Schedule summary">
+                {[
+                  { label: 'Shots', value: stats.shotCount },
+                  { label: 'Duration', value: `${stats.totalHours}h ${stats.totalMinutes}m` },
+                  { label: 'Break', value: `${stats.breakHours}h ${stats.breakMinutes}m` },
+                  { label: 'Wrap', value: timelineItems.length > 0 ? timelineItems[timelineItems.length - 1].end : '--:--' },
+                ].map(({ label, value }) => (
+                  <div key={label} className="schedule-status-pill">
+                    <span>{label}</span>
+                    <strong>{value}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {showProductionDetails && typeof document !== 'undefined' && createPortal(
+              <div
+                className="production-window-shell"
+                onKeyDown={(event) => {
+                  if (event.key !== 'Tab') {
+                    return;
+                  }
+
+                  const focusable = Array.from(
+                    event.currentTarget.querySelectorAll<HTMLElement>(
+                      'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+                    )
+                  ).filter((element) => element.offsetParent !== null);
+
+                  if (focusable.length === 0) {
+                    return;
+                  }
+
+                  const first = focusable[0];
+                  const last = focusable[focusable.length - 1];
+                  if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault();
+                    last.focus();
+                  } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault();
+                    first.focus();
+                  }
+                }}
+              >
+                <div
+                  className="production-window-backdrop"
+                  aria-hidden="true"
+                  onClick={handleProductionBackdropClick}
+                />
+                <section
+                  ref={productionDetailsWindowRef}
+                  id="production-details-window"
+                  className="production-window"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="production-details-title"
+                  tabIndex={-1}
+                >
+                  <header className="production-window-header">
+                    <div className="production-window-title-group">
+                      <h2 id="production-details-title">Production Details</h2>
+                      <div className="production-window-context">
+                        <span>Day {activeDayIndex + 1}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{productionDateSummary}</span>
+                      </div>
+                    </div>
+                    <div className="production-window-header-actions">
+                      <div className="production-window-save-status">
+                        <SaveStatusIndicator status={saveStatus} />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={closeProductionDetails}
+                        className="production-window-close"
+                        aria-label="Close Production Details"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </header>
+
+                  <div className="production-window-workspace">
+                    <nav className="production-window-nav" role="tablist" aria-label="Production detail sections">
+                      {PRODUCTION_DETAILS_TABS.map((tab) => {
+                        const TabIcon = tab.icon;
+
+                        return (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            role="tab"
+                            id={`production-details-tab-${tab.id}`}
+                            aria-selected={productionDetailsTab === tab.id}
+                            aria-controls={`production-details-panel-${tab.id}`}
+                            className={productionDetailsTab === tab.id ? 'is-active' : ''}
+                            onClick={() => setProductionDetailsTab(tab.id)}
+                          >
+                            <TabIcon aria-hidden="true" />
+                            <span>{tab.label}</span>
+                          </button>
+                        );
+                      })}
+                    </nav>
+
+                    <div className="production-window-body">
+                      {productionDetailsTab === 'day' && (
+                        <section
+                          id="production-details-panel-day"
+                          className="production-window-section"
+                          role="tabpanel"
+                          aria-labelledby="production-details-tab-day"
+                        >
+                          <div className="production-window-section-heading">
+                            <h3>Day Details</h3>
+                          </div>
+
+                          <div className="production-window-grid production-window-grid--schedule">
+                            <div className="production-window-field">
+                              <label>Shooting Date</label>
+                              <DarkDatePicker value={headerInfo.date} onChange={(val) => setHeaderInfo({ ...headerInfo, date: val })} className="w-full px-3 py-2" />
+                            </div>
+                            <div className="production-window-field">
+                              <label>Call Time</label>
+                              <DarkTimePicker value={headerInfo.callTime} onChange={handleCallTimeChange} className="w-full px-3 py-2" isClearable={false} />
+                            </div>
+                            <div className="production-window-field">
+                              <label>First Shot</label>
+                              <DarkTimePicker value={headerInfo.firstShotTime} onChange={handleFirstShotChange} className="w-full px-3 py-2" isClearable={false} />
+                            </div>
+                            <div className="production-window-field">
+                              <label>Wrap Time</label>
+                              <DarkTimePicker value={headerInfo.wrapTime} onChange={() => {}} className="w-full px-3 py-2" disabled={true} />
+                            </div>
+                          </div>
+
+                          <div className="production-window-subsection">
+                            <h4>Meals</h4>
+                            <div className="production-window-grid production-window-grid--three">
+                              <div className="production-window-field">
+                                <label><Coffee aria-hidden="true" />1st Meal</label>
+                                <DarkTimePicker value={headerInfo.firstmealTime} onChange={(val) => setHeaderInfo({ ...headerInfo, firstmealTime: val })} className="w-full px-3 py-2" />
+                              </div>
+                              <div className="production-window-field">
+                                <label><Moon aria-hidden="true" />2nd Meal</label>
+                                <DarkTimePicker value={headerInfo.secondmealTime} onChange={(val) => setHeaderInfo({ ...headerInfo, secondmealTime: val })} className="w-full px-3 py-2" />
+                              </div>
+                              <div className="production-window-field">
+                                <label><Moon aria-hidden="true" />3rd Meal</label>
+                                <DarkTimePicker value={headerInfo.thirdmealTime} onChange={(val) => setHeaderInfo({ ...headerInfo, thirdmealTime: val })} className="w-full px-3 py-2" />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="production-window-subsection">
+                            <h4>Locations</h4>
+                            <div className="production-window-grid">
+                              <div className="production-window-field">
+                                <label>Location 1</label>
+                                <LocationAutocomplete
+                                  value={headerInfo.location1}
+                                  onChange={(val) => setHeaderInfo({ ...headerInfo, location1: val })}
+                                  onSelectLocation={(loc) => setResolvedCoords(prev => ({ ...prev, location1: loc }))}
+                                  placeholder="Main location"
+                                  className="w-full px-3 py-2"
+                                />
+                              </div>
+                              <div className="production-window-field">
+                                <label>Location 2</label>
+                                <LocationAutocomplete
+                                  value={headerInfo.location2}
+                                  onChange={(val) => setHeaderInfo({ ...headerInfo, location2: val })}
+                                  onSelectLocation={(loc) => setResolvedCoords(prev => ({ ...prev, location2: loc }))}
+                                  placeholder="Secondary location"
+                                  className="w-full px-3 py-2"
+                                />
+                              </div>
+                              <div className="production-window-field">
+                                <label>Location 3</label>
+                                <LocationAutocomplete
+                                  value={headerInfo.location3}
+                                  onChange={(val) => setHeaderInfo({ ...headerInfo, location3: val })}
+                                  onSelectLocation={(loc) => setResolvedCoords(prev => ({ ...prev, location3: loc }))}
+                                  placeholder="Location 3"
+                                  className="w-full px-3 py-2"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </section>
+                      )}
+
+                      {productionDetailsTab === 'project' && (
+                        <section
+                          id="production-details-panel-project"
+                          className="production-window-section"
+                          role="tabpanel"
+                          aria-labelledby="production-details-tab-project"
+                        >
+                          <div className="production-window-section-heading">
+                            <h3>Project Details</h3>
+                          </div>
+                          <div className="production-window-grid production-window-grid--two">
+                            <div className="production-window-field production-window-field--full">
+                              <label>Project Title</label>
+                              <input type="text" value={headerInfo.projectTitle} onChange={(e) => setHeaderInfo({ ...headerInfo, projectTitle: e.target.value })} className="w-full px-3 py-2" />
+                            </div>
+                            <div className="production-window-field">
+                              <label>Episode #</label>
+                              <input type="text" value={headerInfo.episodeNumber} placeholder="Ep. No." onChange={(e) => setHeaderInfo({ ...headerInfo, episodeNumber: e.target.value })} className="w-full px-3 py-2" />
+                            </div>
+                            <div className="production-window-field">
+                              <label>Shoot Day</label>
+                              <input type="text" value={`Day ${activeDayIndex + 1} of ${scheduleDays.length}`} readOnly className="w-full px-3 py-2" />
+                            </div>
+                          </div>
+                        </section>
+                      )}
+
+                      {productionDetailsTab === 'weather' && (
+                        <section
+                          id="production-details-panel-weather"
+                          className="production-window-section"
+                          role="tabpanel"
+                          aria-labelledby="production-details-tab-weather"
+                        >
+                          <div className="production-window-section-heading">
+                            <h3>Weather & Sun</h3>
+                            <button
+                              type="button"
+                              onClick={handleAutoFillWeather}
+                              className="btn-secondary production-window-weather-action"
+                              disabled={loadingWeather}
+                            >
+                              {loadingWeather ? 'Fetching...' : 'Auto-Fill Weather'}
+                            </button>
+                          </div>
+                          <div className="production-window-grid production-window-grid--two">
+                            <div className="production-window-field production-window-field--full">
+                              <label>Weather Forecast</label>
+                              <input type="text" value={headerInfo.weather} onChange={(e) => setHeaderInfo({ ...headerInfo, weather: e.target.value })} placeholder="Considerable cloudiness" className="w-full px-3 py-2" />
+                            </div>
+                            <div className="production-window-field">
+                              <label><Thermometer aria-hidden="true" />Temp</label>
+                              <input type="text" value={headerInfo.temp} onChange={(e) => setHeaderInfo({ ...headerInfo, temp: e.target.value })} placeholder="34°" className="w-full px-3 py-2" />
+                            </div>
+                            <div className="production-window-field">
+                              <label>Real Feel</label>
+                              <input type="text" value={headerInfo.realFeel} onChange={(e) => setHeaderInfo({ ...headerInfo, realFeel: e.target.value })} placeholder="37°" className="w-full px-3 py-2" />
+                            </div>
+                            <div className="production-window-field">
+                              <label><Sunrise aria-hidden="true" />Sunrise</label>
+                              <DarkTimePicker value={headerInfo.sunrise} onChange={(val) => setHeaderInfo({ ...headerInfo, sunrise: val })} className="w-full px-3 py-2" />
+                            </div>
+                            <div className="production-window-field">
+                              <label><Sunset aria-hidden="true" />Sunset</label>
+                              <DarkTimePicker value={headerInfo.sunset} onChange={(val) => setHeaderInfo({ ...headerInfo, sunset: val })} className="w-full px-3 py-2" />
+                            </div>
+                            <div className="production-window-field">
+                              <label><CloudDrizzle aria-hidden="true" />Precipitation %</label>
+                              <input type="text" value={headerInfo.precipProb} onChange={(e) => setHeaderInfo({ ...headerInfo, precipProb: e.target.value })} placeholder="73%" className="w-full px-3 py-2" />
+                            </div>
+                          </div>
+                        </section>
+                      )}
+
+                      {productionDetailsTab === 'crew' && (
+                        <section
+                          id="production-details-panel-crew"
+                          className="production-window-section"
+                          role="tabpanel"
+                          aria-labelledby="production-details-tab-crew"
+                        >
+                          <div className="production-window-section-heading">
+                            <h3>Key Crew</h3>
+                          </div>
+                          <div className="production-window-grid production-window-grid--two">
+                            <div className="production-window-field">
+                              <label>Producer</label>
+                              <input type="text" value={headerInfo.producer} onChange={(e) => setHeaderInfo({ ...headerInfo, producer: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" />
+                            </div>
+                            <div className="production-window-field">
+                              <label>Director</label>
+                              <input type="text" value={headerInfo.director} onChange={(e) => setHeaderInfo({ ...headerInfo, director: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" />
+                            </div>
+                            <div className="production-window-field">
+                              <label>Production Designer</label>
+                              <input type="text" value={headerInfo.pd} onChange={(e) => setHeaderInfo({ ...headerInfo, pd: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" />
+                            </div>
+                            <div className="production-window-field">
+                              <label>Director of Photography</label>
+                              <input type="text" value={headerInfo.dop} onChange={(e) => setHeaderInfo({ ...headerInfo, dop: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" />
+                            </div>
+                            <div className="production-window-field">
+                              <label>1st AD</label>
+                              <input type="text" value={headerInfo.firstAD} onChange={(e) => setHeaderInfo({ ...headerInfo, firstAD: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" />
+                            </div>
+                            <div className="production-window-field">
+                              <label>2nd AD</label>
+                              <input type="text" value={headerInfo.secondAD} onChange={(e) => setHeaderInfo({ ...headerInfo, secondAD: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" />
+                            </div>
+                          </div>
+                        </section>
+                      )}
+                    </div>
+                  </div>
+                </section>
+              </div>
+              , document.body
+            )}
           </div>
 
           {scheduleDayMenu && createPortal(
@@ -4301,209 +4699,6 @@ export default function ShootingScheduleEditor({
             </div>,
             document.body
           )}
-
-          <div style={{ marginBottom: '24px' }}>
-            <button
-              onClick={() => setShowProductionDetails(!showProductionDetails)}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: '10px',
-                padding: '10px 16px',
-                background: 'var(--bg-elevated)',
-                border: '1px solid var(--border-default)',
-                borderRadius: '10px', cursor: 'pointer',
-                color: 'var(--text-secondary)', fontSize: '13px', fontWeight: 600,
-                transition: 'all 0.2s', fontFamily: 'inherit',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-accent)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-            >
-              <Settings className="w-4 h-4" />
-              <span>Production Details</span>
-              <ChevronDown style={{ width: '14px', height: '14px', transform: showProductionDetails ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
-            </button>
-            {showProductionDetails && (
-              <div style={{ marginTop: '12px', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', borderRadius: '14px', padding: '24px' }} className="animate-fade-in-up">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><Film className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />Project Details</h3>
-                    <div className="space-y-3">
-                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Project Title</label><input type="text" value={headerInfo.projectTitle} onChange={(e) => setHeaderInfo({ ...headerInfo, projectTitle: e.target.value })} className="w-full px-3 py-2" /></div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Episode #</label><input type="text" value={headerInfo.episodeNumber} placeholder="Ep. No." onChange={(e) => setHeaderInfo({ ...headerInfo, episodeNumber: e.target.value })} className="w-full px-3 py-2" /></div>
-                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Day/Total</label><div className="flex items-center gap-2"><input type="text" value={activeDayIndex + 1} readOnly className="w-14 px-2 py-2 text-center" placeholder="1" /><span style={{ color: 'var(--text-muted)' }}>/</span><input type="text" value={scheduleDays.length} readOnly className="w-14 px-2 py-2 text-center" placeholder="3" /></div></div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><MapPin className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />Day Details</h3>
-                    <div className="space-y-4">
-                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Shooting Date</label><DarkDatePicker value={headerInfo.date} onChange={(val) => setHeaderInfo({ ...headerInfo, date: val })} className="w-full px-3 py-2" /></div>
-                      {/* Times Row */}
-                      <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Call Time</label>
-                          <DarkTimePicker value={headerInfo.callTime} onChange={handleCallTimeChange} className="w-full px-3 py-2" isClearable={false} />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>First Shot</label>
-                          <DarkTimePicker value={headerInfo.firstShotTime} onChange={handleFirstShotChange} className="w-full px-3 py-2" isClearable={false} />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Wrap Time</label>
-                          <DarkTimePicker value={headerInfo.wrapTime} onChange={() => {}} className="w-full px-3 py-2" disabled={true} />
-                        </div>
-                      </div>
-
-                      {/* Meals Row */}
-                      <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Coffee className="w-3 h-3 inline mr-1" />1st Meal</label>
-                          <DarkTimePicker value={headerInfo.firstmealTime} onChange={(val) => setHeaderInfo({ ...headerInfo, firstmealTime: val })} className="w-full px-3 py-2" />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Moon className="w-3 h-3 inline mr-1" />2nd Meal</label>
-                          <DarkTimePicker value={headerInfo.secondmealTime} onChange={(val) => setHeaderInfo({ ...headerInfo, secondmealTime: val })} className="w-full px-3 py-2" />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Moon className="w-3 h-3 inline mr-1" />3rd Meal</label>
-                          <DarkTimePicker value={headerInfo.thirdmealTime} onChange={(val) => setHeaderInfo({ ...headerInfo, thirdmealTime: val })} className="w-full px-3 py-2" />
-                        </div>
-                      </div>
-
-                      {/* Locations (Stacked in 3 rows) */}
-                      <div className="space-y-3">
-                        <div>
-                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Location 1</label>
-                          <LocationAutocomplete
-                            value={headerInfo.location1}
-                            onChange={(val) => setHeaderInfo({ ...headerInfo, location1: val })}
-                            onSelectLocation={(loc) => setResolvedCoords(prev => ({ ...prev, location1: loc }))}
-                            placeholder="Main location"
-                            className="w-full px-3 py-2"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Location 2</label>
-                          <LocationAutocomplete
-                            value={headerInfo.location2}
-                            onChange={(val) => setHeaderInfo({ ...headerInfo, location2: val })}
-                            onSelectLocation={(loc) => setResolvedCoords(prev => ({ ...prev, location2: loc }))}
-                            placeholder="Secondary location"
-                            className="w-full px-3 py-2"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Location 3</label>
-                          <LocationAutocomplete
-                            value={headerInfo.location3}
-                            onChange={(val) => setHeaderInfo({ ...headerInfo, location3: val })}
-                            onSelectLocation={(loc) => setResolvedCoords(prev => ({ ...prev, location3: loc }))}
-                            placeholder="Location 3"
-                            className="w-full px-3 py-2"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                      <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><CloudRain className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />Weather & Sun</h3>
-                      <button
-                        type="button"
-                        onClick={handleAutoFillWeather}
-                        className="btn-secondary"
-                        style={{ fontSize: '11px', padding: '4px 10px', height: '28px', gap: '4px', background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', whiteSpace: 'nowrap' }}
-                        disabled={loadingWeather}
-                      >
-                        {loadingWeather ? 'Fetching...' : 'Auto-Fill Weather'}
-                      </button>
-                    </div>
-                    <div className="space-y-3">
-                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Weather Forecast</label><input type="text" value={headerInfo.weather} onChange={(e) => setHeaderInfo({ ...headerInfo, weather: e.target.value })} placeholder="Considerable cloudiness" className="w-full px-3 py-2" /></div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Thermometer className="w-3 h-3 inline mr-1" />Temp</label><input type="text" value={headerInfo.temp} onChange={(e) => setHeaderInfo({ ...headerInfo, temp: e.target.value })} placeholder="34°" className="w-full px-3 py-2" /></div>
-                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Real Feel</label><input type="text" value={headerInfo.realFeel} onChange={(e) => setHeaderInfo({ ...headerInfo, realFeel: e.target.value })} placeholder="37°" className="w-full px-3 py-2" /></div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Sunrise className="w-3 h-3 inline mr-1" />Sunrise</label><DarkTimePicker value={headerInfo.sunrise} onChange={(val) => setHeaderInfo({ ...headerInfo, sunrise: val })} className="w-full px-3 py-2" /></div>
-                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><Sunset className="w-3 h-3 inline mr-1" />Sunset</label><DarkTimePicker value={headerInfo.sunset} onChange={(val) => setHeaderInfo({ ...headerInfo, sunset: val })} className="w-full px-3 py-2" /></div>
-                      </div>
-                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}><CloudDrizzle className="w-3 h-3 inline mr-1" />Precipitation %</label><input type="text" value={headerInfo.precipProb} onChange={(e) => setHeaderInfo({ ...headerInfo, precipProb: e.target.value })} placeholder="73%" className="w-full px-3 py-2" /></div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><Users className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />Key Crew</h3>
-                    <div className="space-y-3">
-                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Producer</label><input type="text" value={headerInfo.producer} onChange={(e) => setHeaderInfo({ ...headerInfo, producer: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" /></div>
-                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Director</label><input type="text" value={headerInfo.director} onChange={(e) => setHeaderInfo({ ...headerInfo, director: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" /></div>
-                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Production Designer</label><input type="text" value={headerInfo.pd} onChange={(e) => setHeaderInfo({ ...headerInfo, pd: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" /></div>
-                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Director of Photography</label><input type="text" value={headerInfo.dop} onChange={(e) => setHeaderInfo({ ...headerInfo, dop: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" /></div>
-                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>1st AD</label><input type="text" value={headerInfo.firstAD} onChange={(e) => setHeaderInfo({ ...headerInfo, firstAD: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" /></div>
-                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>2nd AD</label><input type="text" value={headerInfo.secondAD} onChange={(e) => setHeaderInfo({ ...headerInfo, secondAD: e.target.value })} placeholder="Name & Phone" className="w-full px-3 py-2" /></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Stat Cards */}
-          <div className="editor-stat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '14px', marginBottom: '24px' }}>
-            {[
-              { label: 'Total Duration', value: `${stats.totalHours}h ${stats.totalMinutes}m`, icon: Clock, gradient: 'var(--accent-primary)' },
-              { label: 'Total Shots', value: stats.shotCount, icon: Film, gradient: 'var(--text-accent)' },
-              { label: 'Break Time', value: `${stats.breakHours}h ${stats.breakMinutes}m`, icon: Coffee, gradient: 'var(--accent-amber)' },
-              { label: 'Est. Wrap', value: timelineItems.length > 0 ? timelineItems[timelineItems.length - 1].end : '--:--', icon: Check, gradient: 'var(--accent-green)' },
-            ].map(({ label, value, icon: Icon, gradient }) => (
-              <div key={label} className="stat-card">
-                <div>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: '6px' }}>{label}</p>
-                  <p style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{value}</p>
-                </div>
-                <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Icon style={{ width: '18px', height: '18px', color: '#fff' }} />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Action buttons */}
-          <div className="editor-action-toolbar">
-            <button onClick={addShot} className="btn-primary" style={{ fontSize: '13px' }}><Plus className="w-4 h-4" />Add Shot</button>
-            <button onClick={addBreak} className="btn-secondary" style={{ color: 'var(--accent-amber)', borderColor: 'var(--accent-amber)' }}><Coffee className="w-4 h-4" />Add Break</button>
-            <div aria-hidden="true" style={{ width: '1px', background: 'var(--border-subtle)', margin: '0 4px' }} />
-            <button onClick={() => setIsImportModalOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '10px 16px', background: 'rgba(20,184,166,0.15)', color: '#2dd4bf', fontWeight: 600, fontSize: '13px', border: '1px solid rgba(20,184,166,0.3)', borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s', fontFamily: 'inherit' }}><ListPlus className="w-4 h-4" />Import from Shot List</button>
-            
-            <button
-              onClick={() => setShowSidebar(!showSidebar)}
-              className="btn-secondary editor-holding-pen-toggle"
-              style={{
-                marginLeft: 'auto',
-                fontSize: '13px',
-                gap: '6px',
-                borderColor: showSidebar ? 'var(--accent-primary)' : 'var(--border-default)',
-                color: showSidebar ? 'var(--text-accent)' : 'var(--text-primary)'
-              }}
-            >
-              <FileText className="w-4 h-4" />
-              <span>{showSidebar ? 'Hide Holding Pen' : 'Show Holding Pen'}</span>
-              {unscheduledScenes.length > 0 && (
-                <span style={{
-                  background: 'var(--accent-primary)',
-                  color: '#fff',
-                  borderRadius: '99px',
-                  padding: '1px 6px',
-                  fontSize: '10px',
-                  fontWeight: 700
-                }}>
-                  {unscheduledScenes.length}
-                </span>
-              )}
-            </button>
-          </div>
 
           {/* Schedule list container */}
           <div style={{ display: 'flex', overflow: 'hidden', alignItems: 'flex-start', width: '100%' }}>
