@@ -953,7 +953,11 @@ const ShotListEditor: React.FC<ShotListEditorProps> = ({
             let file = await getImage(shotItem.id);
             if (file) return file;
 
-            const timelineItems = (project?.data as any)?.timelineItems || [];
+            const projectData = (project?.data as any) || {};
+            const timelineItems = [
+              ...(projectData.timelineItems || []),
+              ...((projectData.scheduleDays || []).flatMap((day: any) => day.timelineItems || [])),
+            ];
             const linkedTimelineItem = timelineItems.find((t: any) => t.linkedShotId === shotItem.id);
             if (linkedTimelineItem) {
               file = await getImage(linkedTimelineItem.id);

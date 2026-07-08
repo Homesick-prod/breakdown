@@ -35,41 +35,53 @@ Font.register({
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
-export type ScheduleDocumentProps = {
-  headerInfo: {
-    projectTitle?: string;
-    shootingDay?: string;
-    totalDays?: string;
-    date?: string;
-    callTime?: string;
-    firstShotTime?: string;
-    wrapTime?: string;
-    firstmealTime?: string;
-    secondmealTime?: string;
-    thirdmealTime?: string;
-    location1?: string;
-    location2?: string;
-    location3?: string;
-    location?: string;
-    director?: string;
-    producer?: string;
-    dop?: string;
-    firstAD?: string;
-    secondAD?: string;
-    pd?: string;
-    weather?: string;
-    temp?: string;
-    sunrise?: string;
-    sunset?: string;
-    precipProb?: string;
-  };
+export type ScheduleHeaderInfo = {
+  projectTitle?: string;
+  shootingDay?: string;
+  totalDays?: string;
+  date?: string;
+  callTime?: string;
+  firstShotTime?: string;
+  wrapTime?: string;
+  firstmealTime?: string;
+  secondmealTime?: string;
+  thirdmealTime?: string;
+  location1?: string;
+  location2?: string;
+  location3?: string;
+  location?: string;
+  director?: string;
+  producer?: string;
+  dop?: string;
+  firstAD?: string;
+  secondAD?: string;
+  pd?: string;
+  weather?: string;
+  temp?: string;
+  sunrise?: string;
+  sunset?: string;
+  precipProb?: string;
+};
+
+export type ScheduleStats = {
+  totalHours?: number;
+  totalMinutes?: number;
+  shotCount?: number;
+};
+
+export type ScheduleDocumentDay = {
+  headerInfo: ScheduleHeaderInfo;
   timelineItems: any[];
   imagePreviews: { [key: string]: string };
-  stats: {
-    totalHours?: number;
-    totalMinutes?: number;
-    shotCount?: number;
-  };
+  stats: ScheduleStats;
+};
+
+export type ScheduleDocumentProps = {
+  headerInfo: ScheduleHeaderInfo;
+  timelineItems: any[];
+  imagePreviews: { [key: string]: string };
+  stats: ScheduleStats;
+  days?: ScheduleDocumentDay[];
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -584,7 +596,9 @@ const FinalAdFooterSpacer = () => (
 
 // ─── Main Document ─────────────────────────────────────────────────────────────
 
-const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: ScheduleDocumentProps) => {
+type ScheduleDayPageProps = Omit<ScheduleDocumentProps, 'days'>;
+
+const ScheduleDayPage = ({ headerInfo, timelineItems, imagePreviews, stats }: ScheduleDayPageProps) => {
   const h = headerInfo;
   const hasStoryboardImages = timelineItems.some((item) => (
     item?.id && typeof imagePreviews?.[item.id] === 'string' && imagePreviews[item.id].startsWith('data:image')
@@ -594,8 +608,7 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
   const breakSpan = getBreakSpan(columns);
 
   return (
-    <Document title={`Schedule - ${fmt(h.projectTitle)}`}>
-      <Page size="A4" orientation="landscape" style={styles.page}>
+    <Page size="A4" orientation="landscape" style={styles.page}>
 
         {/* ── HEADER ──────────────────────────────────────────────────────── */}
         <View style={styles.header}>
@@ -910,7 +923,27 @@ const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats }: S
         <ScheduleFooter />
         <FinalAdFooter />
 
-      </Page>
+    </Page>
+  );
+};
+
+const ScheduleDocument = ({ headerInfo, timelineItems, imagePreviews, stats, days }: ScheduleDocumentProps) => {
+  const documentDays = days && days.length > 0
+    ? days
+    : [{ headerInfo, timelineItems, imagePreviews, stats }];
+  const titleHeader = documentDays[0]?.headerInfo || headerInfo;
+
+  return (
+    <Document title={`Schedule - ${fmt(titleHeader.projectTitle)}`}>
+      {documentDays.map((day, index) => (
+        <ScheduleDayPage
+          key={`${day.headerInfo?.shootingDay || index}-${day.headerInfo?.date || ''}`}
+          headerInfo={day.headerInfo}
+          timelineItems={day.timelineItems || []}
+          imagePreviews={day.imagePreviews || {}}
+          stats={day.stats || {}}
+        />
+      ))}
     </Document>
   );
 };

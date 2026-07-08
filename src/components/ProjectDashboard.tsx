@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Film, Upload, Plus, Folder, MoreVertical, Edit2, Copy, FileDown, Trash2, Calendar, Clock, List, Video, Clapperboard, Share2, Sun, Moon, FileText } from 'lucide-react';
 import { exportProject, importProject } from '../utils/file';
 import { generateId } from '../utils/id';
@@ -48,11 +49,32 @@ function EmptyState({ onCreateProject, onImportProject }: { onCreateProject: () 
 // ────────────────────────────────────────────────
 function ProjectCardMenu({ project, onEdit, onDuplicate, onExport, onShare, onDelete }: { project: any; onEdit: () => void; onDuplicate: () => void; onExport: () => void; onShare: () => void; onDelete: () => void; }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const updateMenuPosition = () => {
+    const button = buttonRef.current;
+    if (!button || typeof window === 'undefined') return;
+
+    const rect = button.getBoundingClientRect();
+    const menuWidth = 168;
+    const padding = 12;
+    setMenuPosition({
+      top: rect.bottom + 6,
+      left: Math.max(padding, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - padding)),
+    });
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(target) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(target)
+      ) {
         setIsOpen(false);
       }
     };
@@ -60,17 +82,46 @@ function ProjectCardMenu({ project, onEdit, onDuplicate, onExport, onShare, onDe
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    updateMenuPosition();
+    const closeMenu = () => setIsOpen(false);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+
+    window.addEventListener('resize', closeMenu);
+    window.addEventListener('scroll', closeMenu, true);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('resize', closeMenu);
+      window.removeEventListener('scroll', closeMenu, true);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
   return (
-    <div ref={menuRef} style={{ position: 'relative' }}>
+    <div style={{ position: 'relative' }}>
       <button
-        onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
+        ref={buttonRef}
+        onClick={(e) => {
+          e.stopPropagation();
+          updateMenuPosition();
+          setIsOpen((open) => !open);
+        }}
         className="btn-ghost"
         style={{ padding: '6px', borderRadius: '8px' }}
       >
         <MoreVertical className="w-4 h-4" />
       </button>
-      {isOpen && (
-        <div className="dropdown-menu" style={{ position: 'absolute', right: 0, top: '36px', zIndex: 10 }}>
+      {isOpen && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={menuRef}
+          className="dropdown-menu"
+          style={{ position: 'fixed', top: menuPosition.top, left: menuPosition.left, zIndex: 80 }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <button onClick={(e) => { e.stopPropagation(); onShare(); setIsOpen(false); }} className="dropdown-item">
             <Share2 className="w-3.5 h-3.5" /> Share Link
           </button>
@@ -87,7 +138,8 @@ function ProjectCardMenu({ project, onEdit, onDuplicate, onExport, onShare, onDe
           <button onClick={(e) => { e.stopPropagation(); onDelete(); setIsOpen(false); }} className="dropdown-item danger">
             <Trash2 className="w-3.5 h-3.5" /> {project.isShared ? 'Remove' : 'Delete'}
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -490,7 +542,11 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }: {
     if (!window.confirm('Are you sure you want to delete this project? This action cannot be undone.')) return;
     try {
       const shotListItems = projectToDelete?.data?.shotListData?.shotListItems || [];
-      const timelineItems = projectToDelete?.data?.timelineItems || projectToDelete?.data?.scheduleData?.timelineItems || [];
+      const timelineItems = [
+        ...(projectToDelete?.data?.timelineItems || []),
+        ...(projectToDelete?.data?.scheduleData?.timelineItems || []),
+        ...((projectToDelete?.data?.scheduleDays || []).flatMap((day: any) => day.timelineItems || [])),
+      ];
       const imageItems = [...shotListItems, ...timelineItems].filter(item => item?.imageUrl);
       const storageUrls = Array.from(new Set(
         imageItems
@@ -850,7 +906,8 @@ export default function ProjectDashboard({ onSelectProject, onCreateProject }: {
               {projects.map((project, i) => {
                 const hasSchedule = !!(
                   (project.data?.timelineItems && project.data.timelineItems.length > 0) ||
-                  (project.data?.scheduleData?.timelineItems && project.data.scheduleData.timelineItems.length > 0)
+                  (project.data?.scheduleData?.timelineItems && project.data.scheduleData.timelineItems.length > 0) ||
+                  ((project.data?.scheduleDays || []).some((day: any) => (day.timelineItems || []).length > 0))
                 );
                 const hasShotList = !!(
                   project.data?.shotListData?.shotListItems && project.data.shotListData.shotListItems.length > 0

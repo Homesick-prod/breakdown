@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Folder, List, Video } from 'lucide-react';
+import { AlertTriangle, Folder, List, RotateCcw, Video, X } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { usePathname, useRouter } from 'next/navigation';
 import BottomNav from '@/components/BottomNav';
@@ -57,11 +57,71 @@ const LOST_LOCK_MESSAGE = 'This editing session lost the project lock. Autosave 
 const SAME_DEVICE_LOCK_RECLAIMED_MESSAGE = 'This project was opened in another tab/session on this device. Autosave has been stopped to prevent data conflicts.';
 const CLIENT_ID_STORAGE_KEY = 'mb_lock_client_id';
 const SESSION_ID_STORAGE_KEY = 'mb_lock_session_id';
+const PROJECT_RECOVERY_STORAGE_PREFIX = 'mb_project_recovery:';
 
 type EditorType = 'schedule' | 'shotlist' | 'breakdown';
+type ProjectRecoverySnapshot = {
+  projectId: string;
+  name: string;
+  updatedAt: string;
+  savedAt: string;
+  data: any;
+};
 
 const hasOwn = (obj: any, key: string) => Object.prototype.hasOwnProperty.call(obj || {}, key);
 const isHttpUrl = (value: any) => typeof value === 'string' && /^https?:\/\//i.test(value);
+const parseTimestamp = (value?: string | number | null) => {
+  if (!value) return 0;
+  const time = typeof value === 'number' ? value : Date.parse(value);
+  return Number.isFinite(time) ? time : 0;
+};
+
+const recoveryStorageKey = (projectId: string) => `${PROJECT_RECOVERY_STORAGE_PREFIX}${projectId}`;
+
+function readProjectRecovery(projectId?: string | null): ProjectRecoverySnapshot | null {
+  if (!projectId || typeof window === 'undefined') return null;
+
+  try {
+    const raw = window.localStorage.getItem(recoveryStorageKey(projectId));
+    if (!raw) return null;
+    const snapshot = JSON.parse(raw);
+    if (!snapshot?.projectId || !snapshot?.updatedAt || !snapshot?.data) return null;
+    return snapshot;
+  } catch (err) {
+    console.warn('Failed to read project recovery snapshot:', err);
+    return null;
+  }
+}
+
+function writeProjectRecovery(snapshot: ProjectRecoverySnapshot) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(recoveryStorageKey(snapshot.projectId), JSON.stringify(snapshot));
+  } catch (err) {
+    console.warn('Failed to write project recovery snapshot:', err);
+  }
+}
+
+function clearProjectRecovery(projectId?: string | null) {
+  if (!projectId || typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.removeItem(recoveryStorageKey(projectId));
+  } catch (err) {
+    console.warn('Failed to clear project recovery snapshot:', err);
+  }
+}
+
+function formatRecoveryTime(value: string) {
+  const time = parseTimestamp(value);
+  if (!time) return 'just now';
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(time));
+}
 
 function recalculateTimelineTimes(items: any[], firstShotTime?: string) {
   let lastEndTime = firstShotTime || items[0]?.start || '09:00';
@@ -98,122 +158,329 @@ function createUniqueShotKeyMap(items: any[]) {
   return map;
 }
 
-function normalizeProjectData(projectData: any = {}) {
+const PROJECT_INFO_KEYS = [
+  'projectTitle',
+  'episodeNumber',
+  'producer',
+  'director',
+  'dop',
+  'firstAD',
+  'secondAD',
+  'pd',
+];
+
+const DAILY_HEADER_KEYS = [
+  'date',
+  'callTime',
+  'sunrise',
+  'sunset',
+  'weather',
+  'location',
+  'location1',
+  'location2',
+  'location3',
+  'artTime',
+  'lunchTime',
+  'dinnerTime',
+  'precipProb',
+  'temp',
+  'realFeel',
+  'firstShotTime',
+  'firstmealTime',
+  'secondmealTime',
+  'thirdmealTime',
+  'wrapTime',
+];
+
+const pickKeys = (source: any, keys: string[]) => {
+  const picked: Record<string, any> = {};
+  keys.forEach((key) => {
+    if (hasOwn(source, key)) picked[key] = source[key];
+  });
+  return picked;
+};
+
+const splitHeaderInfo = (headerInfo: any = {}) => ({
+  projectInfo: pickKeys(headerInfo, PROJECT_INFO_KEYS),
+  dayHeader: pickKeys(headerInfo, DAILY_HEADER_KEYS),
+});
+
+const composeHeaderInfo = (projectInfo: any, day: any, index: number, totalDays: number) => ({
+  ...(projectInfo || {}),
+  ...(day?.headerInfo || {}),
+  shootingDay: String(index + 1),
+  totalDays: String(totalDays),
+});
+
+const addDaysToIsoDate = (dateValue: any, daysToAdd: number) => {
+  if (!dateValue) return new Date().toISOString().split('T')[0];
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return '';
+  date.setDate(date.getDate() + daysToAdd);
+  return date.toISOString().split('T')[0];
+};
+
+function normalizeScheduleDay(day: any = {}, index = 0) {
+  const legacyHeaderSplit = splitHeaderInfo(day.headerInfo || {});
+  return {
+    ...day,
+    id: day.id || generateId(),
+    headerInfo: {
+      ...legacyHeaderSplit.dayHeader,
+      ...(day.dailyInfo || {}),
+    },
+    timelineItems: Array.isArray(day.timelineItems) ? day.timelineItems : [],
+    imagePreviews: day.imagePreviews || {},
+    callSheetData: hasOwn(day, 'callSheetData') ? day.callSheetData : null,
+  };
+}
+
+function createDayFromLegacy(projectData: any = {}) {
   const legacySchedule = projectData?.scheduleData || {};
-  const nextData = {
-    ...projectData,
-    shotListData: projectData?.shotListData || { shotListItems: [] },
-    headerInfo: projectData?.headerInfo || legacySchedule.headerInfo,
+  const headerInfo = projectData?.headerInfo || legacySchedule.headerInfo || {};
+  const splitHeader = splitHeaderInfo(headerInfo);
+  return normalizeScheduleDay({
+    id: projectData?.activeScheduleDayId || generateId(),
+    headerInfo: splitHeader.dayHeader,
     timelineItems: Array.isArray(projectData?.timelineItems)
       ? projectData.timelineItems
       : (Array.isArray(legacySchedule.timelineItems) ? legacySchedule.timelineItems : []),
     imagePreviews: projectData?.imagePreviews || legacySchedule.imagePreviews || {},
-    callSheetData: projectData?.callSheetData || legacySchedule.callSheetData || null,
-  };
-
-  if (projectData?.scheduleData) {
-    nextData.scheduleData = {
-      ...projectData.scheduleData,
-      headerInfo: nextData.headerInfo,
-      timelineItems: nextData.timelineItems,
-      imagePreviews: nextData.imagePreviews,
-      callSheetData: nextData.callSheetData,
-    };
-  }
-
-  return nextData;
+    callSheetData: hasOwn(projectData, 'callSheetData') ? projectData.callSheetData : (legacySchedule.callSheetData || null),
+  }, 0);
 }
 
-function withSyncedScheduleData(projectData: any, patch: any) {
+function createBlankScheduleDay(previousDay: any, index: number) {
+  const previousHeader = previousDay?.headerInfo || {};
+  return normalizeScheduleDay({
+    id: generateId(),
+    headerInfo: {
+      date: previousHeader.date ? addDaysToIsoDate(previousHeader.date, 1) : new Date().toISOString().split('T')[0],
+      callTime: previousHeader.callTime || '',
+      sunrise: previousHeader.sunrise || '06:30',
+      sunset: previousHeader.sunset || '18:30',
+      weather: '',
+      location: '',
+      location1: '',
+      location2: '',
+      location3: '',
+      precipProb: '',
+      temp: '',
+      realFeel: '',
+      firstShotTime: previousHeader.firstShotTime || '',
+      firstmealTime: '',
+      secondmealTime: '',
+      thirdmealTime: '',
+      wrapTime: '',
+    },
+    timelineItems: [],
+    imagePreviews: {},
+    callSheetData: null,
+  }, index);
+}
+
+function normalizeProjectData(projectData: any = {}, fallbackName = '') {
+  const legacySchedule = projectData?.scheduleData || {};
+  const legacyHeaderInfo = projectData?.headerInfo || legacySchedule.headerInfo || {};
+  const legacySplit = splitHeaderInfo(legacyHeaderInfo);
+  const projectInfo = {
+    projectTitle: fallbackName || projectData?.projectInfo?.projectTitle || legacyHeaderInfo.projectTitle || '',
+    episodeNumber: '',
+    producer: '',
+    director: '',
+    dop: '',
+    firstAD: '',
+    secondAD: '',
+    pd: '',
+    ...legacySplit.projectInfo,
+    ...(projectData?.projectInfo || {}),
+  };
+
+  const scheduleDays = Array.isArray(projectData?.scheduleDays) && projectData.scheduleDays.length > 0
+    ? projectData.scheduleDays.map((day: any, index: number) => normalizeScheduleDay(day, index))
+    : [createDayFromLegacy(projectData)];
+
+  const requestedActiveId = projectData?.activeScheduleDayId;
+  const activeIndex = Math.max(0, scheduleDays.findIndex((day: any) => day.id === requestedActiveId));
+  const activeDay = scheduleDays[activeIndex] || scheduleDays[0];
+  const activeHeaderInfo = composeHeaderInfo(projectInfo, activeDay, activeIndex, scheduleDays.length);
+
   const nextData = {
     ...projectData,
-    ...patch,
+    shotListData: projectData?.shotListData || { shotListItems: [] },
+    projectInfo,
+    scheduleDays,
+    activeScheduleDayId: activeDay.id,
+    headerInfo: activeHeaderInfo,
+    timelineItems: activeDay.timelineItems || [],
+    imagePreviews: activeDay.imagePreviews || {},
+    callSheetData: activeDay.callSheetData || null,
   };
 
-  if (projectData?.scheduleData) {
-    nextData.scheduleData = {
-      ...projectData.scheduleData,
-      ...(hasOwn(patch, 'headerInfo') ? { headerInfo: patch.headerInfo } : {}),
-      ...(hasOwn(patch, 'timelineItems') ? { timelineItems: patch.timelineItems } : {}),
-      ...(hasOwn(patch, 'imagePreviews') ? { imagePreviews: patch.imagePreviews } : {}),
-      ...(hasOwn(patch, 'callSheetData') ? { callSheetData: patch.callSheetData } : {}),
-    };
-  }
+  nextData.scheduleData = {
+    ...(projectData?.scheduleData || {}),
+    headerInfo: nextData.headerInfo,
+    timelineItems: nextData.timelineItems,
+    imagePreviews: nextData.imagePreviews,
+    callSheetData: nextData.callSheetData,
+  };
 
   return nextData;
 }
+
+function mergeIncomingScheduleData(currentData: any = {}, incomingData: any = {}, fallbackName = '') {
+  const baseData = normalizeProjectData(currentData, fallbackName);
+  let projectInfo = {
+    ...baseData.projectInfo,
+    ...(incomingData.projectInfo || {}),
+  };
+  let scheduleDays = Array.isArray(incomingData.scheduleDays)
+    ? incomingData.scheduleDays.map((day: any, index: number) => normalizeScheduleDay(day, index))
+    : baseData.scheduleDays.map((day: any, index: number) => normalizeScheduleDay(day, index));
+
+  const activeDayIdBeforeSwitch = baseData.activeScheduleDayId || scheduleDays[0]?.id;
+  const hasActiveDayPatch = ['headerInfo', 'timelineItems', 'imagePreviews', 'callSheetData'].some(key => hasOwn(incomingData, key));
+
+  if (hasOwn(incomingData, 'headerInfo')) {
+    const splitHeader = splitHeaderInfo(incomingData.headerInfo);
+    projectInfo = { ...projectInfo, ...splitHeader.projectInfo };
+  }
+
+  if (hasActiveDayPatch) {
+    const splitHeader = splitHeaderInfo(incomingData.headerInfo || {});
+    scheduleDays = scheduleDays.map((day: any, index: number) => {
+      if (day.id !== activeDayIdBeforeSwitch) return day;
+      return normalizeScheduleDay({
+        ...day,
+        headerInfo: hasOwn(incomingData, 'headerInfo')
+          ? { ...(day.headerInfo || {}), ...splitHeader.dayHeader }
+          : day.headerInfo,
+        timelineItems: hasOwn(incomingData, 'timelineItems') ? incomingData.timelineItems : day.timelineItems,
+        imagePreviews: hasOwn(incomingData, 'imagePreviews') ? incomingData.imagePreviews : day.imagePreviews,
+        callSheetData: hasOwn(incomingData, 'callSheetData') ? incomingData.callSheetData : day.callSheetData,
+      }, index);
+    });
+  }
+
+  return normalizeProjectData({
+    ...baseData,
+    ...incomingData,
+    projectInfo,
+    scheduleDays,
+    activeScheduleDayId: incomingData.activeScheduleDayId || baseData.activeScheduleDayId,
+  }, fallbackName);
+}
+
+function withScheduleDays(projectData: any, scheduleDays: any[], activeScheduleDayId?: string) {
+  return normalizeProjectData({
+    ...projectData,
+    scheduleDays,
+    activeScheduleDayId: activeScheduleDayId || projectData.activeScheduleDayId,
+  });
+}
+
+const timelineMetadataDiffersFromShot = (item: any, shot: any) => (
+  String(item.sceneNumber ?? '') !== String(shot.sceneNumber ?? '') ||
+  String(item.shotNumber ?? '') !== String(shot.shotNumber ?? '') ||
+  JSON.stringify(item.shotSize ?? '') !== JSON.stringify(shot.shotSize ?? '') ||
+  JSON.stringify(item.angle ?? '') !== JSON.stringify(shot.angle ?? '') ||
+  JSON.stringify(item.movement ?? '') !== JSON.stringify(shot.movement ?? '') ||
+  String(item.lens ?? '') !== String(shot.lens ?? '') ||
+  String(hasOwn(item, 'shotDescription') ? (item.shotDescription ?? '') : (item.description ?? '')) !== String(shot.description ?? '') ||
+  String(item.notes ?? '') !== String(shot.notes ?? '') ||
+  String(item.imageUrl ?? '') !== String(shot.imageUrl ?? '')
+);
 
 function syncShotListIntoSchedule(projectData: any) {
   projectData = normalizeProjectData(projectData);
   const shotListItems = projectData?.shotListData?.shotListItems;
-  const timelineItems = projectData?.timelineItems;
-  if (!Array.isArray(shotListItems) || !Array.isArray(timelineItems)) return projectData;
+  const scheduleDays = projectData?.scheduleDays;
+  if (!Array.isArray(shotListItems) || !Array.isArray(scheduleDays)) return projectData;
 
   const shotById = new Map(shotListItems.map((shot: any) => [shot.id, shot]));
   const shotByKey = createUniqueShotKeyMap(shotListItems);
   let changed = false;
-  let removedLinkedRows = false;
-  const nextImagePreviews = { ...(projectData.imagePreviews || {}) };
 
-  const nextTimelineItems = timelineItems.flatMap((item: any) => {
-    if (item?.type !== 'shot') return [item];
+  const nextScheduleDays = scheduleDays.map((day: any, dayIndex: number) => {
+    let dayChanged = false;
+    let removedLinkedRows = false;
+    const nextImagePreviews = { ...(day.imagePreviews || {}) };
 
-    const sourceShot = item.linkedShotId
-      ? shotById.get(item.linkedShotId)
-      : shotByKey.get(shotIdentityKey(item));
+    const nextTimelineItems = (day.timelineItems || []).flatMap((item: any) => {
+      if (item?.type !== 'shot') return [item];
 
-    if (item.linkedShotId && !sourceShot) {
-      changed = true;
-      removedLinkedRows = true;
-      if (nextImagePreviews[item.id]) delete nextImagePreviews[item.id];
-      return [];
-    }
+      const sourceShot = item.linkedShotId
+        ? shotById.get(item.linkedShotId)
+        : shotByKey.get(shotIdentityKey(item));
 
-    if (!sourceShot) return [item];
+      if (item.linkedShotId && !sourceShot) {
+        changed = true;
+        dayChanged = true;
+        removedLinkedRows = true;
+        if (nextImagePreviews[item.id]) delete nextImagePreviews[item.id];
+        return [];
+      }
 
-    const nextItem = {
-      ...item,
-      linkedShotId: sourceShot.id,
-      sceneNumber: sourceShot.sceneNumber ?? '',
-      shotNumber: sourceShot.shotNumber ?? '',
-      shotSize: sourceShot.shotSize ?? '',
-      angle: sourceShot.angle ?? '',
-      movement: sourceShot.movement ?? '',
-      lens: sourceShot.lens ?? '',
-      shotDescription: sourceShot.description ?? '',
-      notes: sourceShot.notes ?? '',
-      imageUrl: sourceShot.imageUrl ?? '',
-    };
+      if (!sourceShot) return [item];
 
-    if (isHttpUrl(sourceShot.imageUrl)) {
-      nextImagePreviews[item.id] = sourceShot.imageUrl;
-    } else if (item.imageUrl && nextImagePreviews[item.id] === item.imageUrl) {
-      delete nextImagePreviews[item.id];
-    }
+      const nextItem = {
+        ...item,
+        linkedShotId: sourceShot.id,
+        sceneNumber: sourceShot.sceneNumber ?? '',
+        shotNumber: sourceShot.shotNumber ?? '',
+        shotSize: sourceShot.shotSize ?? '',
+        angle: sourceShot.angle ?? '',
+        movement: sourceShot.movement ?? '',
+        lens: sourceShot.lens ?? '',
+        shotDescription: sourceShot.description ?? '',
+        notes: sourceShot.notes ?? '',
+        imageUrl: sourceShot.imageUrl ?? '',
+      };
 
-    if (JSON.stringify(nextItem) !== JSON.stringify(item)) changed = true;
-    return [nextItem];
+      if (isHttpUrl(sourceShot.imageUrl)) {
+        nextImagePreviews[item.id] = sourceShot.imageUrl;
+      } else if (item.imageUrl && nextImagePreviews[item.id] === item.imageUrl) {
+        delete nextImagePreviews[item.id];
+      }
+
+      if (JSON.stringify(nextItem) !== JSON.stringify(item)) {
+        changed = true;
+        dayChanged = true;
+      }
+      return [nextItem];
+    });
+
+    if (!dayChanged) return day;
+
+    return normalizeScheduleDay({
+      ...day,
+      timelineItems: removedLinkedRows
+        ? recalculateTimelineTimes(nextTimelineItems, day.headerInfo?.firstShotTime)
+        : nextTimelineItems,
+      imagePreviews: nextImagePreviews,
+    }, dayIndex);
   });
 
-  if (!changed) return projectData;
-
-  return withSyncedScheduleData(projectData, {
-    timelineItems: removedLinkedRows
-      ? recalculateTimelineTimes(nextTimelineItems, projectData.headerInfo?.firstShotTime)
-      : nextTimelineItems,
-    imagePreviews: nextImagePreviews,
-  });
+  return changed ? withScheduleDays(projectData, nextScheduleDays) : projectData;
 }
 
-function syncScheduleIntoShotList(projectData: any, originalProjectData?: any) {
+function syncScheduleIntoShotList(projectData: any, incomingData: any = {}, originalProjectData?: any) {
   projectData = normalizeProjectData(projectData);
   const shotListItems = projectData?.shotListData?.shotListItems;
-  const timelineItems = projectData?.timelineItems;
-  if (!Array.isArray(shotListItems) || !Array.isArray(timelineItems)) return projectData;
+  const scheduleDays = projectData?.scheduleDays;
+  if (!Array.isArray(shotListItems) || !Array.isArray(scheduleDays)) return projectData;
+
+  const activeTimelineItems = hasOwn(incomingData, 'timelineItems')
+    ? incomingData.timelineItems
+    : (projectData.timelineItems || []);
+  const allTimelineItems = [
+    ...(Array.isArray(activeTimelineItems) ? activeTimelineItems : []),
+    ...scheduleDays.flatMap((day: any) => day.timelineItems || []),
+  ];
 
   const linkedTimelineByShotId = new Map<string, any[]>();
   const timelineByKey = new Map<string, any[]>();
-  for (const item of timelineItems) {
+  for (const item of allTimelineItems) {
     if (item?.type !== 'shot') continue;
     if (item.linkedShotId) {
       const group = linkedTimelineByShotId.get(item.linkedShotId) || [];
@@ -230,22 +497,16 @@ function syncScheduleIntoShotList(projectData: any, originalProjectData?: any) {
   }
   if (linkedTimelineByShotId.size === 0 && timelineByKey.size === 0) return projectData;
 
+  const originalTimelineItems = [
+    ...(originalProjectData?.timelineItems || []),
+    ...((originalProjectData?.scheduleDays || []).flatMap((day: any) => day.timelineItems || [])),
+  ];
   let changed = false;
+
   const pickTimelineCandidate = (shot: any) => {
     const candidates = linkedTimelineByShotId.get(shot.id) || timelineByKey.get(shotIdentityKey(shot)) || [];
     if (candidates.length <= 1) return candidates[0];
-
-    return candidates.find((item: any) => (
-      String(item.sceneNumber ?? '') !== String(shot.sceneNumber ?? '') ||
-      String(item.shotNumber ?? '') !== String(shot.shotNumber ?? '') ||
-      JSON.stringify(item.shotSize ?? '') !== JSON.stringify(shot.shotSize ?? '') ||
-      JSON.stringify(item.angle ?? '') !== JSON.stringify(shot.angle ?? '') ||
-      JSON.stringify(item.movement ?? '') !== JSON.stringify(shot.movement ?? '') ||
-      String(item.lens ?? '') !== String(shot.lens ?? '') ||
-      String(hasOwn(item, 'shotDescription') ? (item.shotDescription ?? '') : (shot.description ?? '')) !== String(shot.description ?? '') ||
-      String(item.notes ?? '') !== String(shot.notes ?? '') ||
-      String(item.imageUrl ?? '') !== String(shot.imageUrl ?? '')
-    )) || candidates[0];
+    return candidates.find((item: any) => timelineMetadataDiffersFromShot(item, shot)) || candidates[0];
   };
 
   const nextShotListItems = shotListItems.map((shot: any) => {
@@ -256,19 +517,9 @@ function syncScheduleIntoShotList(projectData: any, originalProjectData?: any) {
     if (linkedItem.imageUrl) {
       nextImageUrl = linkedItem.imageUrl;
     } else if (linkedItem.imageUrl === '') {
-      // The timeline item has an empty image URL.
-      // We check if it was previously synced with this shot's image.
-      const originalTimelineItems = originalProjectData?.timelineItems || [];
       const originalTimelineItem = originalTimelineItems.find((t: any) => t.id === linkedItem.id);
       const wasPreviouslySynced = originalTimelineItem && originalTimelineItem.imageUrl && originalTimelineItem.imageUrl === shot.imageUrl;
-
-      if (wasPreviouslySynced) {
-        // Explicit deletion by the user in the schedule editor
-        nextImageUrl = '';
-      } else {
-        // Newly linked or unsynced item - preserve the shot's image
-        nextImageUrl = shot.imageUrl ?? '';
-      }
+      nextImageUrl = wasPreviouslySynced ? '' : (shot.imageUrl ?? '');
     }
 
     const nextShot = {
@@ -279,7 +530,7 @@ function syncScheduleIntoShotList(projectData: any, originalProjectData?: any) {
       angle: linkedItem.angle ?? '',
       movement: linkedItem.movement ?? '',
       lens: linkedItem.lens ?? '',
-      description: hasOwn(linkedItem, 'shotDescription') ? (linkedItem.shotDescription ?? '') : (shot.description ?? ''),
+      description: hasOwn(linkedItem, 'shotDescription') ? (linkedItem.shotDescription ?? '') : (linkedItem.description ?? ''),
       notes: linkedItem.notes ?? '',
       imageUrl: nextImageUrl,
     };
@@ -305,7 +556,7 @@ function syncLinkedShotData(projectData: any, incomingData: any, originalProject
     nextData = syncShotListIntoSchedule(nextData);
   }
   if (hasOwn(incomingData, 'timelineItems')) {
-    nextData = syncScheduleIntoShotList(nextData, originalProjectData);
+    nextData = syncScheduleIntoShotList(nextData, incomingData, originalProjectData);
     nextData = syncShotListIntoSchedule(nextData);
   }
   return nextData;
@@ -353,12 +604,13 @@ function getOrCreateStoredId(storage: Storage, key: string) {
 }
 
 function projectFromFirestore(projectId: string, projectData: any, fallbackProject?: any) {
-  const data = normalizeProjectData(projectData.data || fallbackProject?.data || { scheduleData: null, shotListData: null });
+  const name = projectData.name || fallbackProject?.name || 'Untitled Project';
+  const data = normalizeProjectData(projectData.data || fallbackProject?.data || { scheduleData: null, shotListData: null }, name);
 
   return {
     ...fallbackProject,
     id: projectId,
-    name: projectData.name || fallbackProject?.name || 'Untitled Project',
+    name,
     description: projectData.description || fallbackProject?.description || '',
     createdAt: projectData.createdAt || fallbackProject?.createdAt,
     updatedAt: projectData.updatedAt || fallbackProject?.updatedAt,
@@ -476,6 +728,8 @@ function App() {
   const [loadingProject, setLoadingProject] = useState(false);
   const [lockError, setLockError] = useState<string | null>(null);
   const [sharedProjectChoice, setSharedProjectChoice] = useState<any | null>(null);
+  const [recoverySnapshot, setRecoverySnapshot] = useState<ProjectRecoverySnapshot | null>(null);
+  const [editorInstanceKey, setEditorInstanceKey] = useState(0);
 
   const sessionIdRef = useRef<string>('');
   const clientIdRef = useRef<string>('');
@@ -613,6 +867,17 @@ function App() {
     };
   }, [selectedProject?.id, ensureLockIdentity]);
 
+  useEffect(() => {
+    if (!selectedProject?.id || currentView === 'dashboard') {
+      setRecoverySnapshot(null);
+      return;
+    }
+
+    const snapshot = readProjectRecovery(selectedProject.id);
+    const hasNewerRecovery = parseTimestamp(snapshot?.updatedAt) > parseTimestamp(selectedProject.updatedAt);
+    setRecoverySnapshot(hasNewerRecovery ? snapshot : null);
+  }, [selectedProject?.id, selectedProject?.updatedAt, currentView]);
+
   // Callback to switch to an editor view when a project is selected
   const handleSelectProject = useCallback(async (project: any, editorType: EditorType) => {
     let projectToOpen = project;
@@ -638,6 +903,8 @@ function App() {
     }
 
     setSelectedProject(projectToOpen);
+    setRecoverySnapshot(null);
+    setEditorInstanceKey((key) => key + 1);
     if (editorType === 'schedule') {
       setCurrentView('scheduleEditor');
     } else if (editorType === 'shotlist') {
@@ -696,14 +963,12 @@ function App() {
     const activeProject = projectObj || selectedProject;
     if (!activeProject) return;
 
-    const mergedData = normalizeProjectData({
-      ...activeProject.data,
-      ...data
-    });
+    const mergedData = mergeIncomingScheduleData(activeProject.data, data, activeProject.name);
     const updatedData = syncLinkedShotData(mergedData, data, activeProject.data);
 
-    const projectName = data.headerInfo?.projectTitle || data.scheduleData?.headerInfo?.projectTitle || activeProject.name;
+    const projectName = updatedData.projectInfo?.projectTitle || updatedData.headerInfo?.projectTitle || activeProject.name;
     const updatedAt = new Date().toISOString();
+    const cleanData = sanitizeForFirestore(updatedData);
 
     const updatedSelectedProject = {
       ...activeProject,
@@ -712,9 +977,16 @@ function App() {
       updatedAt
     };
 
+    writeProjectRecovery({
+      projectId: activeProject.id,
+      name: projectName,
+      updatedAt,
+      savedAt: updatedAt,
+      data: cleanData ?? updatedData,
+    });
+
     if (isFirebaseEnabled && db) {
       const firestore = db;
-      const cleanData = sanitizeForFirestore(updatedData);
       const { sessionId, clientId } = ensureLockIdentity();
       try {
         await saveProjectWithLock(firestore, activeProject.id, sessionId, clientId, {
@@ -724,6 +996,10 @@ function App() {
         });
         setSelectedProject((prev: any) => (
           prev?.id === activeProject.id ? updatedSelectedProject : prev
+        ));
+        clearProjectRecovery(activeProject.id);
+        setRecoverySnapshot((snapshot) => (
+          snapshot?.projectId === activeProject.id ? null : snapshot
         ));
       } catch (err) {
         console.error('Failed to save project to Firestore. CleanData:', cleanData, 'Error:', err);
@@ -749,8 +1025,40 @@ function App() {
         updatedProjects = [updatedSelectedProject, ...projects];
       }
       localStorage.setItem('shootingScheduleProjects', JSON.stringify(updatedProjects));
+      clearProjectRecovery(activeProject.id);
+      setRecoverySnapshot((snapshot) => (
+        snapshot?.projectId === activeProject.id ? null : snapshot
+      ));
     }
   }, [selectedProject, ensureLockIdentity]);
+
+  const handleRestoreRecovery = useCallback(async () => {
+    if (!selectedProject?.id || !recoverySnapshot) return;
+
+    const recoveredProject = {
+      ...selectedProject,
+      name: recoverySnapshot.name,
+      updatedAt: recoverySnapshot.updatedAt,
+      data: normalizeProjectData(recoverySnapshot.data),
+    };
+
+    setSelectedProject(recoveredProject);
+    setEditorInstanceKey((key) => key + 1);
+
+    try {
+      await handleSaveProject(recoverySnapshot.data, recoveredProject);
+      setRecoverySnapshot(null);
+    } catch (err) {
+      console.error('Failed to save restored project recovery:', err);
+      alert('Draft restored locally, but saving failed. Please check your connection before leaving this page.');
+    }
+  }, [handleSaveProject, recoverySnapshot, selectedProject]);
+
+  const handleDismissRecovery = useCallback(() => {
+    if (!recoverySnapshot?.projectId) return;
+    clearProjectRecovery(recoverySnapshot.projectId);
+    setRecoverySnapshot(null);
+  }, [recoverySnapshot]);
 
   // Callback to return to the dashboard from an editor
   const handleBackToDashboard = useCallback(() => {
@@ -835,6 +1143,54 @@ function App() {
         </div>
       )}
 
+      {selectedProject && recoverySnapshot && currentView !== 'dashboard' && (
+        <div style={{
+          position: 'fixed',
+          top: '76px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 70,
+          width: 'min(720px, calc(100vw - 32px))',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          padding: '12px 14px',
+          borderRadius: '10px',
+          border: '1px solid var(--border-default)',
+          background: 'var(--bg-elevated)',
+          boxShadow: 'var(--shadow-lg)',
+        }}>
+          <AlertTriangle className="w-4 h-4" style={{ color: 'var(--accent-amber)', flexShrink: 0 }} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>
+              Unsaved local draft found
+            </div>
+            <div style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-secondary)', lineHeight: 1.35, marginTop: '2px' }}>
+              Last local edit: {formatRecoveryTime(recoverySnapshot.updatedAt)}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleRestoreRecovery}
+            className="btn-primary"
+            style={{ height: '34px', padding: '0 12px', fontSize: '12px', gap: '6px', flexShrink: 0 }}
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Restore
+          </button>
+          <button
+            type="button"
+            onClick={handleDismissRecovery}
+            className="btn-ghost"
+            style={{ width: '34px', height: '34px', padding: 0, justifyContent: 'center', flexShrink: 0 }}
+            aria-label="Dismiss local draft"
+            title="Dismiss local draft"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {sharedProjectChoice && (
         <div className="modal-overlay" onClick={() => {
           setSharedProjectChoice(null);
@@ -912,6 +1268,7 @@ function App() {
 
       {currentView === 'scheduleEditor' && selectedProject && (
         <ShootingScheduleEditor
+          key={`schedule-${selectedProject.id}-${selectedProject.data?.activeScheduleDayId || 'day'}-${editorInstanceKey}`}
           project={selectedProject}
           onBack={handleBackToDashboard}
           onSave={handleSaveProject}
@@ -920,6 +1277,7 @@ function App() {
 
       {currentView === 'shotListEditor' && selectedProject && (
         <ShotListEditor
+          key={`shotlist-${selectedProject.id}-${editorInstanceKey}`}
           project={selectedProject}
           onBack={handleBackToDashboard}
           onSave={handleSaveProject}

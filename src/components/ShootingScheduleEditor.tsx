@@ -1,6 +1,7 @@
 `use client`;
 
 import React, { useState, useCallback, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, useDraggable, useDroppable, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -8,14 +9,14 @@ import {
   GripVertical, Clock, Film, Plus, Save, ChevronDown, Trash2, Download, Settings,
   FileDown, CloudRain, ListPlus, Search, Layers, Github, ArrowLeft, Users, MapPin, Sunrise, Sunset, Thermometer,
   CloudDrizzle, Coffee, Moon, Loader2, Check, CloudOff, Image as ImageIcon, X, Minus, ChevronsRight,
-  Undo2, Redo2, ClipboardList, FileText
+  Undo2, Redo2, ClipboardList, FileText, MoreVertical
 } from 'lucide-react';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import { DeferredTextField } from './DeferredTextField';
 import { generateId } from '../utils/id';
 import { calculateEndTime, calculateDuration } from '../utils/time';
 import { exportProject } from '../utils/file';
-import { exportToPDF } from '../utils/pdf';
+import { exportFullScheduleToPDF, exportToPDF } from '../utils/pdf';
 import { exportCallSheetToPDF } from '../utils/callsheetpdf';
 import Footer from './Footer';
 import EditorMobileCommandBar from './EditorMobileCommandBar';
@@ -38,6 +39,116 @@ const getScheduleShotLinkKey = (item: any) => {
   const sceneNumber = String(item.sceneNumber || '').trim().toLowerCase();
   const shotNumber = String(item.shotNumber || '').trim().toLowerCase();
   return sceneNumber && shotNumber ? `key:${sceneNumber}::${shotNumber}` : '';
+};
+
+const DAILY_HEADER_KEYS = [
+  'date',
+  'callTime',
+  'sunrise',
+  'sunset',
+  'weather',
+  'location',
+  'location1',
+  'location2',
+  'location3',
+  'artTime',
+  'lunchTime',
+  'dinnerTime',
+  'precipProb',
+  'temp',
+  'realFeel',
+  'firstShotTime',
+  'firstmealTime',
+  'secondmealTime',
+  'thirdmealTime',
+  'wrapTime',
+];
+
+const pickDailyHeaderInfo = (headerInfo: any = {}) => DAILY_HEADER_KEYS.reduce((acc: Record<string, any>, key) => {
+  if (Object.prototype.hasOwnProperty.call(headerInfo, key)) acc[key] = headerInfo[key];
+  return acc;
+}, {});
+
+const addDaysToIsoDate = (dateValue: any, daysToAdd: number) => {
+  if (!dateValue) return new Date().toISOString().split('T')[0];
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return '';
+  date.setDate(date.getDate() + daysToAdd);
+  return date.toISOString().split('T')[0];
+};
+
+const normalizeEditorScheduleDay = (day: any = {}) => ({
+  ...day,
+  id: day.id || generateId(),
+  headerInfo: pickDailyHeaderInfo(day.headerInfo || {}),
+  timelineItems: Array.isArray(day.timelineItems) ? day.timelineItems : [],
+  imagePreviews: day.imagePreviews || {},
+  callSheetData: Object.prototype.hasOwnProperty.call(day, 'callSheetData') ? day.callSheetData : null,
+});
+
+const createBlankEditorScheduleDay = (previousDay: any = {}) => {
+  const previousHeader = previousDay.headerInfo || {};
+  return normalizeEditorScheduleDay({
+    id: generateId(),
+    headerInfo: {
+      date: previousHeader.date ? addDaysToIsoDate(previousHeader.date, 1) : new Date().toISOString().split('T')[0],
+      callTime: previousHeader.callTime || '',
+      sunrise: previousHeader.sunrise || '06:30',
+      sunset: previousHeader.sunset || '18:30',
+      weather: '',
+      location: '',
+      location1: '',
+      location2: '',
+      location3: '',
+      precipProb: '',
+      temp: '',
+      realFeel: '',
+      firstShotTime: previousHeader.firstShotTime || '',
+      firstmealTime: '',
+      secondmealTime: '',
+      thirdmealTime: '',
+      wrapTime: '',
+    },
+    timelineItems: [],
+    imagePreviews: {},
+    callSheetData: null,
+  });
+};
+
+const duplicateEditorScheduleDay = (sourceDay: any = {}) => {
+  const idMap = new Map<string, string>();
+  const timelineItems = (sourceDay.timelineItems || []).map((item: any) => {
+    const nextId = generateId();
+    if (item.id) idMap.set(item.id, nextId);
+    return { ...item, id: nextId };
+  });
+  const imagePreviews = Object.entries(sourceDay.imagePreviews || {}).reduce((acc: Record<string, any>, [oldId, preview]) => {
+    const nextId = idMap.get(oldId);
+    if (nextId) acc[nextId] = preview;
+    return acc;
+  }, {});
+
+  return normalizeEditorScheduleDay({
+    ...sourceDay,
+    id: generateId(),
+    headerInfo: { ...(sourceDay.headerInfo || {}) },
+    timelineItems,
+    imagePreviews,
+    callSheetData: sourceDay.callSheetData ? JSON.parse(JSON.stringify(sourceDay.callSheetData)) : null,
+  });
+};
+
+const calculateScheduleStats = (items: any[] = []) => {
+  const totalDuration = items.reduce((sum: number, item: any) => sum + (item.duration || 0), 0);
+  const shotCount = items.filter((item: any) => item.type === 'shot').length;
+  const breakTime = items.filter((item: any) => item.type === 'break').reduce((sum: number, item: any) => sum + (item.duration || 0), 0);
+  return {
+    totalHours: Math.floor(totalDuration / 60),
+    totalMinutes: totalDuration % 60,
+    shotCount,
+    breakHours: Math.floor(breakTime / 60),
+    breakMinutes: breakTime % 60,
+  };
 };
 
 interface TimelineItem {
@@ -2098,6 +2209,19 @@ export default function ShootingScheduleEditor({
   const timelineItems = docState.timelineItems;
   const imagePreviews = docState.imagePreviews;
   const callSheetData = docState.callSheetData;
+  const scheduleDays = useMemo(() => {
+    const days = project?.data?.scheduleDays;
+    if (Array.isArray(days) && days.length > 0) return days.map(normalizeEditorScheduleDay);
+    return [normalizeEditorScheduleDay({
+      id: project?.data?.activeScheduleDayId || generateId(),
+      headerInfo: pickDailyHeaderInfo(project?.data?.headerInfo || {}),
+      timelineItems,
+      imagePreviews,
+      callSheetData,
+    })];
+  }, [project?.data?.scheduleDays, project?.data?.activeScheduleDayId, project?.data?.headerInfo, timelineItems, imagePreviews, callSheetData]);
+  const activeScheduleDayId = project?.data?.activeScheduleDayId || scheduleDays[0]?.id;
+  const activeDayIndex = Math.max(0, scheduleDays.findIndex((day: any) => day.id === activeScheduleDayId));
 
   const setHeaderInfo = useCallback((newValOrFn: any, options?: { isContinuous?: boolean }) => {
     const prevHeaderInfo = docState.headerInfo;
@@ -2173,6 +2297,8 @@ export default function ShootingScheduleEditor({
   const tableRef = useRef<HTMLTableElement | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
+  const [hoveredScheduleDayId, setHoveredScheduleDayId] = useState<string | null>(null);
+  const [scheduleDayMenu, setScheduleDayMenu] = useState<null | { dayId: string; x: number; y: number }>(null);
   
   const unscheduledScenes = useMemo(() => {
     const breakdownScenes = project?.data?.breakdownData?.scenes || [];
@@ -3292,10 +3418,7 @@ export default function ShootingScheduleEditor({
   }, [shotList, shotListImagePreviews, timelineItems, recalculateAndUpdateTimes, project, setImagePreviews]);
 
   const stats = useMemo(() => {
-    const totalDuration = timelineItems.reduce((sum: number, item: any) => sum + (item.duration || 0), 0);
-    const shotCount = timelineItems.filter((item: any) => item.type === 'shot').length;
-    const breakTime = timelineItems.filter((item: any) => item.type === 'break').reduce((sum: number, item: any) => sum + (item.duration || 0), 0);
-    return { totalHours: Math.floor(totalDuration / 60), totalMinutes: totalDuration % 60, shotCount, breakHours: Math.floor(breakTime / 60), breakMinutes: breakTime % 60 };
+    return calculateScheduleStats(timelineItems);
   }, [timelineItems]);
 
   const ensureCallSheetData = useCallback(() => {
@@ -3338,27 +3461,128 @@ export default function ShootingScheduleEditor({
     exportProject(fullProject);
   }, [project, headerInfo, timelineItems, imagePreviews, callSheetData]);
 
-  const forceSave = useCallback(() => {
+  const commitScheduleData = useCallback(async (extraData: Record<string, any> = {}) => {
     if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
     const dataToSave = {
-      headerInfo,
-      timelineItems,
-      imagePreviews,
-      callSheetData
+      ...latestSaveDataRef.current,
+      ...extraData,
     };
+    hasPendingSaveRef.current = false;
     setSaveStatus('saving');
+    await onSaveRef.current(dataToSave, project);
+    setSaveStatus('saved');
+    window.setTimeout(() => setSaveStatus('idle'), 2500);
+  }, [project]);
+
+  const forceSave = useCallback(() => {
     Promise.resolve()
-      .then(() => onSaveRef.current(dataToSave, project))
+      .then(() => commitScheduleData())
       .then(() => {
-        setSaveStatus('saved');
-        return new Promise(resolve => setTimeout(resolve, 2500));
+        hasPendingSaveRef.current = false;
       })
-      .then(() => setSaveStatus('idle'))
       .catch((err) => {
         console.error(err);
         setSaveStatus('dirty');
       });
-  }, [project, headerInfo, timelineItems, imagePreviews, callSheetData]);
+  }, [commitScheduleData]);
+
+  const getScheduleDaysWithCurrentDay = useCallback(() => {
+    return scheduleDays.map((day: any) => {
+      if (day.id !== activeScheduleDayId) return day;
+      return normalizeEditorScheduleDay({
+        ...day,
+        headerInfo: pickDailyHeaderInfo(headerInfo),
+        timelineItems,
+        imagePreviews,
+        callSheetData,
+      });
+    });
+  }, [scheduleDays, activeScheduleDayId, headerInfo, timelineItems, imagePreviews, callSheetData]);
+
+  const handleSelectScheduleDay = useCallback((dayId: string) => {
+    if (!dayId || dayId === activeScheduleDayId) return;
+    commitScheduleData({ activeScheduleDayId: dayId }).catch((err) => {
+      console.error('Failed to switch schedule day:', err);
+      setSaveStatus('dirty');
+    });
+  }, [activeScheduleDayId, commitScheduleData]);
+
+  const handleAddScheduleDay = useCallback(() => {
+    const daysWithCurrent = getScheduleDaysWithCurrentDay();
+    const newDay = createBlankEditorScheduleDay(daysWithCurrent[daysWithCurrent.length - 1]);
+    commitScheduleData({
+      scheduleDays: [...daysWithCurrent, newDay],
+      activeScheduleDayId: newDay.id,
+    }).catch((err) => {
+      console.error('Failed to add schedule day:', err);
+      setSaveStatus('dirty');
+    });
+  }, [commitScheduleData, getScheduleDaysWithCurrentDay]);
+
+  const handleDuplicateScheduleDay = useCallback((targetDayId = activeScheduleDayId) => {
+    const daysWithCurrent = getScheduleDaysWithCurrentDay();
+    const sourceIndex = Math.max(0, daysWithCurrent.findIndex((day: any) => day.id === targetDayId));
+    const sourceDay = daysWithCurrent[sourceIndex] || daysWithCurrent[0];
+    if (!sourceDay) return;
+    const duplicateDay = duplicateEditorScheduleDay(sourceDay);
+    const nextDays = [
+      ...daysWithCurrent.slice(0, sourceIndex + 1),
+      duplicateDay,
+      ...daysWithCurrent.slice(sourceIndex + 1),
+    ];
+    commitScheduleData({
+      scheduleDays: nextDays,
+      activeScheduleDayId: duplicateDay.id,
+    }).catch((err) => {
+      console.error('Failed to duplicate schedule day:', err);
+      setSaveStatus('dirty');
+    });
+    setScheduleDayMenu(null);
+  }, [activeScheduleDayId, commitScheduleData, getScheduleDaysWithCurrentDay]);
+
+  const handleDeleteScheduleDay = useCallback((targetDayId = activeScheduleDayId) => {
+    const daysWithCurrent = getScheduleDaysWithCurrentDay();
+    if (daysWithCurrent.length <= 1) {
+      window.alert('ต้องมีอย่างน้อย 1 shooting day');
+      return;
+    }
+    const targetIndex = Math.max(0, daysWithCurrent.findIndex((day: any) => day.id === targetDayId));
+    if (!window.confirm(`Delete Day ${targetIndex + 1}?`)) return;
+    const nextDays = daysWithCurrent.filter((day: any) => day.id !== targetDayId);
+    const shouldMoveActiveDay = targetDayId === activeScheduleDayId;
+    const nextActiveDay = shouldMoveActiveDay
+      ? (nextDays[Math.max(0, targetIndex - 1)] || nextDays[0])
+      : daysWithCurrent.find((day: any) => day.id === activeScheduleDayId);
+    commitScheduleData({
+      scheduleDays: nextDays,
+      activeScheduleDayId: nextActiveDay?.id || nextDays[0].id,
+    }).catch((err) => {
+      console.error('Failed to delete schedule day:', err);
+      setSaveStatus('dirty');
+    });
+    setScheduleDayMenu(null);
+  }, [activeScheduleDayId, commitScheduleData, getScheduleDaysWithCurrentDay]);
+
+  useEffect(() => {
+    if (!scheduleDayMenu) return;
+
+    const closeMenu = () => setScheduleDayMenu(null);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu();
+    };
+
+    window.addEventListener('click', closeMenu);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', closeMenu);
+    window.addEventListener('scroll', closeMenu, true);
+
+    return () => {
+      window.removeEventListener('click', closeMenu);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', closeMenu);
+      window.removeEventListener('scroll', closeMenu, true);
+    };
+  }, [scheduleDayMenu]);
 
   const handleBack = useCallback(async () => {
     if (hasPendingSaveRef.current) {
@@ -3537,6 +3761,92 @@ export default function ShootingScheduleEditor({
       logActivity(project.ownerId, 'export_schedule_pdf', { projectId: project.id });
     }
   }, [itemsToRender, viewMode, headerInfo, stats, imagePreviews, project]);
+
+  const handleExportFullSchedulePDF = useCallback(async () => {
+    const daysWithCurrent = getScheduleDaysWithCurrentDay();
+    const projectHeader = {
+      projectTitle: headerInfo.projectTitle,
+      episodeNumber: headerInfo.episodeNumber,
+      producer: headerInfo.producer,
+      director: headerInfo.director,
+      dop: headerInfo.dop,
+      firstAD: headerInfo.firstAD,
+      secondAD: headerInfo.secondAD,
+      pd: headerInfo.pd,
+    };
+
+    const previewToDataUrl = async (value: any) => {
+      if (typeof value !== 'string' || !value) return null;
+      if (value.startsWith('data:image')) return value;
+      if (value.startsWith('blob:')) {
+        const response = await fetch(value);
+        if (!response.ok) return null;
+        const blob = await response.blob();
+        const file = new File([blob], 'schedule-preview-image', { type: blob.type || 'image/jpeg' });
+        return fileToDataUrl(file);
+      }
+      if (value.startsWith('http')) return fetchImageUrlAsDataUrl(value);
+      return null;
+    };
+
+    const resolveDayImagePreviews = async (items: any[], sourcePreviews: Record<string, any>) => {
+      const nextPreviews: Record<string, string> = {};
+      await Promise.all(items.filter((item: any) => item?.type !== 'break').map(async (item: any) => {
+        const linkedShot = item.linkedShotId
+          ? shotList.find((shot: any) => shot.id === item.linkedShotId)
+          : null;
+        const candidates = [
+          sourcePreviews?.[item.id],
+          item.imageUrl,
+          item.linkedShotId ? shotListImagePreviews?.[item.linkedShotId] : null,
+          linkedShot?.imageUrl,
+        ];
+        const seen = new Set<string>();
+        for (const candidate of candidates) {
+          const value = typeof candidate === 'string' ? candidate : '';
+          if (!value || value === 'true' || seen.has(value)) continue;
+          seen.add(value);
+          try {
+            const dataUrl = await previewToDataUrl(value);
+            if (dataUrl?.startsWith('data:image')) {
+              nextPreviews[item.id] = dataUrl;
+              return;
+            }
+          } catch (error) {
+            console.warn('Full schedule PDF image source skipped:', error);
+          }
+        }
+      }));
+      return nextPreviews;
+    };
+
+    const preparedDays = await Promise.all(daysWithCurrent.map(async (day: any, index: number) => {
+      const preparedItems = (day.timelineItems || []).map((item: any) => {
+        if (item.type === 'break') return item;
+        return {
+          ...item,
+          description: item.shotDescription || item.description || '',
+          cast: item.cast || '',
+        };
+      });
+      return {
+        headerInfo: {
+          ...projectHeader,
+          ...(day.headerInfo || {}),
+          shootingDay: String(index + 1),
+          totalDays: String(daysWithCurrent.length),
+        },
+        timelineItems: preparedItems,
+        stats: calculateScheduleStats(preparedItems),
+        imagePreviews: await resolveDayImagePreviews(preparedItems, day.imagePreviews || {}),
+      };
+    }));
+
+    await exportFullScheduleToPDF(preparedDays, headerInfo.projectTitle);
+    if (project.ownerId) {
+      logActivity(project.ownerId, 'export_full_schedule_pdf', { projectId: project.id, dayCount: preparedDays.length });
+    }
+  }, [getScheduleDaysWithCurrentDay, headerInfo, shotList, shotListImagePreviews, project]);
 
   const handleDeleteShortcut = useCallback(() => {
     if (focusedItemId) {
@@ -3778,7 +4088,8 @@ export default function ShootingScheduleEditor({
               <div style={{ height: '20px', width: '1px', background: 'var(--border-subtle)' }} />
               <button onClick={handleExportProject} className="btn-ghost" style={{ fontSize: '13px', gap: '6px' }}><FileDown className="w-4 h-4" /><span className="hidden sm:inline">Save .mbd</span></button>
               <button onClick={handleOpenCallSheet} className="btn-secondary" style={{ fontSize: '13px', gap: '6px' }}><ClipboardList className="w-4 h-4" /><span className="hidden sm:inline">Call Sheet</span></button>
-              <button onClick={handleExportSchedulePDF} className="btn-primary" style={{ fontSize: '13px', gap: '6px' }}><Download className="w-4 h-4" /><span className="hidden sm:inline">Export PDF</span></button>
+              <button onClick={handleExportSchedulePDF} className="btn-secondary" style={{ fontSize: '13px', gap: '6px' }}><Download className="w-4 h-4" /><span className="hidden sm:inline">Export This Day</span></button>
+              <button onClick={handleExportFullSchedulePDF} className="btn-primary" style={{ fontSize: '13px', gap: '6px' }}><FileText className="w-4 h-4" /><span className="hidden sm:inline">Full Schedule</span></button>
             </div>
           </div>
         </header>
@@ -3796,11 +4107,201 @@ export default function ShootingScheduleEditor({
           actions={[
             { label: 'Save .mbd', icon: <FileDown className="w-4 h-4" />, onClick: handleExportProject },
             { label: 'Call Sheet', icon: <ClipboardList className="w-4 h-4" />, onClick: handleOpenCallSheet },
-            { label: 'Export PDF', icon: <Download className="w-4 h-4" />, onClick: handleExportSchedulePDF, primary: true },
+            { label: 'This Day', icon: <Download className="w-4 h-4" />, onClick: handleExportSchedulePDF },
+            { label: 'Full PDF', icon: <FileText className="w-4 h-4" />, onClick: handleExportFullSchedulePDF, primary: true },
           ]}
         />
 
         <main className="editor-main" style={{ flex: 1, padding: '24px', paddingTop: '88px' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            marginBottom: '16px',
+            flexWrap: 'wrap',
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              overflowX: 'auto',
+              maxWidth: '100%',
+              paddingBottom: '2px',
+            }}>
+              {scheduleDays.map((day: any, index: number) => {
+                const isActive = day.id === activeScheduleDayId;
+                const isHovered = hoveredScheduleDayId === day.id;
+                const isMenuOpen = scheduleDayMenu?.dayId === day.id;
+                const isExpanded = isHovered || isMenuOpen;
+                return (
+                  <div
+                    key={day.id}
+                    onClick={() => handleSelectScheduleDay(day.id)}
+                    onMouseEnter={() => setHoveredScheduleDayId(day.id)}
+                    onMouseLeave={() => setHoveredScheduleDayId(prev => prev === day.id ? null : prev)}
+                    style={{
+                      position: 'relative',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: isExpanded ? '8px' : '0px',
+                      height: '34px',
+                      padding: isExpanded ? '0 6px 0 14px' : '0 14px',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      whiteSpace: 'nowrap',
+                      borderRadius: '8px',
+                      background: isActive
+                        ? (isHovered ? 'var(--accent-primary-h)' : 'var(--accent-primary)')
+                        : (isHovered ? 'var(--bg-input-hover)' : 'var(--bg-input)'),
+                      border: `1px solid ${isActive ? 'var(--accent-primary)' : 'var(--border-default)'}`,
+                      color: isActive ? 'var(--bg-input)' : 'var(--text-primary)',
+                      cursor: 'pointer',
+                      transition: 'padding 190ms cubic-bezier(0.2, 0.8, 0.2, 1), gap 190ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 190ms ease, background 190ms ease, color 190ms ease, box-shadow 190ms ease',
+                      boxShadow: isActive
+                        ? '0 2px 8px var(--accent-glow-sm)'
+                        : (isHovered ? '0 8px 18px rgba(0,0,0,0.20)' : 'none'),
+                    }}
+                  >
+                    <span>Day {index + 1}</span>
+                    <button
+                      type="button"
+                      aria-label={`Open Day ${index + 1} menu`}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setScheduleDayMenu({
+                          dayId: day.id,
+                          x: Math.max(12, rect.right - 150),
+                          y: rect.bottom + 8,
+                        });
+                      }}
+                      style={{
+                        width: isExpanded ? '24px' : '0px',
+                        height: '24px',
+                        padding: 0,
+                        opacity: isExpanded ? 1 : 0,
+                        pointerEvents: isExpanded ? 'auto' : 'none',
+                        overflow: 'hidden',
+                        border: isActive ? '1px solid rgba(13,15,15,0.26)' : '1px solid var(--border-default)',
+                        borderRadius: '7px',
+                        background: isActive
+                          ? 'rgba(13,15,15,0.10)'
+                          : (isHovered ? 'var(--bg-input-hover)' : 'var(--bg-input)'),
+                        color: isActive ? 'var(--bg-input)' : 'var(--text-primary)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        boxShadow: isExpanded ? 'inset 0 1px 0 rgba(255,255,255,0.06)' : 'none',
+                        transition: 'width 190ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 140ms ease, background 190ms ease, border-color 190ms ease, box-shadow 190ms ease',
+                      }}
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                onClick={handleAddScheduleDay}
+                className="btn-secondary"
+                style={{ height: '34px', padding: '0 12px', fontSize: '13px', gap: '6px', borderRadius: '8px' }}
+              >
+                <Plus className="w-4 h-4" /> Add Day
+              </button>
+            </div>
+          </div>
+
+          {scheduleDayMenu && createPortal(
+            <div
+              onClick={(event) => event.stopPropagation()}
+              style={{
+                position: 'fixed',
+                top: scheduleDayMenu.y,
+                left: scheduleDayMenu.x,
+                width: '150px',
+                zIndex: 1000,
+                padding: '6px',
+                borderRadius: '10px',
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border-default)',
+                boxShadow: '0 18px 42px rgba(0,0,0,0.32), 0 0 0 1px rgba(255,255,255,0.03)',
+                backdropFilter: 'blur(18px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(18px) saturate(1.2)',
+                animation: 'fadeInUp 140ms ease-out',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => handleDuplicateScheduleDay(scheduleDayMenu.dayId)}
+                onMouseEnter={(event) => {
+                  event.currentTarget.style.background = 'var(--bg-input-hover)';
+                  event.currentTarget.style.color = 'var(--text-primary)';
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.background = 'transparent';
+                  event.currentTarget.style.color = 'var(--text-primary)';
+                }}
+                style={{
+                  width: '100%',
+                  height: '34px',
+                  padding: '0 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  border: 'none',
+                  borderRadius: '7px',
+                  background: 'transparent',
+                  color: 'var(--text-primary)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'background 140ms ease, color 140ms ease',
+                }}
+              >
+                <Layers className="w-4 h-4" /> Duplicate
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteScheduleDay(scheduleDayMenu.dayId)}
+                disabled={scheduleDays.length <= 1}
+                onMouseEnter={(event) => {
+                  if (scheduleDays.length <= 1) return;
+                  event.currentTarget.style.background = 'rgba(239,68,68,0.12)';
+                  event.currentTarget.style.color = '#FCA5A5';
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.background = 'transparent';
+                  event.currentTarget.style.color = 'var(--accent-red, #ef4444)';
+                }}
+                style={{
+                  width: '100%',
+                  height: '34px',
+                  padding: '0 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  border: 'none',
+                  borderRadius: '7px',
+                  background: 'transparent',
+                  color: 'var(--accent-red, #ef4444)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: scheduleDays.length <= 1 ? 'not-allowed' : 'pointer',
+                  opacity: scheduleDays.length <= 1 ? 0.45 : 1,
+                  textAlign: 'left',
+                  transition: 'background 140ms ease, color 140ms ease',
+                }}
+              >
+                <Trash2 className="w-4 h-4" /> Delete
+              </button>
+            </div>,
+            document.body
+          )}
+
           <div style={{ marginBottom: '24px' }}>
             <button
               onClick={() => setShowProductionDetails(!showProductionDetails)}
@@ -3824,20 +4325,20 @@ export default function ShootingScheduleEditor({
               <div style={{ marginTop: '12px', background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', borderRadius: '14px', padding: '24px' }} className="animate-fade-in-up">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   <div className="space-y-4">
-                    <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><Film className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />Project Information</h3>
+                    <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><Film className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />Project Details</h3>
                     <div className="space-y-3">
                       <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Project Title</label><input type="text" value={headerInfo.projectTitle} onChange={(e) => setHeaderInfo({ ...headerInfo, projectTitle: e.target.value })} className="w-full px-3 py-2" /></div>
                       <div className="grid grid-cols-2 gap-3">
                         <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Episode #</label><input type="text" value={headerInfo.episodeNumber} placeholder="Ep. No." onChange={(e) => setHeaderInfo({ ...headerInfo, episodeNumber: e.target.value })} className="w-full px-3 py-2" /></div>
-                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Day/Total</label><div className="flex items-center gap-2"><input type="text" value={headerInfo.shootingDay} onChange={(e) => setHeaderInfo({ ...headerInfo, shootingDay: e.target.value })} className="w-14 px-2 py-2 text-center" placeholder="1" /><span style={{ color: 'var(--text-muted)' }}>/</span><input type="text" value={headerInfo.totalDays} onChange={(e) => setHeaderInfo({ ...headerInfo, totalDays: e.target.value })} className="w-14 px-2 py-2 text-center" placeholder="3" /></div></div>
+                        <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Day/Total</label><div className="flex items-center gap-2"><input type="text" value={activeDayIndex + 1} readOnly className="w-14 px-2 py-2 text-center" placeholder="1" /><span style={{ color: 'var(--text-muted)' }}>/</span><input type="text" value={scheduleDays.length} readOnly className="w-14 px-2 py-2 text-center" placeholder="3" /></div></div>
                       </div>
-                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Shooting Date</label><DarkDatePicker value={headerInfo.date} onChange={(val) => setHeaderInfo({ ...headerInfo, date: val })} className="w-full px-3 py-2" /></div>
                     </div>
                   </div>
 
                   <div className="space-y-4">
-                    <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><MapPin className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />Time, Location & Meals</h3>
+                    <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><MapPin className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />Day Details</h3>
                     <div className="space-y-4">
+                      <div><label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Shooting Date</label><DarkDatePicker value={headerInfo.date} onChange={(val) => setHeaderInfo({ ...headerInfo, date: val })} className="w-full px-3 py-2" /></div>
                       {/* Times Row */}
                       <div className="grid grid-cols-3 gap-3">
                         <div>
@@ -3976,12 +4477,12 @@ export default function ShootingScheduleEditor({
             <div aria-hidden="true" style={{ width: '1px', background: 'var(--border-subtle)', margin: '0 4px' }} />
             <button onClick={() => setIsImportModalOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '10px 16px', background: 'rgba(20,184,166,0.15)', color: '#2dd4bf', fontWeight: 600, fontSize: '13px', border: '1px solid rgba(20,184,166,0.3)', borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s', fontFamily: 'inherit' }}><ListPlus className="w-4 h-4" />Import from Shot List</button>
             
-            <button 
-              onClick={() => setShowSidebar(!showSidebar)} 
+            <button
+              onClick={() => setShowSidebar(!showSidebar)}
               className="btn-secondary editor-holding-pen-toggle"
-              style={{ 
-                marginLeft: 'auto', 
-                fontSize: '13px', 
+              style={{
+                marginLeft: 'auto',
+                fontSize: '13px',
                 gap: '6px',
                 borderColor: showSidebar ? 'var(--accent-primary)' : 'var(--border-default)',
                 color: showSidebar ? 'var(--text-accent)' : 'var(--text-primary)'
